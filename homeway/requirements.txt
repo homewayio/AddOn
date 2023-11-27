@@ -1,0 +1,29 @@
+#
+# These are the packages we require for the homeway addon.
+#
+# Notes on versions
+#
+# websocket_client
+# 	For the websocket_client, some older versions seem to have a thread issue that causes the 24 hour disconnect logic to fail, and eventually makes the thread limit get hit.
+# 	Version 1.4.0 also has an SSL error in it. https://github.com/websocket-client/websocket-client/issues/857
+#	Update: We also found a bug where the ping timer doesn't get cleaned up: https://github.com/websocket-client/websocket-client/pull/918
+#   Thus we need version 1.6.0 or higher.
+# dnspython
+#	We depend on a feature that was released with 2.3.0, so we need to require at least that.
+#
+# Other lib version notes:
+#   certifi - We use to keep certs on the device that we need for let's encrypt. So we want to keep it fresh.
+#   httpx - Is an asyncio http lib. It seems to be required by dnspython, but dnspython doesn't enforce it. We had a user having an issue that updated to 0.24.0, and it resolved the issue.
+#   urllib3 - There is a bug with parsing headers in versions older than 1.26.? (https://github.com/diyan/pywinrm/issues/269). At least 1.26.6 fixes it, ubt we decide to just stick with a newer version.
+#
+websocket_client>=1.6.0,<1.6.99
+requests>=2.24.0
+octoflatbuffers==2.0.5
+certifi>=2023.7.22
+rsa>=4.9
+dnspython>=2.3.0
+httpx==0.24.0
+urllib3>=1.26.15,<1.27.0
+pyyaml
+# TODO remove configparser for something else?
+configparser

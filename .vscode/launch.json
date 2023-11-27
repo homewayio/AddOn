@@ -1,0 +1,26 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Linux Host - Dev",
+            "type": "python",
+            "request": "launch",
+            "module": "homeway_linuxhost",
+            "cwd": "${fileWorkspaceFolder}/homeway",
+            "justMyCode": false,
+            "args": [
+                // The module requires these aregs to be passed. These are examples of a typical default setup.
+                // The string is a urlBase64 encoded string of json. We base64 encode it to prevent any issues with command line args.
+                //
+                // { "RepoRootDir": "/home/pi/AddOn/homeway", "StorageDir": "/home/pi/homeway-store" }
+                "eyAiUmVwb1Jvb3REaXIiOiAiL2hvbWUvcGkvQWRkT24vaG9tZXdheSIsICJTdG9yYWdlRGlyIjogIi9ob21lL3BpL2hvbWV3YXktc3RvcmUiIH0=",
+                //
+                // We can optionally pass a dev config json object, which has dev specific overwrites we can make.
+                "{\"LocalServerAddress\":\"192.168.1.3\", \"LogLevel\":\"DEBUG\"}"
+            ]
+        }
+    ]
+}
