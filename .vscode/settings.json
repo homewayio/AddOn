@@ -1,7 +1,10 @@
 {
     "python.pythonPath": "py3venv/bin/python",
     "cSpell.words": [
+        "aarch",
         "ABNF",
+        "armhf",
+        "armv",
         "Brotli",
         "certifi",
         "commandhandler",
@@ -16,6 +19,7 @@
         "homeassistantoptions",
         "Homeway",
         "homewaycore",
+        "homewayio",
         "hostcommon",
         "hostnames",
         "linuxhost",
