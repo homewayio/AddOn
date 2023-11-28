@@ -1,7 +1,7 @@
 ---
 name: "Homeway"
 description: "Free, Private, And Secure Remote Access To Your Home Assistant"
-version: "0.0.1"
+version: dev
 slug: "homeway"
 url: "https://homeway.io"
 image: ghcr.io/homewayio/addon/{arch}

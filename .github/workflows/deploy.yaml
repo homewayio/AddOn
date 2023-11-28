@@ -3,7 +3,7 @@ name: Deploy
 
 # yamllint disable-line rule:truthy
 # Deploy will run on each GitHub release.
-on: [push]
+#on: [push]
   # release:
   #   types:
   #     - published
@@ -12,6 +12,12 @@ on: [push]
   #   branches: [main]
   #   types:
   #     - completed
+on:
+  workflow_run:
+    workflows: ["Run Tests"]
+    branches: [main]
+    types:
+      - completed
 
 jobs:
   # The following is taken from https://github.com/hassio-addons/workflows/blob/3d2f70ad772d71000e33587307e816e5fe82841a/.github/workflows/addon-deploy.yaml
