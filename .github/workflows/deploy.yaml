@@ -1,0 +1,22 @@
+---
+    name: Deploy
+
+    # yamllint disable-line rule:truthy
+    # Deploy will run on each GitHub release.
+    on:
+      release:
+        types:
+          - published
+      workflow_run:
+        workflows: ["CI"]
+        branches: [main]
+        types:
+          - completed
+
+    jobs:
+      workflows:
+        # This work flow does all of the buiding and push of the images.
+        uses: hassio-addons/workflows/.github/workflows/addon-deploy.yaml@main
+        secrets:
+          # This is required to push the image. You can find the secret in the repo secret settings.
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
