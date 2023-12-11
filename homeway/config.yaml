@@ -1,0 +1,40 @@
+---
+# yamllint disable rule:line-length
+
+# General details
+name: "Homeway"
+description: "Free, Private, And Secure Remote Access To Your Home Assistant"
+slug: "homeway"
+url: "https://homeway.io"
+
+# The icon used if the user adds our web ui to the side bar.
+panel_icon: mdi:home-sound-out
+# Indicates we will have Web Ui the user can use.
+ingress: true
+# Required to access the home assistant web server.
+host_network: true
+# Required since we our own docker init system.
+init: false
+# Support architectures, all of them.
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+# Map the config folder, we so can add the assistant config snips if needed.
+map:
+  - homeassistant_config:rw
+
+# Allows the addon to make home assistant authed API calls to the core.
+homeassistant_api: true
+auth_api: true
+
+# Defines that instead of HA building the docker image from source, it will be downloaded from our github package repo.
+# For local dev this must be commented out, but it should never be committed that way.
+image: ghcr.io/homewayio/homeway/{arch}
+
+# Note when this version number changes, we must make a release to start a docker container build immediately, since HA will start looking for the new version.
+# Basically: Make the final commit -> test and check lint actions -> bump the version number -> create GitHub release.
+version: 0.3.0

@@ -1,0 +1,15 @@
+---
+# yamllint disable rule:line-length
+# https://developers.home-assistant.io/docs/add-ons/configuration#add-on-dockerfile
+# We target the base docker images with python already installed.
+build_from:
+  aarch64: "homeassistant/aarch64-base-python"
+  amd64: "homeassistant/amd64-base-python"
+  armhf: "homeassistant/armhf-base-python"
+  armv7: "homeassistant/armv7-base-python"
+  i386: "homeassistant/i386-base-python"
+labels:
+  org.opencontainers.image.title: "Homeway.io - Free, Private, And Secure Remote Access For Home Assistant"
+  org.opencontainers.image.description: "Free, Private, And Secure Remote Access For Home Assistant"
+  org.opencontainers.image.source: "https://github.com/homewayio/add-on"
+  org.opencontainers.image.licenses: "GNU Version 3"

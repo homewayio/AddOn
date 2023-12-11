@@ -1,0 +1,126 @@
+---
+name: Lint
+
+# yamllint disable-line rule:truthy
+on: [push, pull_request]
+
+concurrency:
+  group: queue
+
+jobs:
+
+  information:
+    name: Gather add-on information
+    runs-on: ubuntu-latest
+    outputs:
+      architectures: ${{ steps.information.outputs.architectures }}
+      base_image_signer: ${{ steps.information.outputs.codenotary_base_image }}
+      build: ${{ steps.information.outputs.build }}
+      description: ${{ steps.information.outputs.description }}
+      name: ${{ steps.information.outputs.name }}
+      slug: ${{ steps.override.outputs.slug }}
+      target: ${{ steps.information.outputs.target }}
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run add-on information action
+        id: information
+        uses: frenck/action-addon-information@v1.4.2
+      - name: 🚀 Process possible slug override
+        id: override
+        run: |
+          slug="${{ steps.information.outputs.slug }}"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+  find:
+    name: Find add-ons
+    runs-on: ubuntu-latest
+    outputs:
+      addons: ${{ steps.addons.outputs.addons_list }}
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+
+      - name: 🔍 Find add-on directories
+        id: addons
+        uses: home-assistant/actions/helpers/find-addons@master
+
+  python-lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint
+          pip install -r ./homeway/requirements.txt
+      - name: Analyzing the code with pylint
+        run: |
+          pylint ./homeway/homeway
+          pylint ./homeway/homeway_linuxhost/
+
+  lint-addon:
+    name: Lint Add-on
+    needs:
+      - information
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run Add-on Lint
+        uses: frenck/action-addon-linter@v2.15.0
+        with:
+          community: false
+          path: "./${{ needs.information.outputs.target }}"
+
+  lint-hadolint:
+    name: Hadolint
+    needs:
+      - information
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run Hadolint
+        uses: brpaz/hadolint-action@v1.5.0
+        with:
+          dockerfile: "./${{ needs.information.outputs.target }}/Dockerfile"
+          ignore: DL3006
+
+  lint-json:
+    name: JSON Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run JQ
+        run: |
+          shopt -s globstar
+          cat **/*.json | jq '.'
+
+  lint-shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run Shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -s bash
+
+  lint-yamllint:
+    name: YAMLLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4
+      - name: 🚀 Run YAMLLint
+        uses: frenck/action-yamllint@v1.4
