@@ -56,6 +56,7 @@ class WebStreamWsHelper:
         # Parse the headers, filter them, and keep them locally.
         # This is required for some clients, since they need to send the X-API-Key header with the API key.
         self.Headers = HeaderHelper.GatherWebsocketRequestHeaders(self.Logger, self.HttpInitialContext)
+        self.SubProtocolList = HeaderHelper.GetWebSocketSubProtocols(self.Logger, self.HttpInitialContext)
 
         # It might take multiple attempts depending on the network setup of the client.
         # This value keeps track of them.
@@ -178,7 +179,7 @@ class WebStreamWsHelper:
 
         # Make the websocket object and start it running.
         self.Logger.debug(self.getLogMsgPrefix()+"opening websocket to "+str(uri) + " attempt "+ str(self.ConnectionAttempt))
-        self.Ws = Client(uri, self.onWsOpened, None, self.onWsData, self.onWsClosed, self.onWsError, headers=self.Headers)
+        self.Ws = Client(uri, self.onWsOpened, None, self.onWsData, self.onWsClosed, self.onWsError, headers=self.Headers, subProtocolList=self.SubProtocolList)
         self.Ws.RunAsync()
 
         # Return true to indicate we are trying to connect again.

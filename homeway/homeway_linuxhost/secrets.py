@@ -138,3 +138,6 @@ class Secrets:
         # Finally, write the file back one more time.
         with open(self.SecretFilePath, 'w', encoding="utf-8") as f:
             f.write(finalOutput)
+
+        # Clear the final output so we don't keep it in memory.
+        finalOutput = None

@@ -59,7 +59,7 @@ class StreamMsgBuilder:
 
 
     @staticmethod
-    def BytesToString(buf):
+    def BytesToString(buf) -> str:
         # The default value for optional strings is None
         # So, we handle it.
         if buf is None:

@@ -116,7 +116,7 @@ class HeaderHelper:
 
     # Called only for websockets to get headers.
     @staticmethod
-    def GatherWebsocketRequestHeaders(logger, httpInitialContext) :
+    def GatherWebsocketRequestHeaders(logger:logging.Logger, httpInitialContext) -> dict:
         # Get the count of headers in the message.
         headersLen = httpInitialContext.HeadersLength()
 
@@ -143,6 +143,26 @@ class HeaderHelper:
                 sendHeaders[name] = value
 
         return sendHeaders
+
+
+    # Given an httpInitialContext returns if there are any web socket subprotocols being asked for.
+    @staticmethod
+    def GetWebSocketSubProtocols(logger:logging.Logger, httpInitialContext) -> list:
+        # Get the count of headers in the message.
+        headersLen = httpInitialContext.HeadersLength()
+        i = 0
+        while i < headersLen:
+            # Get the header
+            header = httpInitialContext.Headers(i)
+            i += 1
+
+            # Check if it's the protocol headers\
+            name = StreamMsgBuilder.BytesToString(header.Key())
+            lowerName = name.lower()
+            if lowerName == "sec-websocket-protocol":
+                valueList = StreamMsgBuilder.BytesToString(header.Value())
+                return valueList.split(",")
+        return None
 
 
     # We have noticed that some proxy servers aren't setup correctly to forward the x-forwarded-for and such headers.
