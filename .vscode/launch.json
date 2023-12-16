@@ -15,11 +15,11 @@
                 // The module requires these aregs to be passed. These are examples of a typical default setup.
                 // The string is a urlBase64 encoded string of json. We base64 encode it to prevent any issues with command line args.
                 //
-                // { "RepoRootDir": "/home/pi/AddOn/homeway", "StorageDir": "/home/pi/homeway-store", "RunningInAddonContext":false }
-                "eyAiUmVwb1Jvb3REaXIiOiAiL2hvbWUvcGkvQWRkT24vaG9tZXdheSIsICJTdG9yYWdlRGlyIjogIi9ob21lL3BpL2hvbWV3YXktc3RvcmUiLCAiUnVubmluZ0luQWRkb25Db250ZXh0IjpmYWxzZSB9",
+                // {"RepoRootDir":"/mnt/c/Users/quinn/Repos/Homeway.AddOn/homeway", "StorageDir":"/home/quinn/homeway", "HomeAssistantIp":"192.168.1.17", "HomeAssistantPort":8123, "RunningInAddonContext":false, "AccessToken":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3N2UyNzA4MDcxNmU0MmM2ODc5MDE4YTM0MzQyYmNhMiIsImlhdCI6MTcwMjcwMDU4OSwiZXhwIjoyMDE4MDYwNTg5fQ.enfJ2E0CHXGqT086ySKkZhUv8okSmcIA591xsguxPpw"}
+                "eyJSZXBvUm9vdERpciI6Ii9tbnQvYy9Vc2Vycy9xdWlubi9SZXBvcy9Ib21ld2F5LkFkZE9uL2hvbWV3YXkiLCAiU3RvcmFnZURpciI6Ii9ob21lL3F1aW5uL2hvbWV3YXkiLCAiSG9tZUFzc2lzdGFudElwIjoiMTkyLjE2OC4xLjE3IiwgIkhvbWVBc3Npc3RhbnRQb3J0Ijo4MTIzLCAiUnVubmluZ0luQWRkb25Db250ZXh0IjpmYWxzZSwgIkFjY2Vzc1Rva2VuIjoiZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lJM04yVXlOekE0TURjeE5tVTBNbU0yT0RjNU1ERTRZVE0wTXpReVltTmhNaUlzSW1saGRDSTZNVGN3TWpjd01EVTRPU3dpWlhod0lqb3lNREU0TURZd05UZzVmUS5lbmZKMkUwQ0hYR3FUMDg2eVNLa1poVXY4b2tTbWNJQTU5MXhzZ3V4UHB3In0=",
                 //
                 // We can optionally pass a dev config json object, which has dev specific overwrites we can make.
-                "{\"LocalHomewayServerAddress\":\"\", \"HomeAssistantAddress\":\"192.168.1.17\", \"HomeAssistantPort\":\"\", \"HomeAssistantProxyPort\":\"55\", \"LogLevel\":\"DEBUG\"}"
+                "{\"LocalHomewayServerAddress\":\"\", \"HomeAssistantProxyPort\":\"55\", \"LogLevel\":\"DEBUG\"}"
             ]
         }
     ]

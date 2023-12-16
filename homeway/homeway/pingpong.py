@@ -294,7 +294,7 @@ class PingPong:
 
             # Setup the URLs
             host = "https://"+subdomain+".homeway.io"
-            pingInfoApiUrl = host+"/api/plugin/ping"
+            pingInfoApiUrl = host+"/api/plugin-api/ping"
             pingDirectApiUrl = host+"/api/nginx-direct/ping/"
 
             # We have to make two calls, because the first call will query DNS, open the TCP connection, start SSL, and get a connection in the pool.

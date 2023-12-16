@@ -16,7 +16,9 @@ from .version import Version
 from .logger import LoggerInit
 from .webserver import WebServer
 from .webrequestresponsehandler import WebRequestResponseHandler
-from .homeassistantconfigmanager import HomeAssistantConfigManager
+from .ha.configmanager import ConfigManager
+from .ha.connection import Connection
+from .ha.eventhandler import EventHandler
 
 
 # This file is the main host for the moonraker service.
@@ -26,6 +28,7 @@ class LinuxHost:
         # When we create our class, make sure all of our core requirements are created.
         self.Secrets = None
         self.WebServer = None
+        self.HaEventHandler = None
 
         # Indicates if we are running in the docker addon container.
         self.IsRunningInAddonContext = isRunningInAddonContext
@@ -51,7 +54,7 @@ class LinuxHost:
             raise
 
 
-    def RunBlocking(self, storageDir, repoRoot, devConfig_CanBeNone):
+    def RunBlocking(self, storageDir, repoRoot, homeAssistantIp:str, homeAssistantPort:int, accessToken_canBeNone:str, devConfig_CanBeNone):
         # Do all of this in a try catch, so we can log any issues before exiting
         try:
             self.Logger.info("##################################")
@@ -81,8 +84,6 @@ class LinuxHost:
             devLocalHomewayServerAddress_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "LocalHomewayServerAddress")
             if devLocalHomewayServerAddress_CanBeNone is not None:
                 self.Logger.warning("~~~ Using Local Dev Server Address: %s ~~~", devLocalHomewayServerAddress_CanBeNone)
-            devHomeAssistantServerAddress_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantAddress")
-            devHomeAssistantServerPortStr_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantPort")
             # This is mostly just used to not allow the dev plugin to fallback to port 80
             if self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantProxyPort") is not None:
                 HttpRequest.SetLocalHttpProxyPort(int(self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantProxyPort")))
@@ -95,16 +96,10 @@ class LinuxHost:
             # Init the mdns client
             MDns.Init(self.Logger, storageDir)
 
-            # Setup the default http port. We default to 8123, assuming HA is running there. We fallback to 80 if it's not.
-            servicePort = 8123
-            serviceAddress = "127.0.0.1"
-            if devHomeAssistantServerPortStr_CanBeNone is not None:
-                servicePort = int(devHomeAssistantServerPortStr_CanBeNone)
-            if devHomeAssistantServerAddress_CanBeNone is not None:
-                serviceAddress = devHomeAssistantServerAddress_CanBeNone
-            self.Logger.info("Setting up relay with address %s:%s", serviceAddress, str(servicePort))
-            HttpRequest.SetDirectServicePort(servicePort)
-            HttpRequest.SetDirectServiceAddress(serviceAddress)
+            # Setup the tunnel with the set home assistant IP and port.
+            self.Logger.info("Setting up relay with address %s:%s", homeAssistantIp, str(homeAssistantPort))
+            HttpRequest.SetDirectServicePort(homeAssistantPort)
+            HttpRequest.SetDirectServiceAddress(homeAssistantIp)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir)
@@ -117,8 +112,15 @@ class LinuxHost:
             # Setup the moonraker config handler
             WebRequestResponseHandler.Init(self.Logger)
 
+            # Setup the HA state change handler
+            self.HaEventHandler = EventHandler(self.Logger, pluginId)
+
+            # Setup the HA connection object
+            haConnection = Connection(self.Logger, homeAssistantIp, homeAssistantPort, self.HaEventHandler, accessToken_canBeNone)
+            haConnection.Start()
+
             # Setup the Home Assistant config manager
-            configManager = HomeAssistantConfigManager(self.Logger)
+            configManager = ConfigManager(self.Logger, haConnection)
             if self.IsRunningInAddonContext:
                 # We only try to update the config if we are running in the docker addon mode.
                 configManager.UpdateConfigIfNeeded()
@@ -201,6 +203,9 @@ class LinuxHost:
     #
     def OnPrimaryConnectionEstablished(self, apiKey, connectedAccounts):
         self.Logger.info("Primary Connection To Homeway Established - We Are Ready To Go!")
+
+        # Set the current API key to the event handler
+        self.HaEventHandler.SetHomewayApiKey(apiKey)
 
         # Tell the web server if there's a connect user or not.
         hasConnectedAccount = connectedAccounts is not None and len(connectedAccounts) > 0

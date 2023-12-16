@@ -137,7 +137,7 @@ class WebServer:
 <body style="background-color: black; color: white; font-family: Roboto,Noto,Noto Sans,sans-serif;">
 <div style="display: flex; align-content: center; justify-content: center; margin-top: 30px">
     <div style="background-color:#2A2C30; border-radius: 5px; padding: 25px; min-width: 300px; max-width:450px">
-        <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:30px;">Homeway Control 🖥️</div>
+        <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:30px;">Homeway 🚀</div>
         <div style="display: """+ connectingBlockDisplay +""";">
             <div style="margin-bottom:20px; text-align: center; color:#78a4fa; font-weight: bold;">
                 Connecting To Homeway.io...
@@ -145,11 +145,11 @@ class WebServer:
         </div>
         <div style="display: """+linkAccountBlockDisplay+""";">
             <div style="margin-bottom:30px">
-                This addon isn't linked to a Homeway account. Click the button below to finish the addon setup.
+                <b>This addon isn't linked to a Homeway account.</b> Click the button below to finish the addon setup.
             </div>
             <div style="display: flex; justify-content: center;" id="linkAccountButton">
                 <div class="pinkButton">
-                    Link This Addon To Your Account
+                    Link To Your Account
                 </div>
             </div>
         </div>

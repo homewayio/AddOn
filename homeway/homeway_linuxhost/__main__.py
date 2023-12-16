@@ -13,6 +13,7 @@ class ConfigDataTypes(Enum):
     String = 1
     Path = 2
     Bool = 3
+    Int = 4
 
 
 def _GetConfigVarAndValidate(config, varName:str, dataType:ConfigDataTypes):
@@ -34,6 +35,9 @@ def _GetConfigVarAndValidate(config, varName:str, dataType:ConfigDataTypes):
 
     elif dataType == ConfigDataTypes.Bool:
         var = bool(var)
+
+    elif dataType == ConfigDataTypes.Int:
+        var = int(var)
 
     else:
         raise Exception(f"{varName} has an invalid config data type. {dataType}")
@@ -70,9 +74,16 @@ if __name__ == '__main__':
         #
         # Parse the common, required args.
         #
+        HomeAssistantIp = _GetConfigVarAndValidate(config, "HomeAssistantIp", ConfigDataTypes.String)
+        HomeAssistantPort = _GetConfigVarAndValidate(config, "HomeAssistantPort", ConfigDataTypes.Int)
         RepoRootDir = _GetConfigVarAndValidate(config, "RepoRootDir", ConfigDataTypes.Path)
         StorageDir = _GetConfigVarAndValidate(config, "StorageDir", ConfigDataTypes.Path)
         IsRunningInAddonContext = _GetConfigVarAndValidate(config, "RunningInAddonContext", ConfigDataTypes.Bool)
+
+        # Passing an auth key for Home Assistant is optional.
+        AccessToken_CanBeNone = None
+        if "AccessToken" in config and len(config["AccessToken"]) > 0:
+            AccessToken_CanBeNone = config["AccessToken"]
 
     except Exception as e:
         _PrintErrorAndExit(f"Exception while loading json config. Error:{str(e)}, Config: {jsonConfigStr}")
@@ -90,7 +101,7 @@ if __name__ == '__main__':
     try:
         # Create and run the main host!
         host = LinuxHost(StorageDir, IsRunningInAddonContext, devConfig_CanBeNone)
-        host.RunBlocking(StorageDir, RepoRootDir, devConfig_CanBeNone)
+        host.RunBlocking(StorageDir, RepoRootDir, HomeAssistantIp, HomeAssistantPort, AccessToken_CanBeNone, devConfig_CanBeNone)
     except Exception as e:
         _PrintErrorAndExit(f"Exception leaked from main host class. Error:{str(e)}")
 

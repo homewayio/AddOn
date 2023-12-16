@@ -1,15 +1,15 @@
 import os
 import logging
-import json
 import threading
 import time
 
 from homeway.sentry import Sentry
-from homeway.websocketimpl import Client
 from homeway.commandhandler import CommandHandler
 
+from .connection import Connection
+
 # Helps manage the Home Assistant config
-class HomeAssistantConfigManager:
+class ConfigManager:
 
     # This should be mapped into our docker container due to homeassistant_config in the addon config.
     c_ConfigFilePath = "/homeassistant/configuration.yaml"
@@ -19,8 +19,9 @@ class HomeAssistantConfigManager:
     c_TimeToIdleSec = 60 * 60 * 5
 
 
-    def __init__(self, logger:logging.Logger) -> None:
+    def __init__(self, logger:logging.Logger, haCon:Connection) -> None:
         self.Logger = logger
+        self.HaConnection = haCon
         self.RestartRequired = False
         CommandHandler.Get().RegisterConfigManager(self)
 
@@ -40,8 +41,8 @@ class HomeAssistantConfigManager:
     def UpdateConfigIfNeeded(self) -> None:
         try:
             # Ensure we can find the config file.
-            if os.path.exists(HomeAssistantConfigManager.c_ConfigFilePath) is False:
-                self.Logger.warn(f"Failed to find Home Assistant config file at {HomeAssistantConfigManager.c_ConfigFilePath}")
+            if os.path.exists(ConfigManager.c_ConfigFilePath) is False:
+                self.Logger.warn(f"Failed to find Home Assistant config file at {ConfigManager.c_ConfigFilePath}")
                 for _, dirnames, _ in os.walk("/"):
                     for d in dirnames:
                         self.Logger.info(f"Dir In Root: {d}")
@@ -50,7 +51,7 @@ class HomeAssistantConfigManager:
             # Open the file and read.
             foundGoogleAssistantConfig = False
             foundAlexaConfig = False
-            with open(HomeAssistantConfigManager.c_ConfigFilePath, 'r', encoding="utf-8") as f:
+            with open(ConfigManager.c_ConfigFilePath, 'r', encoding="utf-8") as f:
                 # Look for the starting lines of the configs, since they must be exact.
                 # But remember they will have line endings, so we use startwith.
                 lines = f.readlines()
@@ -93,14 +94,14 @@ class HomeAssistantConfigManager:
             linesToAppend.append(lineEnding)
 
             # Add the config lines.
-            with open(HomeAssistantConfigManager.c_ConfigFilePath, 'a', encoding="utf-8") as f:
+            with open(ConfigManager.c_ConfigFilePath, 'a', encoding="utf-8") as f:
                 f.writelines(linesToAppend)
 
             self.Logger.info(f"Config file updated with assistant configs. Alexa: {str(foundAlexaConfig is False)}, Google Assistant: {str(foundGoogleAssistantConfig is False)}")
 
             # Start a refresh thread.
             self.RestartRequired = True
-            self.RestartHomeAssistant(HomeAssistantConfigManager.c_TimeToIdleSec)
+            self.RestartHomeAssistant(ConfigManager.c_TimeToIdleSec)
         except Exception as e:
             Sentry.Exception("HomeAssistantConfigManager exception.", e)
 
@@ -123,39 +124,6 @@ class HomeAssistantConfigManager:
             self.RestartRequired = False
 
             self.Logger.info("Trying to restart Home Assistant to apply the config change.")
-            # Ensure we have an auth key.
-            token = os.getenv('SUPERVISOR_TOKEN')
-            if token is None or len(token) == 0:
-                self.Logger.error("A HA core api env token was empty.")
-
-            def Opened(ws:Client):
-                self.Logger.info("Ws to Home Assistant established.")
-
-            def OnData(ws:Client, buffer:bytes, msgType):
-                jsonStr = buffer.decode()
-                self.Logger.debug(f"HA WS Message {jsonStr}")
-                if "auth_required" in jsonStr:
-                    s = json.dumps({"id": 1, "type":"auth", "access_token":token})
-                    self.Logger.debug(f"Sending auth message {s}")
-                    ws.Send(s.encode(), False)
-                    return
-                if "auth_ok" in jsonStr:
-                    s = json.dumps({"id": 2, "type": "call_service", "domain": "homeassistant", "service": "restart", "service_data": {}})
-                    self.Logger.debug(f"Sending restart message {s}")
-                    ws.Send(s.encode(), False)
-                    return
-                self.Logger.debug(f"Unknown {jsonStr}")
-                ws.Close()
-
-            def Closed(ws:Client):
-                self.Logger.info("Ws to Home Assistant closed")
-
-            # Start the web socket connection.
-            ws = Client("ws://supervisor/core/api/websocket", onWsOpen=Opened, onWsData=OnData, onWsClose=Closed)
-
-            # Run until success or failure.
-            ws.RunUntilClosed()
-
-            self.Logger.info("Restart complete")
+            self.HaConnection.RestartHa()
         except Exception as e:
             Sentry.Exception("TryToRestartHomeAssistant exception.", e)
