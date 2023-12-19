@@ -179,8 +179,11 @@ class Connection:
 
             # Finally, if the message is a event, invoke the handler.
             if "type" in jsonObj and jsonObj["type"] == "event":
-                event = jsonObj["event"]
-                self.EventHandler.OnEvent(event)
+                try:
+                    event = jsonObj["event"]
+                    self.EventHandler.OnEvent(event)
+                except Exception as e:
+                    Sentry.Exception("HA Event Handler threw an exception.", e)
 
         except Exception as e:
             Sentry.Exception("ConnectionThread exception.", e)
