@@ -23,6 +23,7 @@ class Connection:
         self.EventHandler = eventHandler
         self.AccessToken_CanBeNone = accessToken_canBeNone
         self.SetAccessToken = None
+        self.HaVersionString = None
 
         # The current websocket connection and Id
         self.ConId = 0
@@ -165,7 +166,8 @@ class Connection:
                 # Otherwise, this should be very first message, which is the auth require message.
                 # The version should be in the auth_required message, if so, print it.
                 if "ha_version" in jsonObj:
-                    self.Logger.info(f"{self._getLogTag()} HA version {(jsonObj['ha_version'])}")
+                    self.HaVersionString = jsonObj["ha_version"]
+                    self.Logger.info(f"{self._getLogTag()} HA version {(self.HaVersionString)}")
                 if "type" not in jsonObj or jsonObj["type"] != "auth_required":
                     self.Logger.warn(f"{self._getLogTag()} we aren't authed, we are expecting auth_required but didn't get it.")
                 # Return the auth message
@@ -181,7 +183,7 @@ class Connection:
             if "type" in jsonObj and jsonObj["type"] == "event":
                 try:
                     event = jsonObj["event"]
-                    self.EventHandler.OnEvent(event)
+                    self.EventHandler.OnEvent(event, self.HaVersionString)
                 except Exception as e:
                     Sentry.Exception("HA Event Handler threw an exception.", e)
 

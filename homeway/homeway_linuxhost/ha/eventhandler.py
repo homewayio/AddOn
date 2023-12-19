@@ -37,12 +37,12 @@ class EventHandler:
         # When we get the API key, if it's the first time it's being set, request a sync to make sure
         # things are in order.
         if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
-            self._QueueStateChangeSend(self._GetStateChangeSendEvent("startup_sync", None, None))
+            self._QueueStateChangeSend(self._GetStateChangeSendEvent("startup_sync"))
         self.HomewayApiKey = key
 
 
     # Called by the HA connection class when HA sends any event.
-    def OnEvent(self, event:dict):
+    def OnEvent(self, event:dict, haVersion:str):
 
         # Check for required fields
         if "event_type" not in event:
@@ -102,14 +102,16 @@ class EventHandler:
                     return
 
         # If we get here, this is an status change we want to send.
-        self._QueueStateChangeSend(self._GetStateChangeSendEvent(entityId, newState_CanBeNone, oldState_CanBeNone))
+        self._QueueStateChangeSend(self._GetStateChangeSendEvent(entityId, haVersion, newState_CanBeNone, oldState_CanBeNone))
 
 
     # Converts the HA events to our send event format.
-    def _GetStateChangeSendEvent(self, entityId:str, newState_CanBeNone:dict, oldState_CanBeNone:dict) -> dict:
+    def _GetStateChangeSendEvent(self, entityId:str, haVersion_CanBeNone:str = None, newState_CanBeNone:dict = None, oldState_CanBeNone:dict = None) -> dict:
         sendEvent = {
             "EntityId": entityId
         }
+        if haVersion_CanBeNone is not None:
+            sendEvent["HaVersion"] = haVersion_CanBeNone
 
         # Helpers
         def _removeIfInDict(d:dict, key:str):
