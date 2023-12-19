@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 0.4.2
+
+- Adding logic for device state reporting to Google Home and Alexa Assistants.
+
 ## 0.4.1
 
  - Address the first beta user feedback! Thank you and keep it coming!
