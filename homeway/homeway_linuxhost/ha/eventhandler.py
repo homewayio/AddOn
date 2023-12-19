@@ -188,4 +188,3 @@ class EventHandler:
 
             except Exception as e:
                 Sentry.Exception("_StateChangeSender exception", e)
-
