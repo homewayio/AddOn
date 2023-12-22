@@ -12,9 +12,17 @@ from .serverinfo import ServerInfo
 # Handles any events from Home Assistant we care about.
 class EventHandler:
 
+    # How long we will wait from the most recent send before we consider it a new first send period.
+    # The first event will be sent more quickly, future events will be delayed more and more to prevent spamming.
+    c_SendPeriodWindowSec = 60.0
+
     # Determines how long we will wait from the first request to send a collapsed batch of events.
     # We want this to be quite short, so events are responsive. But long enough to prevent super spamming events.
     c_RequestCollapseDelayTimeSec = 1.0
+
+    # How long we will wait from the first request to send in a period a collapsed batch of events.
+    # This allows one off changes to be more responsive.
+    c_RequestCollapseDelayTimeSecFirstSend = 0.1
 
     # Useful for debugging.
     c_LogEvents = True
@@ -29,6 +37,8 @@ class EventHandler:
         self.ThreadEvent = threading.Event()
         self.Lock = threading.Lock()
         self.SendEvents = []
+        self.SendPeriodStartSec = 0.0
+        self.SentCountThisPeriod = 0
 
         # Start the send thread.
         self.Thread = threading.Thread(target=self._StateChangeSender)
@@ -176,13 +186,28 @@ class EventHandler:
                     self.ThreadEvent.wait()
                     continue
 
-                # We have something to send, so we sleep for a bit to allow more events to batch up.
-                time.sleep(EventHandler.c_RequestCollapseDelayTimeSec)
+                # If we get here, we have something to send.
+                # To allow a quick one off response, we will wait a shorter amount of time for the first send in a new period.
+                # To prevent spamming, every time we send in the same period, we will wait a bit longer.
+                deltaFromPeriodStart = time.time() - self.SendPeriodStartSec
+                if deltaFromPeriodStart > EventHandler.c_SendPeriodWindowSec:
+                    # The last send was outside the window, so we are in a new period.
+                    self.SendPeriodStartSec = time.time()
+                    self.SentCountThisPeriod = 1
+                    # This is the first send in a period, we sleep a shorter amount of time.
+                    # We still want to sleep some to collapse back-to-back events, but we want to be responsive.
+                    time.sleep(EventHandler.c_RequestCollapseDelayTimeSecFirstSend)
+                else:
+                    # We are in a send period.
+                    # This might happen if the user is changing a lot of things rapidly. To prevent spamming, we want to back off event sends.
+                    self.SentCountThisPeriod += 1
+                    self.SentCountThisPeriod = min(self.SentCountThisPeriod, 3)
+                    time.sleep(EventHandler.c_RequestCollapseDelayTimeSec * self.SentCountThisPeriod)
 
                 # Ensure we have an API key.
                 if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
                     self.Logger.warn("We wanted to do a send state change events, but don't have an API key.")
-                    time.sleep(30.0)
+                    time.sleep(10.0)
                     continue
 
                 # Now we collect what exists and send them.
