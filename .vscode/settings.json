@@ -53,6 +53,7 @@
         "rwix",
         "serverauth",
         "servercon",
+        "serverinfo",
         "shardulm",
         "sslopt",
         "starport",

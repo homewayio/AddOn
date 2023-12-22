@@ -19,6 +19,7 @@ from .webrequestresponsehandler import WebRequestResponseHandler
 from .ha.configmanager import ConfigManager
 from .ha.connection import Connection
 from .ha.eventhandler import EventHandler
+from .ha.serverinfo import ServerInfo
 
 
 # This file is the main host for the moonraker service.
@@ -100,6 +101,7 @@ class LinuxHost:
             self.Logger.info("Setting up relay with address %s:%s", homeAssistantIp, str(homeAssistantPort))
             HttpRequest.SetDirectServicePort(homeAssistantPort)
             HttpRequest.SetDirectServiceAddress(homeAssistantIp)
+            ServerInfo.SetServerInfo(homeAssistantIp, homeAssistantPort, accessToken_canBeNone)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir)
@@ -113,10 +115,10 @@ class LinuxHost:
             WebRequestResponseHandler.Init(self.Logger)
 
             # Setup the HA state change handler
-            self.HaEventHandler = EventHandler(self.Logger, pluginId)
+            self.HaEventHandler = EventHandler(self.Logger, pluginId, devLocalHomewayServerAddress_CanBeNone)
 
             # Setup the HA connection object
-            haConnection = Connection(self.Logger, homeAssistantIp, homeAssistantPort, self.HaEventHandler, accessToken_canBeNone)
+            haConnection = Connection(self.Logger, self.HaEventHandler)
             haConnection.Start()
 
             # Setup the Home Assistant config manager

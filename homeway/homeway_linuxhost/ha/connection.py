@@ -1,4 +1,3 @@
-import os
 import time
 import json
 import logging
@@ -8,7 +7,7 @@ from homeway.sentry import Sentry
 from homeway.websocketimpl import Client
 
 from .eventhandler import EventHandler
-
+from .serverinfo import ServerInfo
 
 # Connects to Home Assistant and manages the connection.
 class Connection:
@@ -16,13 +15,9 @@ class Connection:
     # For debugging, it's too chatty to enable always.
     c_LogWsMessages = False
 
-    def __init__(self, logger:logging.Logger, homeAssistantIp:str, homeAssistantPort:int, eventHandler:EventHandler, accessToken_canBeNone:str) -> None:
+    def __init__(self, logger:logging.Logger, eventHandler:EventHandler) -> None:
         self.Logger = logger
-        self.HomeAssistantIp = homeAssistantIp
-        self.HomeAssistantPort = homeAssistantPort
         self.EventHandler = eventHandler
-        self.AccessToken_CanBeNone = accessToken_canBeNone
-        self.SetAccessToken = None
         self.HaVersionString = None
 
         # The current websocket connection and Id
@@ -95,17 +90,12 @@ class Connection:
             try:
                 # First, we need to get the access token. If we are running in the addon, we should be able to pull it from the env var,
                 # since we use the flag in our addon config.
-                self.SetAccessToken = os.getenv('SUPERVISOR_TOKEN')
-                isAddon = True
-                if self.SetAccessToken is None or len(self.SetAccessToken) == 0:
-                    # If we can't get it from the env, we might not be running in an addon. See if it was passed to the plugin.
-                    isAddon = False
-                    self.SetAccessToken = self.AccessToken_CanBeNone
-                    if self.SetAccessToken is None or len(self.SetAccessToken) == 0:
-                        # We need an access token, so we can't do anything.
-                        self.Logger.error(f"{self._getLogTag()} no access token, thus we can't connect.")
-                        time.sleep(120)
-                        continue
+                accessToken = ServerInfo.GetAccessToken()
+                if accessToken is None or len(accessToken) == 0:
+                    # We need an access token, so we can't do anything.
+                    self.Logger.error(f"{self._getLogTag()} no access token, thus we can't connect.")
+                    time.sleep(120)
+                    continue
 
                 # If we are here, we have an access token!
                 # Setup our handlers.
@@ -120,10 +110,7 @@ class Connection:
 
                 # Start the web socket connection.
                 # If we got auth from the env var, we running in the add on and use this address.
-                uri = "ws://supervisor/core/api/websocket"
-                if isAddon is False:
-                    # If not, we use the passed details.
-                    uri = f"ws://{self.HomeAssistantIp}:{self.HomeAssistantPort}/api/websocket"
+                uri = f"ws://{(ServerInfo.GetServerIpOrHostnameAndPort())}/api/websocket"
                 self.Logger.info(f"{self._getLogTag()} Starting connection to [{uri}]")
                 self.Ws = Client(uri, onWsOpen=Opened, onWsData=self._OnData, onWsClose=Closed)
 
@@ -172,7 +159,7 @@ class Connection:
                     self.Logger.warn(f"{self._getLogTag()} we aren't authed, we are expecting auth_required but didn't get it.")
                 # Return the auth message
                 # https://developers.home-assistant.io/docs/api/websocket/
-                self.SendMsg({"type":"auth", "access_token":self.SetAccessToken}, ignoreConnectionState=True)
+                self.SendMsg({"type":"auth", "access_token": ServerInfo.GetAccessToken()}, ignoreConnectionState=True)
                 return
 
             # For now, we check all returned messages for errors and report them.

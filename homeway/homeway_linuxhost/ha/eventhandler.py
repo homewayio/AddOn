@@ -7,6 +7,8 @@ import requests
 
 from homeway.sentry import Sentry
 
+from .serverinfo import ServerInfo
+
 # Handles any events from Home Assistant we care about.
 class EventHandler:
 
@@ -17,10 +19,11 @@ class EventHandler:
     # Useful for debugging.
     c_LogEvents = True
 
-    def __init__(self, logger:logging.Logger, pluginId:str) -> None:
+    def __init__(self, logger:logging.Logger, pluginId:str, devLocalHomewayServerAddress_CanBeNone:str) -> None:
         self.Logger = logger
         self.PluginId = pluginId
         self.HomewayApiKey = ""
+        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
 
         # Request collapse logic.
         self.ThreadEvent = threading.Event()
@@ -31,6 +34,14 @@ class EventHandler:
         self.Thread = threading.Thread(target=self._StateChangeSender)
         self.Thread.daemon = True
         self.Thread.start()
+
+        # We need to detect the temp units.
+        self.TempThread = threading.Thread(target=self._TempUnitsDetector)
+        self.TempThread.daemon = True
+        self.TempThread.start()
+
+        # Must be C or F, default to C
+        self.HaTempUnits = "C"
 
 
     def SetHomewayApiKey(self, key:str) -> None:
@@ -81,9 +92,12 @@ class EventHandler:
         # A full list of entity can be found here: https://developers.home-assistant.io/docs/core/entity/
         if (    entityId.startswith("light.")  is False
             and entityId.startswith("switch.") is False
+            and entityId.startswith("input_boolean.") is False
+            and entityId.startswith("scene.") is False
             and entityId.startswith("cover.")  is False
             and entityId.startswith("fan.")    is False
             and entityId.startswith("lock.")   is False
+            and entityId.startswith("alarm_control_panel.")   is False
             and entityId.startswith("climate.")is False):
             # But, we will send every device add/remove/change to the API.
             # We will always send if the new or old state are None, meaning an add or remove.
@@ -125,6 +139,8 @@ class EventHandler:
         # If there's a new state, add it.
         if newState_CanBeNone is not None:
             _trimState(newState_CanBeNone)
+            # We add the temp units we detect, so our servers know.
+            newState_CanBeNone["HwTempUnits"] = self.HaTempUnits
             sendEvent["NewState"] = newState_CanBeNone
         # If there's a old state, add it.
         if oldState_CanBeNone is not None:
@@ -178,13 +194,59 @@ class EventHandler:
                 self.Logger.info(f"_StateChangeSender is sending {(len(sendEvents))} assistant state change events.")
 
                 # Make the call.
-                result = requests.post('https://homeway.io/api/plugin-api/statechangeevents',
-                                        json={"PluginId": self.PluginId, "ApiKey": self.HomewayApiKey, "Events": sendEvents },
-                                        timeout=30)
+                url = "https://homeway.io/api/plugin-api/statechangeevents"
+                if self.DevLocalHomewayServerAddress_CanBeNone is not None:
+                    url = f"http://{self.DevLocalHomewayServerAddress_CanBeNone}/api/plugin-api/statechangeevents"
+                result = requests.post(url, json={"PluginId": self.PluginId, "ApiKey": self.HomewayApiKey, "Events": sendEvents }, timeout=30)
 
                 # Validate the response.
                 if result.status_code != 200:
                     self.Logger.warn(f"Send Change Events failed, the API returned {result.status_code}")
 
+            except Exception as e:
+                Sentry.Exception("_StateChangeSender exception", e)
+
+
+    def _TempUnitsDetector(self):
+        startup = True
+        while True:
+            try:
+                # Run at startup, otherwise every hour.
+                if startup is False:
+                    time.sleep(60 * 60)
+                else:
+                    time.sleep(2.0)
+                startup = False
+
+                # Ensure we have an API key.
+                accessToken = ServerInfo.GetAccessToken()
+                if accessToken is None:
+                    self.Logger.warn("We wanted to do a temp unit detection, but don't have an access token.")
+                    continue
+
+                # Make the request.
+                headers = {}
+                headers["Authorization"] = "Bearer "+accessToken
+                uri = f"http://{(ServerInfo.GetServerIpOrHostnameAndPort())}/api/config"
+                result = requests.get(uri, headers=headers, timeout=30)
+
+                # Check the response.
+                if result.status_code != 200:
+                    self.Logger.warn(f"Get config API {result.status_code}")
+                    continue
+                j = result.json()
+                if "unit_system" not in j:
+                    self.Logger.warn("Get config API missing unit_system")
+                    continue
+                if "temperature" not in j["unit_system"]:
+                    self.Logger.warn("Get config API missing temperature")
+                    continue
+
+                if j["unit_system"]["temperature"] == "°F":
+                    self.HaTempUnits = "F"
+                elif j["unit_system"]["temperature"] == "°C":
+                    self.HaTempUnits = "C"
+                else:
+                    self.Logger.warn(f"Get config API unknown temperature unit [{j['unit_system']['temperature']}]")
             except Exception as e:
                 Sentry.Exception("_StateChangeSender exception", e)
