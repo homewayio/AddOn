@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 0.4.3
+
+- Finishing up device state reporting and device refresh for Alexa and Google Home, meaning when you change your devices they will show up instantly in your apps!
+
 ## 0.4.2
 
 - Adding logic for device state reporting to Google Home and Alexa Assistants.
