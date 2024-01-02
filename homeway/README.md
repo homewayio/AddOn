@@ -2,12 +2,13 @@
 
 **Free. Private. Secure.**
 
-Remote access to your Home Assistant from anywhere! Now with [Alexa](https://homeway.io/alexa) and [Google Assistant](https://homeway.io/googleassistant) support! Developed for the Home Assistant community, by the Home Assistant community.
+Free remote access to your Home Assistant from anywhere! Including [Amazon Alexa](https://homeway.io/alexa?source=addon_readme), [Google Assistant](https://homeway.io/googleassistant?source=addon_readme), and [Official Home Assistant App](https://homeway.io/app?source=addon_readme) support. Developed for the Home Assistant community, by the Home Assistant community.
 
 ## Features:
 
 - 🚀 **Free.** Remote access to your full Home Assistant from anywhere.
-- 🤖 **Smart.** [Alexa](https://homeway.io/alexa) and [Google Assistant](https://homeway.io/googleassistant) voice control for your Home Assistant.
+- 🤖 **Smart.** [Alexa](https://homeway.io/alexa?source=addon_readme) and [Google Assistant](https://homeway.io/googleassistant?source=addon_readme) voice control for your Home Assistant.
+- 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme) - including notifications, widgets, triggers, and more.
 - 🔒 **Secure.** Homeway has advanced security features to ensure only you have access.
 - 🔭 **Private.** Homeway doesn't store any of your data in our cloud and will never sell or share your information.
 - ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.

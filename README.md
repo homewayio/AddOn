@@ -1,14 +1,15 @@
 <p align="center"><img src="https://homeway.io/img/logo.svg" alt="Homeway's Logo" style="width:100px" /></p>
-<h1 align="center" style="margin-bottom:20px"><a style="text-decoration:none" href="https://homeway.io/?source=readme">Homeway</a></h1>
+<h1 align="center" style="margin-bottom:20px"><a style="text-decoration:none" href="https://homeway.io/?source=github_readme">Homeway</a></h1>
 
 **Secure. Private. Free.**
 
-Remote access to your Home Assistant from anywhere! Now with [Alexa](https://homeway.io/alexa) and [Google Assistant](https://homeway.io/googleassistant) support! Developed for the Home Assistant community, by the Home Assistant community.
+Free remote access to your Home Assistant from anywhere! Including [Amazon Alexa](https://homeway.io/alexa?source=github_readme), [Google Assistant](https://homeway.io/googleassistant?source=github_readme), and [Official Home Assistant App](https://homeway.io/app?source=github_readme) support. Developed for the Home Assistant community, by the Home Assistant community.
 
 ## Features
 
 - 🚀 **Free.** Remote access to your full Home Assistant from anywhere.
-- 🤖 **Smart.** [Alexa](https://homeway.io/alexa) and [Google Assistant](https://homeway.io/googleassistant) voice control for your Home Assistant.
+- 🤖 **Smart.** [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your Home Assistant.
+- 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme) - including notifications, widgets, triggers, and more.
 - 🔒 **Secure.** We offer advanced security features to ensure only you have access.
 - 🔭 **Private.** We don't store any of your data in our cloud and will never sell or share your information.
 - ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.
