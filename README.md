@@ -38,3 +38,7 @@ Join our [Discord server](https://discord.gg/zxbvtgU6dq) to share feedback, idea
 ### Contributing
 
 Feel free to fork, hack, slash, and PR our code! Homeway is made for the community; we appreciate any ideas or help we can get!
+
+### Related Open-Source Projects
+
+[Homeway Website Core](https://www.npmjs.com/package/homeway-site-core)
