@@ -22,27 +22,27 @@ from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
 
 
-# This file is the main host for the moonraker service.
+# This file is the main host for the linux service.
 class LinuxHost:
 
-    def __init__(self, storageDir:str, isRunningInAddonContext:bool, devConfig_CanBeNone) -> None:
+    def __init__(self, addonDataRootDir:str, logsDir:str, IsRunningInHaAddonEnv:bool, devConfig_CanBeNone) -> None:
         # When we create our class, make sure all of our core requirements are created.
         self.Secrets = None
         self.WebServer = None
         self.HaEventHandler = None
 
         # Indicates if we are running in the docker addon container.
-        self.IsRunningInAddonContext = isRunningInAddonContext
+        self.IsRunningInHaAddonEnv = IsRunningInHaAddonEnv
 
         try:
             # First, we need to load our config.
             # Note that the config MUST BE WRITTEN into this folder, that's where the setup installer is going to look for it.
             # If this fails, it will throw.
-            self.Config = Config(storageDir)
+            self.Config = Config(addonDataRootDir)
 
             # Next, setup the logger.
             logLevelOverride_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "LogLevel")
-            self.Logger = LoggerInit.GetLogger(self.Config, storageDir, logLevelOverride_CanBeNone)
+            self.Logger = LoggerInit.GetLogger(self.Config, logsDir, logLevelOverride_CanBeNone)
             self.Config.SetLogger(self.Logger)
 
             # Init sentry, since it's needed for Exceptions.
@@ -55,7 +55,7 @@ class LinuxHost:
             raise
 
 
-    def RunBlocking(self, storageDir, repoRoot, homeAssistantIp:str, homeAssistantPort:int, accessToken_canBeNone:str, devConfig_CanBeNone):
+    def RunBlocking(self, storageDir, versionFileDir, devConfig_CanBeNone):
         # Do all of this in a try catch, so we can log any issues before exiting
         try:
             self.Logger.info("##################################")
@@ -63,7 +63,7 @@ class LinuxHost:
             self.Logger.info("##################################")
 
             # Find the version of the plugin, this is required and it will throw if it fails.
-            pluginVersionStr = Version.GetPluginVersion(repoRoot)
+            pluginVersionStr = Version.GetPluginVersion(versionFileDir)
             self.Logger.info("Plugin Version: %s", pluginVersionStr)
 
             # We don't store any sensitive things in teh config file, since all config files are sometimes backed up publicly.
@@ -78,8 +78,10 @@ class LinuxHost:
 
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.
+            # We always create the class, but only start the server for the in HA addon.
             self.WebServer = WebServer(self.Logger, pluginId, devConfig_CanBeNone)
-            self.WebServer.Start()
+            if self.IsRunningInHaAddonEnv:
+                self.WebServer.Start()
 
             # Unpack any dev vars that might exist
             devLocalHomewayServerAddress_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "LocalHomewayServerAddress")
@@ -98,10 +100,14 @@ class LinuxHost:
             MDns.Init(self.Logger, storageDir)
 
             # Setup the tunnel with the set home assistant IP and port.
-            self.Logger.info("Setting up relay with address %s:%s", homeAssistantIp, str(homeAssistantPort))
+            # Get the Home Assistant server details.
+            homeAssistantIpOrHostname = self.Config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
+            homeAssistantPort = self.Config.GetInt(Config.HomeAssistantSection, Config.HaPortKey, 8123)
+            accessToken_CanBeNone = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
+            self.Logger.info("Setting up Home Assistant connection to [%s:%s]", homeAssistantIpOrHostname, str(homeAssistantPort))
             HttpRequest.SetDirectServicePort(homeAssistantPort)
-            HttpRequest.SetDirectServiceAddress(homeAssistantIp)
-            ServerInfo.SetServerInfo(homeAssistantIp, homeAssistantPort, accessToken_canBeNone)
+            HttpRequest.SetDirectServiceAddress(homeAssistantIpOrHostname)
+            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, accessToken_CanBeNone)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir)
@@ -111,7 +117,7 @@ class LinuxHost:
             # Setup the command handler
             CommandHandler.Init(self.Logger)
 
-            # Setup the moonraker config handler
+            # Setup the web response handler
             WebRequestResponseHandler.Init(self.Logger)
 
             # Setup the HA state change handler
@@ -123,7 +129,7 @@ class LinuxHost:
 
             # Setup the Home Assistant config manager
             configManager = ConfigManager(self.Logger, haConnection)
-            if self.IsRunningInAddonContext:
+            if self.IsRunningInHaAddonEnv:
                 # We only try to update the config if we are running in the docker addon mode.
                 configManager.UpdateConfigIfNeeded()
 

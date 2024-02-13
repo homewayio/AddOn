@@ -10,26 +10,28 @@ from .config import Config
 # in public places, the secrets are stored else where.
 class Secrets:
 
+    # Note this path and name MUST STAY THE SAME because the installer PY script looks for this file.
+    FileName = "homeway.secrets"
+
     # These must stay the same because our installer script requires on the format being as is!
-    _SecretsSection = "secrets"
-    _PluginIdKey = "plugin_id"
-    _PrivateKeyKey = "private_key"
+    SecretsSection = "secrets"
+    PluginIdKey = "plugin_id"
+    PrivateKeyKey = "private_key"
 
 
     # This allows us to add comments into our config.
     # The objects must have two parts, first, a string they target. If the string is found, the comment will be inserted above the target string. This can be a section or value.
     # A string, which is the comment to be inserted.
     c_SecretsConfigComments = [
-        { "Target": _PluginIdKey,  "Comment": "Uniquely identifies your plugin. Don't change or will have to re-link your plugin with the service."},
-        { "Target": _PrivateKeyKey, "Comment": "A private key linked to your plugin ID. NEVER share this and also don't change it."},
+        { "Target": PluginIdKey,  "Comment": "Uniquely identifies your addon. Don't change or will have to re-link your addon with the service."},
+        { "Target": PrivateKeyKey, "Comment": "A private key linked to your addon ID. NEVER share this and also don't change it."},
     ]
 
 
     def __init__(self, logger:logging.Logger, localStoragePath:str, config:Config) -> None:
         self.Logger = logger
 
-        # Note this path and name MUST STAY THE SAME because the installer PY script looks for this file.
-        self.SecretFilePath = os.path.join(localStoragePath, "homeway.secrets")
+        self.SecretFilePath = os.path.join(localStoragePath, Secrets.FileName)
 
         # A lock to keep file access super safe
         self.ConfigLock = threading.Lock()
@@ -42,22 +44,22 @@ class Secrets:
 
     # Returns the plugin id if one exists, otherwise None.
     def GetPluginId(self) -> str:
-        return self._GetStr(Secrets._SecretsSection, Secrets._PluginIdKey)
+        return self._GetStr(Secrets.SecretsSection, Secrets.PluginIdKey)
 
 
     # Sets the plugin id and saves the file.
     def SetPluginId(self, pluginId):
-        self._SetStr(Secrets._SecretsSection, Secrets._PluginIdKey, pluginId)
+        self._SetStr(Secrets.SecretsSection, Secrets.PluginIdKey, pluginId)
 
 
     # Returns the private key if one exists, otherwise None.
     def GetPrivateKey(self) -> str:
-        return self._GetStr(Secrets._SecretsSection, Secrets._PrivateKeyKey)
+        return self._GetStr(Secrets.SecretsSection, Secrets.PrivateKeyKey)
 
 
     # Sets the plugin id and saves the file.
     def SetPrivateKey(self, privateKey):
-        self._SetStr(Secrets._SecretsSection, Secrets._PrivateKeyKey, privateKey)
+        self._SetStr(Secrets.SecretsSection, Secrets.PrivateKeyKey, privateKey)
 
 
     # Gets a value from the config given the header and key.

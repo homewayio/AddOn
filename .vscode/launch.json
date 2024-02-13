@@ -21,6 +21,19 @@
                 // We can optionally pass a dev config json object, which has dev specific overwrites we can make.
                 "{\"LocalHomewayServerAddress\":\"192.168.1.3\", \"HomeAssistantProxyPort\":\"55\", \"LogLevel\":\"DEBUG\"}"
             ]
-        }
+        },
+        {
+            "name": "Installer Module",
+            "type": "python",
+            "request": "launch",
+            "module": "homeway_installer",
+            "justMyCode": false,
+            "args": [
+                // The module requires this json object to be passed.
+                // Normally the install.sh script runs, ensure everything is installed, creates a virtural env, and then runs this modlue giving it these args.
+                // But for debugging, we can skip that assuming it's already been ran.
+                "{\"HA_REPO_DIR\":\"/home/pi/Homeway.Addon\",\"HA_ENV\":\"/home/pi/.homeway-env\",\"USERNAME\":\"pi\",\"USER_HOME\":\"/home/pi\",\"CMD_LINE_ARGS\":\"-debug -skipsudoactions\"}"
+            ]
+        },
     ]
 }

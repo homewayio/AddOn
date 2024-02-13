@@ -74,16 +74,11 @@ if __name__ == '__main__':
         #
         # Parse the common, required args.
         #
-        HomeAssistantIp = _GetConfigVarAndValidate(config, "HomeAssistantIp", ConfigDataTypes.String)
-        HomeAssistantPort = _GetConfigVarAndValidate(config, "HomeAssistantPort", ConfigDataTypes.Int)
-        RepoRootDir = _GetConfigVarAndValidate(config, "RepoRootDir", ConfigDataTypes.Path)
+        VersionFileDir = _GetConfigVarAndValidate(config, "VersionFileDir", ConfigDataTypes.Path)
+        AddonDataRootDir = _GetConfigVarAndValidate(config, "AddonDataRootDir", ConfigDataTypes.Path)
+        LogsDir = _GetConfigVarAndValidate(config, "LogsDir", ConfigDataTypes.Path)
         StorageDir = _GetConfigVarAndValidate(config, "StorageDir", ConfigDataTypes.Path)
-        IsRunningInAddonContext = _GetConfigVarAndValidate(config, "RunningInAddonContext", ConfigDataTypes.Bool)
-
-        # Passing an auth key for Home Assistant is optional.
-        AccessToken_CanBeNone = None
-        if "AccessToken" in config and len(config["AccessToken"]) > 0:
-            AccessToken_CanBeNone = config["AccessToken"]
+        IsRunningInHaAddonEnv = _GetConfigVarAndValidate(config, "IsRunningInHaAddonEnv", ConfigDataTypes.Bool)
 
     except Exception as e:
         _PrintErrorAndExit(f"Exception while loading json config. Error:{str(e)}, Config: {jsonConfigStr}")
@@ -100,8 +95,8 @@ if __name__ == '__main__':
     # Run!
     try:
         # Create and run the main host!
-        host = LinuxHost(StorageDir, IsRunningInAddonContext, devConfig_CanBeNone)
-        host.RunBlocking(StorageDir, RepoRootDir, HomeAssistantIp, HomeAssistantPort, AccessToken_CanBeNone, devConfig_CanBeNone)
+        host = LinuxHost(AddonDataRootDir, LogsDir, IsRunningInHaAddonEnv, devConfig_CanBeNone)
+        host.RunBlocking(StorageDir, VersionFileDir, devConfig_CanBeNone)
     except Exception as e:
         _PrintErrorAndExit(f"Exception leaked from main host class. Error:{str(e)}")
 

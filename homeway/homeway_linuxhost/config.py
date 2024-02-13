@@ -12,11 +12,14 @@ class Config:
     # This can't change or all past plugins will fail. It's also used by the installer.
     ConfigFileName = "homeway.conf"
 
-    ServerSection = "server"
+    # Vars relating to how the addon connects to Home Assistant
+    # These vars are also used by the linux installer.
+    HomeAssistantSection = "home_assistant"
+    HaIpOrHostnameKey = "hostname_or_ip"
+    HaPortKey = "port"
+    HaAccessTokenKey = "access_token"
 
-    RelaySection = "relay"
-    RelayFrontEndPortKey = "frontend_port"            # This field is shared with the installer, the installer can write this value. It the name can't change!
-
+    # Logging stuff.
     LoggingSection = "logging"
     LogLevelKey = "log_level"
     LogFileMaxSizeMbKey = "max_file_size_mb"
@@ -26,7 +29,9 @@ class Config:
     # The objects must have two parts, first, a string they target. If the string is found, the comment will be inserted above the target string. This can be a section or value.
     # A string, which is the comment to be inserted.
     c_ConfigComments = [
-        { "Target": RelayFrontEndPortKey,  "Comment": "The port used for http relay. If your desired frontend runs on a different port, change this value. The Homeway plugin service needs to be restarted before changes will take effect."},
+        { "Target": HaIpOrHostnameKey,  "Comment": "This is the IP or hostname used to connect to Home Assistant."},
+        { "Target": HaPortKey,  "Comment": "This is the port used to connect to Home Assistant."},
+        { "Target": HaAccessTokenKey,  "Comment": "Required for standalone addon installs, not required for addon installs. This is the long lived access token used to connect to Home Assistant."},
         { "Target": LogLevelKey,  "Comment": "The active logging level. Valid values include: DEBUG, INFO, WARNING, or ERROR."},
     ]
 
@@ -90,7 +95,8 @@ class Config:
         try:
             return int(self.GetStr(section, key, str(defaultValue)))
         except Exception as e:
-            self.Logger.error("Config settings error! "+key+" failed to get as int. Resetting to default. "+str(e))
+            if self.Logger is not None:
+                self.Logger.error("Config settings error! "+key+" failed to get as int. Resetting to default. "+str(e))
             self.SetStr(section, key, str(defaultValue))
             return int(defaultValue)
 
@@ -107,7 +113,8 @@ class Config:
                 return True
             raise Exception("Invalid bool value, value was: "+strValue)
         except Exception as e:
-            self.Logger.error("Config settings error! "+key+" failed to get as bool. Resetting to default. "+str(e))
+            if self.Logger is not None:
+                self.Logger.error("Config settings error! "+key+" failed to get as bool. Resetting to default. "+str(e))
             self.SetStr(section, key, str(defaultValue))
             return bool(defaultValue)
 

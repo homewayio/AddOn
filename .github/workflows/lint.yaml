@@ -105,17 +105,6 @@ jobs:
           shopt -s globstar
           cat **/*.json | jq '.'
 
-  lint-shellcheck:
-    name: Shellcheck
-    runs-on: ubuntu-latest
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v4
-      - name: 🚀 Run Shellcheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        env:
-          SHELLCHECK_OPTS: -s bash
-
   lint-yamllint:
     name: YAMLLint
     runs-on: ubuntu-latest

@@ -78,7 +78,7 @@ class CommandHandler:
     # Common Handler Core Logic
     #
 
-    # Returns True or False depending if this request is a OE command or not.
+    # Returns True or False depending if this request is a Homeway command or not.
     # If it is, HandleCommand should be used to get the response.
     def IsCommandRequest(self, httpInitialContext):
         # Get the path to check if it's a command or not.

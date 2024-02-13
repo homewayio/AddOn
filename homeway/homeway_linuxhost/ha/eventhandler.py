@@ -216,7 +216,7 @@ class EventHandler:
                     sendEvents = self.SendEvents
                     self.SendEvents = []
 
-                self.Logger.info(f"_StateChangeSender is sending {(len(sendEvents))} assistant state change events.")
+                self.Logger.debug(f"_StateChangeSender is sending {(len(sendEvents))} assistant state change events.")
 
                 # Make the call.
                 url = "https://homeway.io/api/plugin-api/statechangeevents"
