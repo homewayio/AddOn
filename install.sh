@@ -141,6 +141,32 @@ install_or_update_python_env()
     log_info "Python libs installed."
 }
 
+#
+# This Linux addon is not designed to run in a container, including Home Assistant's container.
+# Warn the user if a container is detected.
+#
+check_if_running_in_docker()
+{
+    if [ -f /.dockerenv ]; then
+        log_blank
+        log_header       "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+        echo -e "${c_red}                                Warning${c_default}"
+        echo -e "${c_red}The Homeway standalone addon IS NOT designed to be ran in a docker container.${c_default}"
+        log_header       "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+        log_blank
+        log_blue      "The Homeway addon should be setup and installed in the host operating system - not in any docker container."
+        log_blue      "The addon most likely WILL NOT WORK if installed into a docker container."
+        log_blank
+        log_important "To fix this warning, exit the docker container or SSH directly in to the device and run the setup script again."
+        log_blank
+        log_info      "If you know what you're doing, you can continue the install."
+        read -p       "Continue the install? [y/N]: " -e -i "N" cont
+        echo ""
+        if [ "${cont^^}" != "Y" ] ; then
+            exit 0
+        fi
+    fi
+}
 
 log_blank
 log_blank
@@ -179,6 +205,9 @@ log_info      "  - And More"
 log_blank
 log_blank
 
+
+# Do our docker warning check
+check_if_running_in_docker
 
 # Make sure our required system packages are installed.
 # These are required for other actions in this script, so it must be done first.
