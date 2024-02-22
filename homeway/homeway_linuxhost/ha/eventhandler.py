@@ -24,6 +24,15 @@ class EventHandler:
     # This allows one off changes to be more responsive.
     c_RequestCollapseDelayTimeSecFirstSend = 0.1
 
+    # How often we will reset the dict keeping track of spammy events.
+    c_SpammyEntityResetWindowSec = 60.0 * 30 # 30 minutes
+
+    # The number of entity updates that can be sent per entity before they are throttled.
+    c_SpammyEntityUpdateLimitBeforeThrottle = 30
+
+    # The number of updates between allowed throttled updates.
+    c_SpammyEntityUpdateAllowFrequency = 30
+
     # Useful for debugging.
     c_LogEvents = True
 
@@ -37,8 +46,10 @@ class EventHandler:
         self.ThreadEvent = threading.Event()
         self.Lock = threading.Lock()
         self.SendEvents = []
+        self.SpammyEntityDict = {}
         self.SendPeriodStartSec = 0.0
         self.SentCountThisPeriod = 0
+        self.SpammyEntityWindowStartSec = 0.0
 
         # Start the send thread.
         self.Thread = threading.Thread(target=self._StateChangeSender)
@@ -58,7 +69,8 @@ class EventHandler:
         # When we get the API key, if it's the first time it's being set, request a sync to make sure
         # things are in order.
         if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
-            self._QueueStateChangeSend(self._GetStateChangeSendEvent("startup_sync"))
+            entityId = "startup_sync"
+            self._QueueStateChangeSend(entityId, self._GetStateChangeSendEvent(entityId))
         self.HomewayApiKey = key
 
 
@@ -126,7 +138,7 @@ class EventHandler:
                     return
 
         # If we get here, this is an status change we want to send.
-        self._QueueStateChangeSend(self._GetStateChangeSendEvent(entityId, haVersion, newState_CanBeNone, oldState_CanBeNone))
+        self._QueueStateChangeSend(entityId, self._GetStateChangeSendEvent(entityId, haVersion, newState_CanBeNone, oldState_CanBeNone))
 
 
     # Converts the HA events to our send event format.
@@ -159,10 +171,38 @@ class EventHandler:
         return sendEvent
 
 
-    def _QueueStateChangeSend(self, sendEvent:dict):
+    def _QueueStateChangeSend(self, entityId:str, sendEvent:dict):
         # We collapse individual calls in to a single batch call based on a time threshold.
         self.Logger.debug("_QueueStateChangeSend called")
         with self.Lock:
+            # Some individual entities seem to be really spammy, we have seen some lights
+            # that send updates very often. To mitigate that, we will keep track of how many times
+            # each entity reports updates and start limiting them if it's really chatty.
+            # This works by keeping track of each entity and the number of times it's updating.
+            # If it updates more than x times in a time window, the updates will be throttled.
+
+            # Check if it's time to reset the spammy event dict.
+            if time.time() - self.SpammyEntityWindowStartSec > EventHandler.c_SpammyEntityResetWindowSec:
+                self.Logger.debug("Event Handler resetting the spammy entity window.")
+                self.SpammyEntityWindowStartSec = time.time()
+                self.SpammyEntityDict = {}
+
+            # Handle updating the count for this entity
+            if entityId in self.SpammyEntityDict:
+                updateCount = self.SpammyEntityDict[entityId] + 1
+                self.SpammyEntityDict[entityId] = updateCount
+                # Check this entity is over the limit
+                if updateCount >= EventHandler.c_SpammyEntityUpdateLimitBeforeThrottle:
+                    if updateCount == EventHandler.c_SpammyEntityUpdateLimitBeforeThrottle:
+                        self.Logger.debug(f"Entity {entityId} just hit the spam limit and will now be throttled.")
+                    # The entity is over the limit, check if we should allow this one through.
+                    if updateCount % EventHandler.c_SpammyEntityUpdateAllowFrequency != 0:
+                        # Drop this update.
+                        return
+                    self.Logger.debug(f"Allowing a throttled event for {entityId}. Total updates: {updateCount}")
+            else:
+                self.SpammyEntityDict[entityId] = 1
+
             # Add this event to the queue.
             self.SendEvents.append(sendEvent)
             # Set the event to wake up the thread, if it's not already.

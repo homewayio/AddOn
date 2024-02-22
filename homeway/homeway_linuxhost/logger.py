@@ -10,7 +10,7 @@ class LoggerInit:
 
     # Sets up and returns the main logger object
     @staticmethod
-    def GetLogger(config, storageDir, logLevelOverride_CanBeNone) -> logging.Logger:
+    def GetLogger(config, logsDir, logLevelOverride_CanBeNone) -> logging.Logger:
         logger = logging.getLogger()
 
         # From the possible logging values, read the current value from the config.
@@ -41,7 +41,6 @@ class LoggerInit:
         logger.addHandler(std)
 
         # Ensure the logging dir exists
-        logsDir = os.path.join(storageDir, "logs")
         Path(logsDir).mkdir(parents=True, exist_ok=True)
 
         # Setup the file logger

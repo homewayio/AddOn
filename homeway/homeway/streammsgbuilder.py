@@ -3,12 +3,13 @@ import octoflatbuffers
 from .Proto import MessageContext
 from .Proto import HandshakeSyn
 from .Proto import StreamMessage
+from .Proto.AddonTypes import AddonTypes
 
 # A helper class that builds our Stream messages as flatbuffers.
 class StreamMsgBuilder:
 
     @staticmethod
-    def BuildHandshakeSyn(pluginId, privateKey, isPrimarySession, pluginVersion, localHttpProxyPort, localIp, rsaChallenge, rasKeyVersionInt, summonMethod):
+    def BuildHandshakeSyn(pluginId, privateKey, isPrimarySession, pluginVersion, localHttpProxyPort, localIp, rsaChallenge, rasKeyVersionInt, summonMethod, addonType:AddonTypes):
         # Get a buffer
         builder = StreamMsgBuilder.CreateBuffer(500)
 
@@ -30,6 +31,7 @@ class StreamMsgBuilder:
         HandshakeSyn.AddIsPrimaryConnection(builder, isPrimarySession)
         HandshakeSyn.AddPluginVersion(builder, pluginVersionOffset)
         HandshakeSyn.AddSummonMethod(builder, summonMethod)
+        HandshakeSyn.AddAddonType(builder, addonType)
         if localIpOffset is not None:
             HandshakeSyn.AddLocalDeviceIp(builder, localIpOffset)
         HandshakeSyn.AddLocalHttpProxyPort(builder, localHttpProxyPort)

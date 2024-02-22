@@ -1,6 +1,12 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.0.0
+
+- The official 1.0 Release! 🥳
+- Homeway Standalone Add-on - You can now run Homeway directly on your linux device if your Home Assistant setup doesn't support Add-ons!
+- Better assistant rate limiting for chatty home devices.
+
 ## 0.4.3
 
 - Finishing up device state reporting and device refresh for Alexa and Google Home, meaning when you change your devices they will show up instantly in your apps!

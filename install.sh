@@ -105,6 +105,7 @@ ensure_py_venv()
 install_or_update_system_dependencies()
 {
     log_header "Checking required system packages are installed..."
+    log_important "You might be asked for your system password - this is required to install the required system packages."
 
     # It seems a lot of systems don't have the date and time set correctly, and then the fail
     # getting packages and other downstream things. We will will use our HTTP API to set the current UTC time.
@@ -115,7 +116,6 @@ install_or_update_system_dependencies()
 
     # These we require to be installed in the OS.
     # Note we need to do this before we create our virtual environment
-    log_important "You might be asked for your system password - this is required to install the required system packages."
     log_info "Installing required system packages..."
     sudo apt update 1>/dev/null` 2>/dev/null` || true
     sudo apt install --yes ${HA_PKGLIST}
@@ -151,13 +151,13 @@ check_if_running_in_docker()
         log_blank
         log_header       "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
         echo -e "${c_red}                                Warning${c_default}"
-        echo -e "${c_red}The Homeway standalone addon IS NOT designed to be ran in a docker container.${c_default}"
+        echo -e "${c_red}The Homeway standalone add-on IS NOT designed to be run in a docker container.${c_default}"
         log_header       "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
         log_blank
-        log_blue      "The Homeway addon should be setup and installed in the host operating system - not in any docker container."
-        log_blue      "The addon most likely WILL NOT WORK if installed into a docker container."
+        log_info      "The Homeway add-on should be set up and installed on the host operating system, not in any docker container."
+        log_info      "The add-on most likely WILL NOT WORK if installed into a docker container."
         log_blank
-        log_important "To fix this warning, exit the docker container or SSH directly in to the device and run the setup script again."
+        log_important "To fix this warning, SSH directly into the host OS running on the device run the setup command again."
         log_blank
         log_info      "If you know what you're doing, you can continue the install."
         read -p       "Continue the install? [y/N]: " -e -i "N" cont
@@ -192,17 +192,15 @@ cat << EOF
                   ####################
 EOF
 log_blank
-log_important "                       Homeway.io"
+log_header    "                    ~~ Homeway.io ~~"
 log_blue      "Free, secure, and private remote access for Home Assistant!"
 log_blank
-log_blank
-log_important "Homeway empowers the Home Assistant community with..."
+log_important "Homeway empowers the Home Assistant community with:"
 log_info      "  - Free Home Assistant Remote Access"
 log_info      "  - Free Official Home Assistant iOS & Android App Remote Access"
-log_info      "  - Alexa And Googles Assistant Integration"
+log_info      "  - Alexa And Google Assistant Integration"
 log_info      "  - Shared Remote Access"
-log_info      "  - And More"
-log_blank
+log_info      "  - And More!"
 log_blank
 
 

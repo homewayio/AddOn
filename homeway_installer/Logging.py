@@ -1,4 +1,5 @@
 import os
+import pwd
 from datetime import datetime
 
 #
@@ -19,10 +20,18 @@ class Logger:
 
 
     @staticmethod
-    def InitFile(userHomePath):
+    def InitFile(userHomePath:str, userName:str):
         try:
             # pylint: disable=consider-using-with
-            Logger.OutputFile = open(os.path.join(userHomePath, "homeway-installer.log"), "w", encoding="utf-8")
+            installerLogPath = os.path.join(userHomePath, "homeway-installer.log")
+            Logger.OutputFile = open(installerLogPath, "w", encoding="utf-8")
+
+            # Ensure the file is permission to the user who ran the script.
+            # Note we can't ref Util since it depends on the Logger.
+            uid = pwd.getpwnam(userName).pw_uid
+            gid = pwd.getpwnam(userName).pw_gid
+            # pylint: disable=no-member # Linux only
+            os.chown(installerLogPath, uid, gid)
         except Exception as e:
             print("Failed to make log file. "+str(e))
 

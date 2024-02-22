@@ -20,6 +20,7 @@ from .Proto import HandshakeAck
 from .Proto import MessageContext
 from .Proto import WebStreamMsg
 from .Proto import Summon
+from .Proto.AddonTypes import AddonTypes
 
 class Session:
 
@@ -193,7 +194,7 @@ class Session:
             Sentry.Exception("Exception thrown while closing all web streams.", ex)
 
 
-    def StartHandshake(self, summonMethod):
+    def StartHandshake(self, summonMethod, addonType:AddonTypes):
         # Send the handshakesyn
         try:
             # Get our unique challenge
@@ -205,7 +206,7 @@ class Session:
             # Build the message
             buf = StreamMsgBuilder.BuildHandshakeSyn(self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
                 HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIp(),
-                rasChallenge, rasChallengeKeyVerInt, summonMethod)
+                rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType)
 
             # Send!
             self.Stream.SendMsg(buf)

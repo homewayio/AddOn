@@ -3,6 +3,7 @@ import stat
 
 from .Context import Context
 from .Logging import Logger
+from .Util import Util
 
 # This class contains some logic to make updates easier for the user.
 class Updater:
@@ -16,8 +17,8 @@ class Updater:
 #!/bin/bash
 
 #
-# This is a helper script to allow easy updating of the Homeway Addon.
-# To update your addon, simply run the script and follow the prompts!
+# This is a helper script to allow easy updating of the Homeway standalone add-on.
+# To update your add-on, simply run the script and follow the prompts!
 #
 # If you need help, feel free to contact us at support@homeway.io
 #
@@ -37,6 +38,10 @@ cd $startingDir
             # Make sure to make it executable
             st = os.stat(updateFilePath)
             os.chmod(updateFilePath, st.st_mode | stat.S_IEXEC)
+
+            # Ensure the user who launched the installer script has permissions to run it.
+            Util.SetFileOwnerRecursive(updateFilePath, context.UserName)
+
             return True
         except Exception as e:
             Logger.Error("Failed to write updater script to user home. "+str(e))

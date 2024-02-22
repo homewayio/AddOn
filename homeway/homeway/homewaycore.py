@@ -2,6 +2,8 @@ import time
 import threading
 import logging
 
+from .Proto.AddonTypes import AddonTypes
+
 from .sentry import Sentry
 from .threaddebug import ThreadDebug
 from .servercon import ServerCon
@@ -24,13 +26,14 @@ class Homeway:
     SecondaryConnectionRunForTimeSec = 60 * 15 # 15 minutes.
 
 
-    def __init__(self, endpoint:str, pluginId:str, privateKey:str, logger:logging.Logger, statusChangeHandler, pluginVersion:str):
+    def __init__(self, endpoint:str, pluginId:str, privateKey:str, logger:logging.Logger, statusChangeHandler, pluginVersion:str, addonType:AddonTypes):
         self.Endpoint = endpoint
         self.PluginId = pluginId
         self.PrivateKey = privateKey
         self.Logger = logger
         self.StatusChangeHandler = statusChangeHandler
         self.PluginVersion = pluginVersion
+        self.AddonType = addonType
         self.SecondaryServerCons = {}
         self.SecondaryServerConsLock = threading.Lock()
 
@@ -43,7 +46,7 @@ class Homeway:
             try:
                 # Create the primary connection.
                 # Allow this connection to use the lowest latency server if possible.
-                serverCon = self.createServerCon(self.Endpoint, True, True, self.StatusChangeHandler, self.PrimaryConnectionRunForTimeSec, SummonMethods.SummonMethods.Unknown)
+                serverCon = self.createServerCon(self.Endpoint, True, True, self.StatusChangeHandler, self.PrimaryConnectionRunForTimeSec, SummonMethods.SummonMethods.Unknown, self.AddonType)
                 serverCon.RunBlocking()
             except RuntimeError as e:
                 # From telemetry, we have seen that this error can fire very often for some users when there are too many threads running.
@@ -81,7 +84,7 @@ class Homeway:
         self.Logger.info("Starting a secondary connection to "+str(summonConnectUrl)+ " method "+str(summonMethod))
         try:
             # Never allow the lowest latency server to be used for secondary connection, since it won't connect to where it needs to be.
-            serverCon = self.createServerCon(summonConnectUrl, False, False, None, self.SecondaryConnectionRunForTimeSec, summonMethod)
+            serverCon = self.createServerCon(summonConnectUrl, False, False, None, self.SecondaryConnectionRunForTimeSec, summonMethod, self.AddonType)
             serverCon.RunBlocking()
         except Exception as e:
             Sentry.Exception("Exception in HandleSecondaryServerCon function.", e)
@@ -100,5 +103,5 @@ class Homeway:
         self.Logger.info("Secondary connection to "+str(summonConnectUrl)+" has ended")
 
 
-    def createServerCon(self, endpoint:str, isPrimary:bool, shouldUseLowestLatencyServer:bool, statusChangeHandler, runTime, summonMethod):
-        return ServerCon(self, endpoint, isPrimary, shouldUseLowestLatencyServer, self.PluginId, self.PrivateKey, self.Logger, statusChangeHandler, self.PluginVersion, runTime, summonMethod)
+    def createServerCon(self, endpoint:str, isPrimary:bool, shouldUseLowestLatencyServer:bool, statusChangeHandler, runTime, summonMethod, addonType:AddonTypes):
+        return ServerCon(self, endpoint, isPrimary, shouldUseLowestLatencyServer, self.PluginId, self.PrivateKey, self.Logger, statusChangeHandler, self.PluginVersion, runTime, summonMethod, addonType)

@@ -18,7 +18,7 @@ c_cyan=$(echo -en "\e[96m")
 
 echo ""
 echo ""
-echo -e "${c_yellow}Starting an Homeway update!${c_default}"
+echo -e "${c_magenta}Starting the Homeway standalone add-on update!${c_default}"
 echo ""
 echo ""
 

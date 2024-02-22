@@ -100,7 +100,7 @@ class Configure:
         Logger.Header("        Home Assistant Setup")
         Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         Logger.Blank()
-        Logger.Info("The Homeway addon will now try to search for and connect to your Home Assistant server.")
+        Logger.Info("The Homeway add-on will now try to search for your Home Assistant server.")
         Logger.Info("If you have any trouble, we are happy to help! Contact us at support@homeway.io")
         Logger.Blank()
         Logger.Info("Searching for local Home Assistant servers... please wait... (about 5 seconds)")
@@ -128,6 +128,7 @@ class Configure:
             for ip in foundIps:
                 count += 1
                 Logger.Info(f"  {count}) {ip}:{Configure.c_DefaultHomeAssistantPortStr}")
+            Logger.Info(f"  m) Manually enter the server information")
             Logger.Blank()
             while True:
                 response = input("Enter the number next to the Home Assistant server you want to use. Or enter `m` to manually specify the connection details: ")
@@ -153,8 +154,8 @@ class Configure:
             try:
                 Logger.Blank()
                 Logger.Blank()
-                Logger.Info("Please enter the Hostname or IP Address of your Home Assistant server.")
-                Logger.Info("The Hostname might look something like `homeassistant.local` or an IP address might look something like `192.168.1.5`")
+                Logger.Header("Enter the Hostname or IP Address of your Home Assistant server.")
+                Logger.Info(  "The Hostname might look something like `homeassistant.local` or an IP address might look something like `192.168.1.5`")
                 ipOrHostname = input("Enter the Hostname or IP: ")
                 # Clean up what the user entered. Remove the protocol, trailing GET paths, or port numbers.
                 ipOrHostname = ipOrHostname.lower().strip()
@@ -166,8 +167,8 @@ class Configure:
                     ipOrHostname = ipOrHostname[:ipOrHostname.find(":")]
 
                 Logger.Blank()
-                Logger.Info( "Please enter the port Home Assistant is running on.")
-                Logger.Info(f"If you don't know the port or want to use the default port ({Configure.c_DefaultHomeAssistantPortStr}), press enter.")
+                Logger.Header( "Enter the port Home Assistant is running on.")
+                Logger.Info  (f"If you don't know the port or want to use the default port ({Configure.c_DefaultHomeAssistantPortStr}), press enter.")
                 port = input("Enter Home Assistant Port: ")
                 if len(port) == 0:
                     port = Configure.c_DefaultHomeAssistantPortStr
@@ -180,13 +181,11 @@ class Configure:
                 if success:
                     return (ipOrHostname, port)
                 else:
-                    Logger.Blank()
-                    Logger.Blank()
                     if exception is not None:
                         Logger.Error("Home Assistant connection failed.")
                     else:
                         Logger.Error("Home Assistant connection timed out.")
-                    Logger.Warn("Make sure the device is powered on, has an network connection, and the ip is correct.")
+                    Logger.Warn("Make sure the device is powered on, has an network connection, and the Hostname or IP is correct.")
                     if exception is not None:
                         Logger.Warn(f"Error {str(exception)}")
             except Exception as e:
@@ -378,24 +377,23 @@ class Configure:
         while True:
             Logger.Blank()
             Logger.Blank()
-            Logger.Blank()
             Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             Logger.Header("     Home Assistant Access Token")
             Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             Logger.Blank()
-            Logger.Info("For the Homeway addon to access Home Assistant, you need to create a 'Long-Lived Access Token'.")
+            Logger.Header("For Homeway to access your Home Assistant server, you need to create a 'Long-Lived Access Token'.")
             Logger.Blank()
-            Logger.Info("To create a access token in Home Assistant, follow these steps:")
-            Logger.Info("  1) Open Home Assistant and go to your user profile:")
+            Logger.Info("To create a Long-Lived Access Token in Home Assistant, follow these steps:")
+            Logger.Info("  1) Open the Home Assistant web UI and go to your user profile:")
             Logger.Header(f"       http://{displayIp}:{port}/profile")
-            Logger.Info("  2) On the profile page, scroll all the way down to the bottom, to the box labeled 'Long-lived access token'.")
+            Logger.Info("  2) On your profile page, scroll down to the bottom to the box labeled 'Long-lived access tokens'.")
             Logger.Info("  3) Click 'CREATE TOKEN'")
             Logger.Info("  4) Enter any name, something 'Homeway Addon' works just fine.")
-            Logger.Info("  5) Copy the access token and paste it in this terminal.")
+            Logger.Info("  5) Copy the access token and paste it into this terminal.")
             Logger.Blank()
-            Logger.Warn("Hint: In most terminals, right clicking anywhere on the terminal screen will paste text.")
+            Logger.Warn("Hint: Right-clicking anywhere on the terminal screen will paste text in most terminals.")
             Logger.Blank()
-            apiToken = input("Enter your access token: ")
+            apiToken = input("Enter your long-lived access token: ")
             apiToken = apiToken.strip()
             Logger.Blank()
             Logger.Info(f"Connecting to your Home Assistant server [{ip}:{port}] and trying to log in...")
@@ -403,10 +401,8 @@ class Configure:
             if success and exception is None and failedDueToAuth is False:
                 return apiToken
             Logger.Blank()
-            Logger.Blank()
-            Logger.Error("That didn't work.")
             if failedDueToAuth:
-                Logger.Error("We connected to your Home Assistant server but the Access Token didn't work.")
+                Logger.Error("The add-on was able to connect to your Home Assistant server, but the Access Token was invalid.")
             else:
-                Logger.Error("We were unable to connect to your Home Assistant server.")
+                Logger.Error("The add-on was unable to connect to your Home Assistant server.")
             Logger.Error("Try again. If you need any help contact us at support@homeway.io")

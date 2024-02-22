@@ -9,6 +9,7 @@ from homeway.pingpong import PingPong
 from homeway.commandhandler import CommandHandler
 from homeway.homewaycore import Homeway
 from homeway.httprequest import HttpRequest
+from homeway.Proto.AddonTypes import AddonTypes
 
 from .config import Config
 from .secrets import Secrets
@@ -133,11 +134,17 @@ class LinuxHost:
                 # We only try to update the config if we are running in the docker addon mode.
                 configManager.UpdateConfigIfNeeded()
 
+            # Get the addon type
+            if self.IsRunningInHaAddonEnv:
+                addonType = AddonTypes.HaContainer
+            else:
+                addonType = AddonTypes.Standalone
+
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()
             if devLocalHomewayServerAddress_CanBeNone is not None:
                 pluginConnectUrl = HostCommon.GetPluginConnectionUrl(fullHostString="ws://"+devLocalHomewayServerAddress_CanBeNone)
-            oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr)
+            oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr, addonType)
             oe.RunBlocking()
         except Exception as e:
             Sentry.Exception("!! Exception thrown out of main host run function.", e)

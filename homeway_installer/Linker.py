@@ -19,7 +19,7 @@ class Linker:
         # First, wait for the config file to be created and the addon ID to show up.
         addonId = None
         startTimeSec = time.time()
-        Logger.Info("Waiting for the Homeway Addon to produce an addon id... (this can take a few seconds)")
+        Logger.Info("Waiting for the Homeway add-on to produce an add-on id... (this can take a few seconds)")
         while addonId is None:
             # Give the service time to start.
             time.sleep(0.1)
@@ -31,50 +31,53 @@ class Linker:
             if addonId is None:
                 timeDelta = time.time() - startTimeSec
                 if timeDelta > 10.0:
-                    Logger.Warn("The standalone addon service is taking a while to start, there might be something wrong.")
+                    Logger.Warn("The standalone add-on service is taking a while to start, there might be something wrong.")
                     if Util.AskYesOrNoQuestion("Do you want to keep waiting?"):
                         startTimeSec = time.time()
                         continue
                     # Handle the error and cleanup.
                     Logger.Blank()
                     Logger.Blank()
-                    Logger.Error("We didn't get a response from the Homeway addon service when waiting for the addon id.")
+                    Logger.Error("We didn't get a response from the Homeway add-on service when waiting for the add-on id.")
                     Logger.Error("You can find service logs which might indicate the error in: "+context.LogFolder)
                     Logger.Blank()
                     Logger.Blank()
                     Logger.Error("Attempting to print the service logs:")
                     # Try to print the service logs to the console.
                     Util.PrintServiceLogsToConsole(context)
-                    raise Exception("Failed to read addon id from service config file.")
+                    raise Exception("Failed to read add-on id from service config file.")
 
         # Check if the addon is already connected to an account.
         # If so, report and we don't need to do the setup.
         (isConnectedToService, addonNameIfConnectedToAccount) = self._IsAddonConnectedToAnAccount(addonId)
         if isConnectedToService and addonNameIfConnectedToAccount is not None:
-            Logger.Header("This addon is securely connected to your Homeway account as '"+str(addonNameIfConnectedToAccount)+"'")
+            Logger.Header("This add-on is securely connected to your Homeway account as '"+str(addonNameIfConnectedToAccount)+"'")
             return
 
         # The addon isn't connected to an account.
         # If this is not the first time setup, ask the user if they want to do it now.
         if context.ExistingAddonId is not None:
             Logger.Blank()
-            Logger.Warn("This addon isn't connected to a Homeway account.")
+            Logger.Warn("This add-on isn't connected to a Homeway account.")
             if Util.AskYesOrNoQuestion("Would you like to link it now?") is False:
                 Logger.Blank()
-                Logger.Header("You can connect this addon anytime, using this URL: ")
+                Logger.Header("You can connect this add-on anytime, using this URL: ")
                 Logger.Warn(self._GetAddAddonUrl(addonId))
                 return
 
+        Logger.Blank()
+        Logger.Blank()
+        Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        Logger.Header("      Add-on Account Linking")
+        Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
         # Help the user setup the addon!
-        Logger.Blank()
-        Logger.Blank()
-        Logger.Warn( "You're 10 seconds away from free Home Assistant remote access!")
         Logger.Blank()
         self._PrintShortCodeStyleOrFullUrl(addonId)
         Logger.Blank()
         Logger.Blank()
 
-        Logger.Info("Waiting for the addon to be linked to your account...")
+        Logger.Info("Waiting for the add-on to be linked to your account...")
         startTimeSec = time.time()
         notConnectedTimeSec = time.time()
         while True:
@@ -84,15 +87,15 @@ class Linker:
             if addonNameIfConnectedToAccount is not None:
                 # Connected!
                 Logger.Blank()
-                Logger.Header("Success! This addon is securely connected to your account as '"+str(addonNameIfConnectedToAccount)+"'")
+                Logger.Header("Success! This add-on is securely connected to your account as '"+str(addonNameIfConnectedToAccount)+"'")
                 return
 
             # We expect the addon to be connected to the service. If it's not, something might be wrong.
             if isConnectedToService is False:
                 notConnectedDeltaSec = time.time() - notConnectedTimeSec
-                Logger.Info("Waiting for the addon to connect to our service...")
+                Logger.Info("Waiting for the add-on to connect to our service...")
                 if notConnectedDeltaSec > 10.0:
-                    Logger.Warn("It looks like your addon hasn't connected to the service yet, which it should have by now.")
+                    Logger.Warn("It looks like your add-on hasn't connected to the service yet, which it should have by now.")
                     if Util.AskYesOrNoQuestion("Do you want to keep waiting?"):
                         notConnectedTimeSec = time.time()
                         continue
@@ -106,12 +109,12 @@ class Linker:
                     Logger.Error("Attempting to print the service logs:")
                     # Try to print the service logs to the console.
                     Util.PrintServiceLogsToConsole(context)
-                    raise Exception("Failed to wait for addon to connect to service.")
+                    raise Exception("Failed to wait for add-on to connect to service.")
             else:
                 # The addon is connected but no user account is connected yet.
                 timeDeltaSec = time.time() - startTimeSec
                 if timeDeltaSec > 60.0:
-                    Logger.Warn("It doesn't look like this addon has been connected to your account yet.")
+                    Logger.Warn("It doesn't look like this add-on has been connected to your account yet.")
                     if Util.AskYesOrNoQuestion("Do you want to keep waiting?"):
                         Logger.Blank()
                         Logger.Blank()
@@ -123,7 +126,7 @@ class Linker:
                     Logger.Blank()
                     Logger.Blank()
                     Logger.Blank()
-                    Logger.Warn("You can use the following URL at anytime to link this addon to your account. Or run this install script again for help.")
+                    Logger.Warn("You can use the following URL at anytime to link this add-on to your account. You can also run this install script again to finish the setup.")
                     Logger.Header(self._GetAddAddonUrl(addonId))
                     Logger.Blank()
                     Logger.Blank()
@@ -145,7 +148,7 @@ class Linker:
                 if "Result" in jsonResponse and "Code" in jsonResponse["Result"]:
                     codeStr = jsonResponse["Result"]["Code"]
                     if len(codeStr) > 0:
-                        Logger.Warn("To securely link this addon to your Homeway account, go to the following website and use the code.")
+                        Logger.Warn("To securely link this add-on to your Homeway account, go to the following website and use the code.")
                         Logger.Blank()
                         Logger.Header("Website: https://homeway.io/code")
                         Logger.Header("Code:    "+codeStr)
@@ -153,7 +156,7 @@ class Linker:
         except Exception:
             pass
 
-        Logger.Warn("Use this URL to securely link this addon to your Homeway account:")
+        Logger.Warn("Use this URL to securely link this add-on to your Homeway account:")
         Logger.Header(self._GetAddAddonUrl(addonId))
 
 
@@ -196,7 +199,7 @@ class Linker:
             return None
         addonId = config[Secrets.SecretsSection][Secrets.PluginIdKey]
         if len(addonId) < HostCommon.c_PluginIdMaxLength:
-            Logger.Debug("Addon ID found, but the length is less than "+str(HostCommon.c_PluginIdMaxLength)+" chars? value:`"+addonId+"`")
+            Logger.Debug("Add-on ID found, but the length is less than "+str(HostCommon.c_PluginIdMaxLength)+" chars? value:`"+addonId+"`")
             return None
         return addonId
 

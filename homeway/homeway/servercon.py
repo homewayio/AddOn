@@ -3,6 +3,8 @@ import random
 import logging
 from datetime import datetime
 
+from .Proto.AddonTypes import AddonTypes
+
 from .sentry import Sentry
 from .websocketimpl import Client
 from .session import Session
@@ -52,7 +54,7 @@ class ServerCon:
     WsConnectRandomMaxSec = 10
 
     def __init__(self, host, endpoint:str, isPrimaryConnection:bool, shouldUseLowestLatencyServer:bool, pluginId:str, privateKey:str,
-                  logger:logging.Logger, statusChangeHandler, pluginVersion:str, runForSeconds, summonMethod):
+                  logger:logging.Logger, statusChangeHandler, pluginVersion:str, runForSeconds, summonMethod, addonType:AddonTypes):
         self.ProtocolVersion = 1
         self.Session = None
         self.IsDisconnecting = False
@@ -69,6 +71,7 @@ class ServerCon:
         self.PrivateKey = privateKey
         self.PluginVersion = pluginVersion
         self.SummonMethod = summonMethod
+        self.AddonType = addonType
 
         self.DefaultEndpoint = endpoint
         self.CurrentEndpoint = self.DefaultEndpoint
@@ -147,7 +150,7 @@ class ServerCon:
 
         # Create a new session for this websocket connection.
         self.Session = Session(self, self.Logger, self.PluginId, self.PrivateKey, self.IsPrimaryConnection, self.ActiveSessionId, self.PluginVersion)
-        self.Session.StartHandshake(self.SummonMethod)
+        self.Session.StartHandshake(self.SummonMethod, self.AddonType)
 
 
     def OnClosed(self, ws):

@@ -34,7 +34,9 @@ class Discovery:
         if len(existingAddonFolders) > 0:
             count = 1
             Logger.Blank()
+            Logger.Blank()
             Logger.Header("Existing Homeway Addons Found")
+            Logger.Blank()
             Logger.Blank()
             Logger.Info( "If you want to update or re-setup an instance, select instance id.")
             Logger.Info( "                        - or - ")
@@ -46,12 +48,11 @@ class Discovery:
                 # Try to parse the config, if there is one and it's valid.
                 ip, port, _ = ConfigFile.TryToParseConfig(os.path.join(context.UserHomePath, folder))
                 if ip is None and port is None:
-                    Logger.Info(f"  {count}) Instance Id {addonId} - Path: ~/{folder}")
+                    Logger.Info(f"  {count}) Instance id {addonId} - Path: ~/{folder}")
                 else:
-                    Logger.Info(f"  {count}) Instance Id {addonId} - {ip}:{port}")
+                    Logger.Info(f"  {count}) Instance id {addonId} - Server: {ip}:{port}")
                 count += 1
             Logger.Info("  n) Setup a new Homeway addon instance")
-            Logger.Blank()
             Logger.Blank()
             # Ask the user which number they want.
             responseInt = -1

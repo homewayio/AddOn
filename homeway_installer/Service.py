@@ -50,7 +50,7 @@ class Service:
     # Simple service, targeting the user that was used to install the service, simply running our homeway py host script.
     [Service]
     Type=simple
-    User=root
+    User={context.UserName}
     WorkingDirectory={context.RepoRootFolder}/homeway
     ExecStart={context.VirtualEnvPath}/bin/python3 -m homeway_linuxhost "{argsJsonBase64}"
     Restart=always

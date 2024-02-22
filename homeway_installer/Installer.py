@@ -48,7 +48,7 @@ class Installer:
         context = Context.LoadFromArgString(argObjectStr)
 
         # As soon as we have the user home make the log file.
-        Logger.InitFile(context.UserHomePath)
+        Logger.InitFile(context.UserHomePath, context.UserName)
 
         # Parse the original CmdLineArgs
         Logger.Debug("Parsing script cmd line args.")
@@ -122,12 +122,10 @@ class Installer:
         # Success!
         Logger.Blank()
         Logger.Blank()
-        Logger.Blank()
         Logger.Purple("              ~~~ Homeway Setup Complete ~~~    ")
         Logger.Warn(  "  You can access your Home Assistant anytime from Homeway.io")
         Logger.Header("                 Welcome To Our Community")
         Logger.Error( "                           <3")
-        Logger.Blank()
         Logger.Blank()
 
 
