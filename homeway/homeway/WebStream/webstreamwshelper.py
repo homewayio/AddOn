@@ -107,7 +107,10 @@ class WebStreamWsHelper:
             # Note these attempts are very closely related to the logic in the HttpRequest class and should stay in sync.
             if self.ConnectionAttempt == 0:
                 # Try to connect using the main URL, this is what we expect to work.
-                uri = "ws://" + str(HttpRequest.GetDirectServiceAddress()) + ":" + str(HttpRequest.GetDirectServicePort()) + path
+                protocol = "ws://"
+                if HttpRequest.GetDirectServiceUseHttps():
+                    protocol = "wss://"
+                uri = protocol + str(HttpRequest.GetDirectServiceAddress()) + ":" + str(HttpRequest.GetDirectServicePort()) + path
             elif self.ConnectionAttempt == 1:
                 # Attempt 2 is to where we think the http proxy port is.
                 # For this address, we need set the protocol correctly depending if the client detected https or not.

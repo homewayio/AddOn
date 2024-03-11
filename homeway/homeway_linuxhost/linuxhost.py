@@ -21,6 +21,7 @@ from .ha.configmanager import ConfigManager
 from .ha.connection import Connection
 from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
+from .ha.serverdiscovery import ServerDiscovery
 
 
 # This file is the main host for the linux service.
@@ -100,15 +101,39 @@ class LinuxHost:
             # Init the mdns client
             MDns.Init(self.Logger, storageDir)
 
-            # Setup the tunnel with the set home assistant IP and port.
-            # Get the Home Assistant server details.
+            # Get the Home Assistant server details from the config.
             homeAssistantIpOrHostname = self.Config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
             homeAssistantPort = self.Config.GetInt(Config.HomeAssistantSection, Config.HaPortKey, 8123)
+            homeAssistantUseHttps = self.Config.GetInt(Config.HomeAssistantSection, Config.HaUseHttps, False)
             accessToken_CanBeNone = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
-            self.Logger.info("Setting up Home Assistant connection to [%s:%s]", homeAssistantIpOrHostname, str(homeAssistantPort))
+
+            # For port discovery, it's ideal to have the access token, to ensure we found the exact right server.
+            discoveryAccessToken = accessToken_CanBeNone
+            if discoveryAccessToken is None:
+                # Try to get the access token from the env which will work if we are running in a container.
+                discoveryAccessToken = ServerInfo.GetAccessToken()
+                if discoveryAccessToken is None:
+                    # This shouldn't really happen.
+                    self.Logger.warning("No access token was found in the config or env.")
+
+            # Use the discovery class to find the correct port for Home Assistant.
+            # For standalone plugin installs, the installer will get the port set correctly with the user's help.
+            # In that case, the discovery will use the hint port and instantly find the correct server.
+            # For addon installs, the user might have a custom setup that requires some searching to find the right port.
+            serverDiscovery = ServerDiscovery(self.Logger)
+            result = serverDiscovery.SearchForServerPort(homeAssistantIpOrHostname, discoveryAccessToken, homeAssistantPort)
+            if result is not None:
+                homeAssistantPort = result.Port
+                homeAssistantUseHttps = result.IsHttps
+            else:
+                self.Logger.warning("Server discovery failed to find a port %s, we will just use the default [%s]", homeAssistantIpOrHostname, str(homeAssistantPort))
+
+            # Set the final ips, port, and access token.
+            self.Logger.info("Setting up Home Assistant connection to [%s:%s] https:%s", homeAssistantIpOrHostname, str(homeAssistantPort), str(homeAssistantPort))
             HttpRequest.SetDirectServicePort(homeAssistantPort)
             HttpRequest.SetDirectServiceAddress(homeAssistantIpOrHostname)
-            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, accessToken_CanBeNone)
+            HttpRequest.SetDirectServiceUseHttps(homeAssistantUseHttps)
+            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, homeAssistantUseHttps, accessToken_CanBeNone)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir)

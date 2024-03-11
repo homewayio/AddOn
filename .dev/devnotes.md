@@ -3,6 +3,15 @@
 Follow this guide to setup the local docker container and running it.
 https://developers.home-assistant.io/docs/add-ons/testing
 
+- Open the project in VS code and the re-open into a dev container
+- When open, Ctrl-Shift-P to open the commands, and then type "Run Task"
+- Select "Start Home Assistant"
+- Go go http://localhost:7123
+- In Home Assistant, go to the addons, select install, and you will see Homeway listed as local.
+- To update after making changes:
+    - bump the version number in the config and comment out the image path.
+    - then in HA refresh the addons, go into the Homeway page, and hit update.
+
 ## To Run The Dev Host On A Remote Linux Device
 
 - Clone this repo in on debian based OS.

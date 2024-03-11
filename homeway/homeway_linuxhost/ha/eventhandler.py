@@ -7,7 +7,7 @@ import requests
 
 from homeway.sentry import Sentry
 
-from .serverinfo import ServerInfo
+from .serverinfo import ServerInfo, ServerProtocol
 
 # Handles any events from Home Assistant we care about.
 class EventHandler:
@@ -34,7 +34,7 @@ class EventHandler:
     c_SpammyEntityUpdateAllowFrequency = 30
 
     # Useful for debugging.
-    c_LogEvents = True
+    c_LogEvents = False
 
     def __init__(self, logger:logging.Logger, pluginId:str, devLocalHomewayServerAddress_CanBeNone:str) -> None:
         self.Logger = logger
@@ -292,7 +292,7 @@ class EventHandler:
                 # Make the request.
                 headers = {}
                 headers["Authorization"] = "Bearer "+accessToken
-                uri = f"http://{(ServerInfo.GetServerIpOrHostnameAndPort())}/api/config"
+                uri = f"{(ServerInfo.GetServerBaseUrl(ServerProtocol.Http))}/api/config"
                 result = requests.get(uri, headers=headers, timeout=30)
 
                 # Check the response.

@@ -16,6 +16,7 @@ class HttpRequest:
     # These are the defaults, they should point directly to the HA server on most setups.
     DirectServicePort = 8123
     DirectServiceAddress = "127.0.0.1"
+    DirectServiceIsHttps = False
 
     # As a fallback, we will try different http proxy options.
     LocalHttpProxyPort = 80
@@ -49,6 +50,13 @@ class HttpRequest:
     @staticmethod
     def GetDirectServiceAddress():
         return HttpRequest.DirectServiceAddress
+
+    @staticmethod
+    def SetDirectServiceUseHttps(address):
+        HttpRequest.DirectServiceIsHttps = address
+    @staticmethod
+    def GetDirectServiceUseHttps():
+        return HttpRequest.DirectServiceIsHttps
 
 
     # Based on the URL passed, this will return PathTypes.Relative or PathTypes.Absolute
@@ -181,7 +189,10 @@ class HttpRequest:
         # the user can setup the webcam stream to start with anything they want. So the method we use right now is to simply always request to the local service first, and if we
         # get a 404 back try the haproxy. This adds a little bit of unneeded overhead, but it works really well to cover all of the cases.
 
-        # Setup the protocol we need to use for the http proxy. We need to use the same protocol that was detected.
+        # Setup the protocol we need to use for the direct and http proxy. We need to use the same protocol that was detected.
+        directServiceProtocol = "http://"
+        if HttpRequest.DirectServiceIsHttps:
+            directServiceProtocol = "https://"
         httpProxyProtocol = "http://"
         if HttpRequest.LocalHttpProxyIsHttps:
             httpProxyProtocol = "https://"
@@ -198,8 +209,7 @@ class HttpRequest:
             # These URLs are very closely related to the logic in the WebStreamWsHelper class and should stay in sync!
 
             # The main URL is directly to this local instance
-            # This URL will only every be http, it can't be https.
-            url = "http://" + HttpRequest.DirectServiceAddress + ":" + str(HttpRequest.DirectServicePort) + pathOrUrl
+            url = directServiceProtocol + HttpRequest.DirectServiceAddress + ":" + str(HttpRequest.DirectServicePort) + pathOrUrl
 
             # The fallback URL is to where we think the http proxy port is.
             # For this address, we need set the protocol correctly depending if the client detected https

@@ -17,6 +17,7 @@ class Config:
     HomeAssistantSection = "home_assistant"
     HaIpOrHostnameKey = "hostname_or_ip"
     HaPortKey = "port"
+    HaUseHttps = "use_https"
     HaAccessTokenKey = "access_token"
 
     # Logging stuff.
@@ -31,6 +32,7 @@ class Config:
     c_ConfigComments = [
         { "Target": HaIpOrHostnameKey,  "Comment": "This is the IP or hostname used to connect to Home Assistant."},
         { "Target": HaPortKey,  "Comment": "This is the port used to connect to Home Assistant."},
+        { "Target": HaUseHttps,  "Comment": "True or false if the ip/port requires https."},
         { "Target": HaAccessTokenKey,  "Comment": "Required for standalone addon installs, not required for addon installs. This is the long lived access token used to connect to Home Assistant."},
         { "Target": LogLevelKey,  "Comment": "The active logging level. Valid values include: DEBUG, INFO, WARNING, or ERROR."},
     ]
