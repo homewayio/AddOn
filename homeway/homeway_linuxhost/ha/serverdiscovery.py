@@ -1,6 +1,7 @@
 import logging
 import requests
 
+from .configmanager import ConfigManager
 
 class ServerDiscoveryResponse:
     def __init__(self, port:int, isHttps:bool) -> None:
@@ -13,8 +14,9 @@ class ServerDiscoveryResponse:
 class ServerDiscovery:
 
 
-    def __init__(self, logger:logging.Logger) -> None:
+    def __init__(self, logger:logging.Logger, configManager:ConfigManager) -> None:
         self.Logger = logger
+        self.HaConfig = configManager
 
 
     # This will search for a Home Assistant server on the given IP or hostname.
@@ -36,6 +38,17 @@ class ServerDiscovery:
         # Unless it's already the default port.
         if portHint is not None and portHint != ports[0]:
             ports.insert(0, portHint)
+
+        # Try to read the port from the config.
+        # On standalone instances, this will always return None.
+        # On addons running in HA, if there's a port in the config, this will return it.
+        # If there's a point, there's a really good chance this is going to be the right port.
+        # Note - We don't read the https status, because we would rather try to find a non https port first if possible,
+        # then we will fall back to https if needed.
+        configPort = self.HaConfig.ReadHttpPort()
+        if configPort is not None:
+            self.Logger.info(f"Server discovery found the HTTP server port in the HA config: {configPort}")
+            ports.insert(0, configPort)
 
         # We will try a few different combinations.
         # The most ideal is that we can use the access code to find an http port.

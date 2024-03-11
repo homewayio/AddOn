@@ -101,10 +101,17 @@ class LinuxHost:
             # Init the mdns client
             MDns.Init(self.Logger, storageDir)
 
+            # Setup the command handler
+            # This must be setup before the config manager.
+            CommandHandler.Init(self.Logger)
+
+            # Setup the Home Assistant config manager
+            configManager = ConfigManager(self.Logger)
+
             # Get the Home Assistant server details from the config.
             homeAssistantIpOrHostname = self.Config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
             homeAssistantPort = self.Config.GetInt(Config.HomeAssistantSection, Config.HaPortKey, 8123)
-            homeAssistantUseHttps = self.Config.GetInt(Config.HomeAssistantSection, Config.HaUseHttps, False)
+            homeAssistantUseHttps = self.Config.GetBool(Config.HomeAssistantSection, Config.HaUseHttps, False)
             accessToken_CanBeNone = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
 
             # For port discovery, it's ideal to have the access token, to ensure we found the exact right server.
@@ -120,7 +127,7 @@ class LinuxHost:
             # For standalone plugin installs, the installer will get the port set correctly with the user's help.
             # In that case, the discovery will use the hint port and instantly find the correct server.
             # For addon installs, the user might have a custom setup that requires some searching to find the right port.
-            serverDiscovery = ServerDiscovery(self.Logger)
+            serverDiscovery = ServerDiscovery(self.Logger, configManager)
             result = serverDiscovery.SearchForServerPort(homeAssistantIpOrHostname, discoveryAccessToken, homeAssistantPort)
             if result is not None:
                 homeAssistantPort = result.Port
@@ -129,7 +136,7 @@ class LinuxHost:
                 self.Logger.warning("Server discovery failed to find a port %s, we will just use the default [%s]", homeAssistantIpOrHostname, str(homeAssistantPort))
 
             # Set the final ips, port, and access token.
-            self.Logger.info("Setting up Home Assistant connection to [%s:%s] https:%s", homeAssistantIpOrHostname, str(homeAssistantPort), str(homeAssistantPort))
+            self.Logger.info("Setting up Home Assistant connection to [%s:%s] https:%s", homeAssistantIpOrHostname, str(homeAssistantPort), str(homeAssistantUseHttps))
             HttpRequest.SetDirectServicePort(homeAssistantPort)
             HttpRequest.SetDirectServiceAddress(homeAssistantIpOrHostname)
             HttpRequest.SetDirectServiceUseHttps(homeAssistantUseHttps)
@@ -139,9 +146,6 @@ class LinuxHost:
             PingPong.Init(self.Logger, storageDir)
             if devLocalHomewayServerAddress_CanBeNone is not None:
                 PingPong.Get().DisablePrimaryOverride()
-
-            # Setup the command handler
-            CommandHandler.Init(self.Logger)
 
             # Setup the web response handler
             WebRequestResponseHandler.Init(self.Logger)
@@ -153,8 +157,8 @@ class LinuxHost:
             haConnection = Connection(self.Logger, self.HaEventHandler)
             haConnection.Start()
 
-            # Setup the Home Assistant config manager
-            configManager = ConfigManager(self.Logger, haConnection)
+            # Set the ha connection object and see if we need to update the config if needed
+            configManager.SetHaConnection(haConnection)
             if self.IsRunningInHaAddonEnv:
                 # We only try to update the config if we are running in the docker addon mode.
                 configManager.UpdateConfigIfNeeded()
