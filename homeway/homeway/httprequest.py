@@ -341,7 +341,7 @@ class HttpRequest:
             #
             # See the note about allowRedirects above MakeHttpCall.
             #
-            # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert.
+            # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert. Or it's a cert for a hostname we aren't using.
             #
             # We always set stream=True because we use the iter_content function to read the content.
             # This means that response.content will not be valid and we will always use the iter_content. But it also means

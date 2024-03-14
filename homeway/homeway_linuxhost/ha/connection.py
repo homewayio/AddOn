@@ -114,6 +114,10 @@ class Connection:
                 self.Logger.info(f"{self._getLogTag()} Starting connection to [{uri}]")
                 self.Ws = Client(uri, onWsOpen=Opened, onWsData=self._OnData, onWsClose=Closed)
 
+                # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
+                # This is safe to do, since the connection will be localhost or on the local LAN
+                self.Ws.SetDisableCertCheck(True)
+
                 # Run until success or failure.
                 self.Ws.RunUntilClosed()
 

@@ -293,7 +293,9 @@ class EventHandler:
                 headers = {}
                 headers["Authorization"] = "Bearer "+accessToken
                 uri = f"{(ServerInfo.GetServerBaseUrl(ServerProtocol.Http))}/api/config"
-                result = requests.get(uri, headers=headers, timeout=30)
+                # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
+                # This is safe to do, because the connection is either going be over localhost or on the local LAN
+                result = requests.get(uri, headers=headers, timeout=30, verify=False)
 
                 # Check the response.
                 if result.status_code != 200:

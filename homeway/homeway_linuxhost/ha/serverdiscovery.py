@@ -97,7 +97,9 @@ class ServerDiscovery:
                 }
                 self.Logger.debug(f"Searching for the Home Assistant API at {url}")
                 try:
-                    response = requests.get(url, headers=headers, timeout=timeoutSec)
+                    # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
+                    # This is safe to do, because the connection is either going be over localhost or on the local LAN
+                    response = requests.get(url, headers=headers, timeout=timeoutSec, verify=False)
                     # If we know we failed, report false.
                     # On success, we want to try the HTML check next.
                     if response.status_code != 200:
@@ -113,7 +115,9 @@ class ServerDiscovery:
             }
             self.Logger.debug(f"Searching for Home Assistant HTTP at {baseUrl}")
             try:
-                response = requests.get(baseUrl, headers=headers, timeout=timeoutSec)
+                # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
+                # This is safe to do, because the connection is either going be over localhost or on the local LAN
+                response = requests.get(baseUrl, headers=headers, timeout=timeoutSec, verify=False)
                 # On success, we found a good candidate!
                 if response.status_code == 200:
                     return True

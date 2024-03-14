@@ -1,3 +1,4 @@
+import ssl
 import threading
 import certifi
 import websocket
@@ -15,6 +16,9 @@ class Client:
         self.clientWsErrorCallback = onWsError
         self.wsErrorCallbackLock = threading.Lock()
         self.hasFiredWsErrorCallback = False
+
+        # This flag will disable cert checking when WS connects. This should only be done on local hosts!
+        self.disableCertCheck = False
 
         # Used to log more details about what's going on with the websocket.
         # websocket.enableTrace(True)
@@ -56,6 +60,12 @@ class Client:
                                   header = headers,
                                   subprotocols = subProtocolList
         )
+
+
+    # This has it's own function so the caller very explicitly has to call it, rather than it being an init overload.
+    # If set to true, this websocket connection will not validate the cert it's connecting to. This should only be done locally!
+    def SetDisableCertCheck(self, disable:bool):
+        self.disableCertCheck = disable
 
 
     # This can be called from our logic internally in this class or from
@@ -113,7 +123,13 @@ class Client:
         # where it will call select() after the socket is closed, which makes select() hang until the time expires.
         # Thus we need to keep the ping_timeout low, so when this happens, it doesn't hang forever.
         try:
-            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=600, ping_timeout=20, sslopt={"ca_certs":certifi.where()})
+            # Only if the client explicated called the function to disable this will we turn off cert verification.
+            sslopt={"ca_certs":certifi.where()}
+            if self.disableCertCheck:
+                sslopt = {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+
+            # Run the connection!
+            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=600, ping_timeout=20, sslopt=sslopt)
         except Exception as e:
             # There's a compat issue where  run_forever will try to access "isAlive" when the socket is closing
             # "isAlive" apparently doesn't exist in some PY versions of thread, so this throws. We will ignore that error,
