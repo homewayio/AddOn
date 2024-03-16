@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.0.4
+
+- Fixing a the SSL handling logic for local addons.
+
 ## 1.0.2-3
 
 - Adding logic to support Home Assistant setups that are running only SSL bound websocket ports!

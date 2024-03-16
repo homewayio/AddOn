@@ -47,8 +47,8 @@ class LinuxHost:
             self.Logger = LoggerInit.GetLogger(self.Config, logsDir, logLevelOverride_CanBeNone)
             self.Config.SetLogger(self.Logger)
 
-            # Init sentry, since it's needed for Exceptions.
-            Sentry.Init(self.Logger, "homeway", True)
+            # Give Sentry the logger ASAP, since it's used for exceptions.
+            Sentry.SetLogger(self.Logger)
 
         except Exception as e:
             tb = traceback.format_exc()
@@ -68,6 +68,10 @@ class LinuxHost:
             pluginVersionStr = Version.GetPluginVersion(versionFileDir)
             self.Logger.info("Plugin Version: %s", pluginVersionStr)
 
+            # Setup Sentry as soon as we know the plugin version.
+            dist = "addon" if self.IsRunningInHaAddonEnv else "standalone"
+            Sentry.Setup(pluginVersionStr, dist, devConfig_CanBeNone is not None)
+
             # We don't store any sensitive things in teh config file, since all config files are sometimes backed up publicly.
             self.Secrets = Secrets(self.Logger, storageDir, self.Config)
 
@@ -77,6 +81,9 @@ class LinuxHost:
             # Get our required vars
             pluginId = self.GetPluginId()
             privateKey = self.GetPrivateKey()
+
+            # Set the plugin id when we know it.
+            Sentry.SetPluginId(pluginId)
 
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.

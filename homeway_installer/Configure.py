@@ -266,6 +266,9 @@ class Configure:
         # Create the websocket
         Logger.Debug(f"Checking for home assistant using the address: `{url}`")
         ws = Client(url, onWsOpen=OnOpened, onWsMsg=OnMsg, onWsError=OnError, onWsClose=OnClosed)
+        # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
+        # This is safe to do, since the connection will be localhost or on the local LAN
+        ws.SetDisableCertCheck(True)
         ws.RunAsync()
 
         # Wait for the event or a timeout.

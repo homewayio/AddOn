@@ -28,18 +28,26 @@ class ServerInfo:
     # Returns the full <protocol>://<host or ip>:<port>
     @staticmethod
     def GetServerBaseUrl(p:ServerProtocol) -> str:
-        # Figure out the protocol
+        # If we got an access token from the env, we are running in an addon,
+        # so we will use the docker core path. If we are using the docker hostname,
+        # We never want to use https, so force it to false.
+        localUseHttps = ServerInfo.ServerUseHttps
+        envToken = ServerInfo._GetEnvAccessToken()
+        if envToken is not None:
+            localUseHttps = False
+
+        # Figure out the protocol and apply https if needed.
         protocol = None
         if p == ServerProtocol.Http:
-            protocol = "https" if ServerInfo.ServerUseHttps is True else "http"
+            protocol = "https" if localUseHttps is True else "http"
         elif p == ServerProtocol.Websocket:
-            protocol = "wss" if ServerInfo.ServerUseHttps is True else "ws"
+            protocol = "wss" if localUseHttps is True else "ws"
         else:
             raise Exception("Unknown protocol passed to GetServerBaseUrl")
 
-        # If we got an access token from the env, we are running in an addon, so return the core path
-        envToken = ServerInfo._GetEnvAccessToken()
-        if envToken is not None and len(envToken) > 0:
+        # If we are running in an addon, return the docker hostname core path.
+        # No https or port is needed, as it's a local docker hostname.
+        if envToken is not None:
             return f"{protocol}://supervisor/core"
 
         # Otherwise, we are running in a plugin, so return the server ip and port
@@ -55,6 +63,12 @@ class ServerInfo:
         return ServerInfo.AccessToken
 
 
+    # Returns the access token from the environment.
+    # If there is no token, this returns None
     @staticmethod
     def _GetEnvAccessToken() -> str:
-        return os.environ.get('SUPERVISOR_TOKEN', None)
+        # Ensure that if we get a token, it's not an empty string.
+        token = os.environ.get('SUPERVISOR_TOKEN', None)
+        if token is not None and len(token) > 0:
+            return token
+        return None
