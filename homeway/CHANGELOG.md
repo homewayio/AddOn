@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 1.0.5
+## 1.0.6
 
 - Adding support for fast and easy Alexa And Google Assistant support for standalone addons!
 

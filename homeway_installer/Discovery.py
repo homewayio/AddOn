@@ -38,9 +38,15 @@ class Discovery:
             Logger.Header("Existing Homeway Addons Found")
             Logger.Blank()
             Logger.Blank()
-            Logger.Info( "If you want to update or re-setup an instance, select instance id.")
-            Logger.Info( "                        - or - ")
-            Logger.Info( "If you want to install a new instance, select 'n'.")
+            # In update mode, if there's only one addon, we will auto pick it.
+            # We only get here if there's more than one installed, which is rare.
+            # But we only want to allow the user to select one, not setup a new one.
+            if context.IsUpdateMode:
+                Logger.Info( "Select the instance id of the addon you would like to update.")
+            else:
+                Logger.Info( "If you want to update or re-setup an instance, select instance id.")
+                Logger.Info( "                        - or - ")
+                Logger.Info( "If you want to install a new instance, select 'n'.")
             Logger.Blank()
             Logger.Info("Options:")
             for folder in existingAddonFolders:
@@ -52,7 +58,9 @@ class Discovery:
                 else:
                     Logger.Info(f"  {count}) Instance id {addonId} - Server: {ip}:{port}")
                 count += 1
-            Logger.Info("  n) Setup a new Homeway addon instance")
+            # Only show the option to add a new addon if we aren't in update mode.
+            if context.IsUpdateMode is False:
+                Logger.Info("  n) Setup a new Homeway addon instance")
             Logger.Blank()
             # Ask the user which number they want.
             responseInt = -1
@@ -63,10 +71,15 @@ class Discovery:
                         isFirstPrint = False
                     else:
                         Logger.Warn( "If you need help, contact us! https://homeway.io/support")
-                    response = input("Enter an instance id or 'n': ")
+
+                    # In update mode, we don't allow adding a new addon.
+                    prompt = "Enter an instance id or 'n': "
+                    if context.IsUpdateMode:
+                        prompt = "Enter an instance id: "
+                    response = input(prompt)
                     response = response.lower().strip()
                     # If the response is n, fall through.
-                    if response == "n":
+                    if context.IsUpdateMode is False and response == "n":
                         break
                     # Parse the input and -1 it, so it aligns with the array length.
                     tempInt = int(response.lower().strip()) - 1

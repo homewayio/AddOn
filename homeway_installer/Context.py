@@ -160,6 +160,7 @@ class Context:
                     # Enable debug printing.
                     self.Debug = True
                     Logger.EnableDebugLogging()
+                    Logger.Debug("Debug logging enabled.")
                 elif rawArg.lower() == "help" or rawArg.lower() == "usage" or rawArg.lower() == "h":
                     self.ShowHelp = True
                 elif rawArg.lower() == "skipsudoactions":
