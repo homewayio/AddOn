@@ -6,13 +6,19 @@ import time
 from homeway.sentry import Sentry
 from homeway.commandhandler import CommandHandler
 
+from .serverinfo import ServerInfo
 from .connection import Connection
 
 # Helps manage the Home Assistant config
 class ConfigManager:
 
     # This should be mapped into our docker container due to homeassistant_config in the addon config.
-    c_ConfigFilePath = "/homeassistant/configuration.yaml"
+    c_ContainerConfigFilePath = "/homeassistant/configuration.yaml"
+
+    # If the user followed the default install for Home Assistant Core, which is PY running directly on the device,
+    # this is the default path that will be created for the config.
+    # https://www.home-assistant.io/installation/linux#install-home-assistant-core
+    c_HomeAssistantCoreInstallConfigFilePath = "/home/homeassistant/.homeassistant/configuration.yaml"
 
     # The time we will wait for idle until we restart.
     # Since we will ping the plugin to force the restart before we setup an assistant, this can be a while.
@@ -34,7 +40,7 @@ class ConfigManager:
     # Interface function - Called by the CommandHandler.
     # If we need a restart, return true and do it
     # Otherwise, return false.
-    def NeedsRestart(self):
+    def NeedsRestart(self) -> bool:
         if self.RestartRequired is False:
             return False
         # Kick off a restart on a new thread.
@@ -43,16 +49,36 @@ class ConfigManager:
         return True
 
 
+    # Interface function - Called by the CommandHandler.
+    # Returns true if the config file can be edited by this addon, either in the container context or standalone.
+    # Returns false if this addon can't edit the config.
+    def CanEditConfig(self) -> bool:
+        # This will only return a path if there's a known location and file on disk.
+        configPath = self._GetConfigFilePath(True)
+        if configPath is None:
+            return False
+        # Make sure we can open it, assume we can write it.
+        try:
+            with open(configPath, encoding="utf-8") as f:
+                f.readline()
+                return True
+        except Exception:
+            pass
+        return False
+
+
     # Reads the http port out of the config, if there is one.
     def ReadHttpPort(self) -> int:
         try:
-            # Make sure the file exists, for standalone plugins, it wont.
-            if os.path.exists(ConfigManager.c_ConfigFilePath) is False:
+            # Try to get the config path, if we can find it. Don't try to use the HA API,
+            # since the point of getting the http port is to do server discovery.
+            configFilePath = self._GetConfigFilePath(False)
+            if configFilePath is None:
                 return None
 
             # Look for the http port
             # https://www.home-assistant.io/integrations/http/
-            with open(ConfigManager.c_ConfigFilePath, encoding="utf-8") as f:
+            with open(configFilePath, encoding="utf-8") as f:
                 # We tired to use the yaml library for parsing, but there's uncommon syntax in the HA config that will break it.
                 foundHttpSection = False
                 lines = f.readlines()
@@ -91,17 +117,16 @@ class ConfigManager:
     def UpdateConfigIfNeeded(self) -> None:
         try:
             # Ensure we can find the config file.
-            if os.path.exists(ConfigManager.c_ConfigFilePath) is False:
-                self.Logger.warn(f"Failed to find Home Assistant config file at {ConfigManager.c_ConfigFilePath}")
-                for _, dirnames, _ in os.walk("/"):
-                    for d in dirnames:
-                        self.Logger.info(f"Dir In Root: {d}")
+            # This will use the HA API to get the file path and see if it can be found locally.
+            configFilePath = self._GetConfigFilePath(True)
+            if configFilePath is None:
+                self.Logger.warn("UpdateConfigIfNeeded failed to get a config file path.")
                 return
 
             # Open the file and read.
             foundGoogleAssistantConfig = False
             foundAlexaConfig = False
-            with open(ConfigManager.c_ConfigFilePath, 'r', encoding="utf-8") as f:
+            with open(configFilePath, 'r', encoding="utf-8") as f:
                 # Look for the starting lines of the configs, since they must be exact.
                 # But remember they will have line endings, so we use startwith.
                 lines = f.readlines()
@@ -144,7 +169,7 @@ class ConfigManager:
             linesToAppend.append(lineEnding)
 
             # Add the config lines.
-            with open(ConfigManager.c_ConfigFilePath, 'a', encoding="utf-8") as f:
+            with open(configFilePath, 'a', encoding="utf-8") as f:
                 f.writelines(linesToAppend)
 
             self.Logger.info(f"Config file updated with assistant configs. Alexa: {str(foundAlexaConfig is False)}, Google Assistant: {str(foundGoogleAssistantConfig is False)}")
@@ -181,3 +206,52 @@ class ConfigManager:
             self.HaConnection.RestartHa()
         except Exception as e:
             Sentry.Exception("TryToRestartHomeAssistant exception.", e)
+
+
+    # Returns the config file path for the Home Assistant config.
+    # This will try a few paths on disk and also try the HA API to get it, if possible.
+    # If the config path can't be found, None is returned.
+    # If a string is returned, it will always be a valid file path.
+    def _GetConfigFilePath(self, useApiIfUnknown:bool = False) -> str:
+        # First, try the path where the config will be if we are running on a container.
+        if os.path.exists(ConfigManager.c_ContainerConfigFilePath) and os.path.isfile(ConfigManager.c_ContainerConfigFilePath):
+            self.Logger.debug("HA config path found in expected container location.")
+            return ConfigManager.c_ContainerConfigFilePath
+
+        # Next, try to use the API if we were asked to.
+        # We do this before the local path, because we know the server we should be connected to,
+        # and if it returns a valid config path it's the correct one. Otherwise, we just look for one on disk.
+        if useApiIfUnknown:
+            for _ in range(1):
+                # Home Assistant has an API we can use to try to get the config file path.
+                try:
+                    # Ensure we have an API key.
+                    configApiJson = ServerInfo.GetConfigApi(self.Logger)
+                    if configApiJson is None:
+                        self.Logger.warn("We tried to get the HA config file path from the HA API, but the config api failed.")
+                        break
+
+                    # Try to get the config file path from the API.
+                    configDir = configApiJson.get("config_dir", None)
+                    if configDir is None:
+                        self.Logger.warn("Failed to get the config_dir from the HA config API.")
+                        break
+
+                    # See if the path exists.
+                    configFilePath = os.path.join(configDir, "configuration.yaml")
+                    if os.path.exists(configFilePath) and os.path.isfile(configFilePath):
+                        self.Logger.debug(f"HA config path found in from API and is on the local disk {configFilePath}.")
+                        return configFilePath
+                    self.Logger.warn(f"We got a config file path from the HA config API [{configFilePath}] but it doesn't exist on this device.")
+
+                except Exception as e:
+                    Sentry.Exception("ConfigManager._GetConfigFilePath failed.", e)
+
+        # Finally, see if the default config path exists on disk default Home Assistant Core installs.
+        # We do this last, because it could be wrong, there could be a standalone addon running on a device with HA, but connected to a different device.
+        if os.path.exists(ConfigManager.c_HomeAssistantCoreInstallConfigFilePath) and os.path.isfile(ConfigManager.c_HomeAssistantCoreInstallConfigFilePath):
+            self.Logger.debug("HA config path found expected core install file path.")
+            return ConfigManager.c_HomeAssistantCoreInstallConfigFilePath
+
+        self.Logger.info("Failed to find a config path on disk or from the API.")
+        return None

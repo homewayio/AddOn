@@ -164,11 +164,9 @@ class LinuxHost:
             haConnection = Connection(self.Logger, self.HaEventHandler)
             haConnection.Start()
 
-            # Set the ha connection object and see if we need to update the config if needed
+            # Set the ha connection object and try to update the config if needed.
             configManager.SetHaConnection(haConnection)
-            if self.IsRunningInHaAddonEnv:
-                # We only try to update the config if we are running in the docker addon mode.
-                configManager.UpdateConfigIfNeeded()
+            configManager.UpdateConfigIfNeeded()
 
             # Get the addon type
             if self.IsRunningInHaAddonEnv:

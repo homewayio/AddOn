@@ -92,7 +92,7 @@ class Discovery:
         if newId == 1:
             addonFolderPath = Discovery.c_AddonRootFolder_Lower
         else:
-            addonFolderPath = f"{Discovery.c_AddonRootFolder_Lower}_{newId}"
+            addonFolderPath = f"{Discovery.c_AddonRootFolder_Lower}-{newId}"
         self._SetupContextFromVars(context, addonFolderPath)
         Logger.Info(f"Creating a new addon data path. Path: {context.AddonFolder}, Id: {context.InstanceId}")
         return

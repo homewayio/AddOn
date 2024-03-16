@@ -7,7 +7,7 @@ import requests
 
 from homeway.sentry import Sentry
 
-from .serverinfo import ServerInfo, ServerProtocol
+from .serverinfo import ServerInfo
 
 # Handles any events from Home Assistant we care about.
 class EventHandler:
@@ -283,37 +283,25 @@ class EventHandler:
                     time.sleep(2.0)
                 startup = False
 
-                # Ensure we have an API key.
-                accessToken = ServerInfo.GetAccessToken()
-                if accessToken is None:
-                    self.Logger.warn("We wanted to do a temp unit detection, but don't have an access token.")
+                # Try to get the config API
+                configApiJson = ServerInfo.GetConfigApi(self.Logger, 30.0)
+                if configApiJson is None:
+                    self.Logger.warn("Get config API failed.")
                     continue
 
-                # Make the request.
-                headers = {}
-                headers["Authorization"] = "Bearer "+accessToken
-                uri = f"{(ServerInfo.GetServerBaseUrl(ServerProtocol.Http))}/api/config"
-                # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
-                # This is safe to do, because the connection is either going be over localhost or on the local LAN
-                result = requests.get(uri, headers=headers, timeout=30, verify=False)
-
-                # Check the response.
-                if result.status_code != 200:
-                    self.Logger.warn(f"Get config API {result.status_code}")
-                    continue
-                j = result.json()
-                if "unit_system" not in j:
+                # Parse the result.
+                if "unit_system" not in configApiJson:
                     self.Logger.warn("Get config API missing unit_system")
                     continue
-                if "temperature" not in j["unit_system"]:
+                if "temperature" not in configApiJson["unit_system"]:
                     self.Logger.warn("Get config API missing temperature")
                     continue
 
-                if j["unit_system"]["temperature"] == "°F":
+                if configApiJson["unit_system"]["temperature"] == "°F":
                     self.HaTempUnits = "F"
-                elif j["unit_system"]["temperature"] == "°C":
+                elif configApiJson["unit_system"]["temperature"] == "°C":
                     self.HaTempUnits = "C"
                 else:
-                    self.Logger.warn(f"Get config API unknown temperature unit [{j['unit_system']['temperature']}]")
+                    self.Logger.warn(f"Get config API unknown temperature unit [{configApiJson['unit_system']['temperature']}]")
             except Exception as e:
                 Sentry.Exception("_StateChangeSender exception", e)

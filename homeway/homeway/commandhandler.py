@@ -66,11 +66,25 @@ class CommandHandler:
         commandPathLower = commandPath.lower()
         if commandPathLower.startswith("ping"):
             return CommandResponse.Success({"Message":"Pong"})
+        # Deprecated 1.0.5 (3/16/2024) for `get-config-status`
         if commandPathLower.startswith("restart-if-needed"):
-            result = False
+            needsRestart = False
             if self.ConfigManager is not None:
-                result = self.ConfigManager.NeedsRestart()
-            return CommandResponse.Success({"NeedsRestart": result})
+                needsRestart = self.ConfigManager.NeedsRestart()
+            return CommandResponse.Success({"NeedsRestart": needsRestart})
+        # Returns this addon's status with the config. This works for both container and standalone addons.
+        if commandPathLower.startswith("get-config-status"):
+            needsRestartForAssistantConfigs = False
+            canEditConfig = False
+            if self.ConfigManager is not None:
+                # Check all of the other status before NeedsRestart, since that will restart HA if needed.
+                canEditConfig = self.ConfigManager.CanEditConfig()
+                needsRestartForAssistantConfigs = self.ConfigManager.NeedsRestart()
+            return CommandResponse.Success(
+                {
+                    "CanEditConfig" : canEditConfig,
+                    "NeedsRestartForAssistantConfigs": needsRestartForAssistantConfigs,
+                })
         return CommandResponse.Error(CommandHandler.c_CommandError_UnknownCommand, "The command path didn't match any known commands.")
 
 

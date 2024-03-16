@@ -35,8 +35,11 @@ class Service:
         # Base on the OS type, install the service differently
         self._InstallDebian(context, argsJsonBase64)
 
+
     # Install for debian setups
     def _InstallDebian(self, context:Context, argsJsonBase64):
+        # Note we use root as a user instead of the installing user
+        # to make sure we have access to the HA config file for updates if needed
         s = f'''\
     # Homeway Addon Service
     [Unit]
@@ -50,7 +53,7 @@ class Service:
     # Simple service, targeting the user that was used to install the service, simply running our homeway py host script.
     [Service]
     Type=simple
-    User={context.UserName}
+    User=root
     WorkingDirectory={context.RepoRootFolder}/homeway
     ExecStart={context.VirtualEnvPath}/bin/python3 -m homeway_linuxhost "{argsJsonBase64}"
     Restart=always
