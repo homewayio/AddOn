@@ -27,14 +27,17 @@ class WebServer:
         self.HostName = "0.0.0.0"
         self.Port = 8099
 
-        # Register for account link callbacks.
-        CommandHandler.Get().RegisterPrinterLinkStatusUpdateHandler(self)
-
 
     def Start(self):
         # Start the web server worker thread.
         self.webServerThread = threading.Thread(target=self._WebServerWorker)
         self.webServerThread.start()
+
+
+    def RegisterForAccountStatusUpdates(self):
+        # Register for account link callbacks.
+        # This is called after startup, because the command handler isn't created until after the web server.
+        CommandHandler.Get().RegisterAccountLinkStatusUpdateHandler(self)
 
 
     # Called when we are connected and we know if there's an account setup with this addon
@@ -45,8 +48,8 @@ class WebServer:
 
     # Interface function
     # Called from the command handler the account link status changes.
-    def OnLinkStatusUpdate(self, isLinkedToAccount:bool):
-        self.AccountConnected = isLinkedToAccount
+    def OnAccountLinkStatusUpdate(self, isLinked:bool):
+        self.AccountConnected = isLinked
 
 
     def _WebServerWorker(self):

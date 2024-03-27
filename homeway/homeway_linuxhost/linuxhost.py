@@ -114,6 +114,7 @@ class LinuxHost:
 
             # Setup the Home Assistant config manager
             configManager = ConfigManager(self.Logger)
+            self.WebServer.RegisterForAccountStatusUpdates()
 
             # Get the Home Assistant server details from the config.
             homeAssistantIpOrHostname = self.Config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
