@@ -49,11 +49,17 @@ class CommandHandler:
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         self.ConfigManager = None
+        self.PrinterLinkStatusUpdateHandler = None
 
 
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager):
         self.ConfigManager = configManager
+
+
+    # Get's callbacks when the printer link status changes.
+    def RegisterPrinterLinkStatusUpdateHandler(self, printerLinkStatusUpdateHandler):
+        self.PrinterLinkStatusUpdateHandler = printerLinkStatusUpdateHandler
 
 
     #
@@ -85,6 +91,14 @@ class CommandHandler:
                     "CanEditConfig" : canEditConfig,
                     "NeedsRestartForAssistantConfigs": needsRestartForAssistantConfigs,
                 })
+        # Used to tell the addon that there's an account linked to this addon. Mostly used to update the webserver page.
+        if commandPathLower.startswith("update-addon-link-status"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            if self.PrinterLinkStatusUpdateHandler is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No update handler.")
+            self.PrinterLinkStatusUpdateHandler.OnLinkStatusUpdate(jsonObj_CanBeNone["IsLinkedToAccount"])
+            return CommandResponse.Success()
         return CommandResponse.Error(CommandHandler.c_CommandError_UnknownCommand, "The command path didn't match any known commands.")
 
 
@@ -171,7 +185,7 @@ class CommandHandler:
 class CommandResponse():
 
     @staticmethod
-    def Success(resultDict):
+    def Success(resultDict:dict = None):
         if resultDict is None:
             resultDict = {}
         return CommandResponse(200, resultDict, None)
