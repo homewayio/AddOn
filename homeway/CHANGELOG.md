@@ -1,6 +1,13 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.1.0
+
+- Performance improvements! Remote access has never been faster!
+- Fixed an issue where after linking your account the Homeway addon web portal didn't update.
+- Fixed a few bugs around WebSocket lifetime issues.
+- Fixed a few issues with Assistants and proactive updates.
+
 ## 1.0.6
 
 - Adding support for fast and easy Alexa And Google Assistant support for standalone addons!

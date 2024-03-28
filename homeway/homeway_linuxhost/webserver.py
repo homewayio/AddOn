@@ -5,6 +5,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from homeway.hostcommon import HostCommon
+from homeway.commandhandler import CommandHandler
 
 # Creates a simple web server for users to interact with the plugin from the Home Assistant UI.
 class WebServer:
@@ -33,10 +34,22 @@ class WebServer:
         self.webServerThread.start()
 
 
+    def RegisterForAccountStatusUpdates(self):
+        # Register for account link callbacks.
+        # This is called after startup, because the command handler isn't created until after the web server.
+        CommandHandler.Get().RegisterAccountLinkStatusUpdateHandler(self)
+
+
     # Called when we are connected and we know if there's an account setup with this addon
     def OnPrimaryConnectionEstablished(self, hasConnectedAccount):
         self.AccountConnected = hasConnectedAccount
         self.IsPendingStartup = False
+
+
+    # Interface function
+    # Called from the command handler the account link status changes.
+    def OnAccountLinkStatusUpdate(self, isLinked:bool):
+        self.AccountConnected = isLinked
 
 
     def _WebServerWorker(self):
@@ -85,6 +98,8 @@ class WebServer:
                     connectedAndReadyBlockDisplay = "block"
                 else:
                     linkAccountBlockDisplay = "block"
+                    # Use the timer, so the page will refresh and check if the account is linked.
+                    connectingTimerBool = "true"
             html = """
 <html>
 <head><title>Homeway Control</title>
