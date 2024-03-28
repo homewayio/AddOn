@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 1.1.0-1
+## 1.1.0-2
 
 - Performance improvements! Remote access has never been faster!
 - Fixed an issue where after linking your account the Homeway addon web portal didn't update.
