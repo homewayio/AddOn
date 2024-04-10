@@ -1,6 +1,12 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.1.3
+
+- Adding the new Homeway icon! 😍
+- Fixing an issue where the webserver fails to start.
+- Fixing a few small bugs.
+
 ## 1.1.0-2
 
 - Performance improvements! Remote access has never been faster!
