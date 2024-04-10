@@ -1,3 +1,4 @@
+import ssl
 import time
 import json
 import logging
@@ -269,7 +270,10 @@ class EventHandler:
                     self.Logger.warn(f"Send Change Events failed, the API returned {result.status_code}")
 
             except Exception as e:
-                Sentry.Exception("_StateChangeSender exception", e)
+                if (e is ConnectionError or e is ssl.SSLError) and "Max retries exceeded with url" in str(e):
+                    self.Logger.error("Homeway server is not reachable. Will try again later.", e)
+                else:
+                    Sentry.Exception("_StateChangeSender exception", e)
 
 
     def _TempUnitsDetector(self):

@@ -6,6 +6,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from homeway.hostcommon import HostCommon
 from homeway.commandhandler import CommandHandler
+from homeway.sentry import Sentry
 
 # Creates a simple web server for users to interact with the plugin from the Home Assistant UI.
 class WebServer:
@@ -53,7 +54,10 @@ class WebServer:
 
 
     def _WebServerWorker(self):
+        backoff = 0
         while True:
+            # Try to run the webserver forever.
+            webServer = None
             try:
                 self.Logger.info(f"Web Server Starting {self.HostName}:{self.Port}")
                 webServer = HTTPServer((self.HostName, self.Port), WebServer.WebServerHandler)
@@ -61,8 +65,17 @@ class WebServer:
                 webServer.serve_forever()
             except Exception as e:
                 self.Logger.error("Web server exception. "+str(e))
-            webServer.server_close()
-            time.sleep(20)
+
+            # If we fail, close it.
+            try:
+                if webServer is not None:
+                    webServer.server_close()
+            except Exception as e:
+                Sentry.Exception("Failed to close the addon webserver.", e)
+
+            # Try again after some time.
+            backoff = min(backoff + 1, 20)
+            time.sleep(backoff * 0.5)
 
 
     class WebServerHandler(BaseHTTPRequestHandler):
