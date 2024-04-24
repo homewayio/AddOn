@@ -1,6 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.1.4-6
+
+- Minor bug fix for Alexa and Google state reporting.
+- Minor change to bump the addon to server protocol.
+
 ## 1.1.3
 
 - Adding the new Homeway icon! 😍

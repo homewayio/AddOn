@@ -8,4 +8,3 @@ class MessageContext(object):
     HandshakeAck = 2
     WebStreamMsg = 3
     Summon = 4
-

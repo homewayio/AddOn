@@ -18,7 +18,7 @@
 #
 websocket_client>=1.6.0,<1.6.99
 requests>=2.24.0
-octoflatbuffers==2.0.5
+octoflatbuffers==24.3.26
 certifi>=2023.7.22
 rsa>=4.9
 dnspython>=2.3.0
@@ -26,5 +26,4 @@ httpx==0.24.0
 urllib3>=1.26.15,<1.27.0
 pyyaml
 sentry-sdk>=1.19.1,<2
-# TODO remove configparser for something else?
 configparser

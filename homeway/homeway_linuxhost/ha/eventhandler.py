@@ -67,12 +67,15 @@ class EventHandler:
 
 
     def SetHomewayApiKey(self, key:str) -> None:
-        # When we get the API key, if it's the first time it's being set, request a sync to make sure
-        # things are in order.
-        if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
-            entityId = "startup_sync"
-            self._QueueStateChangeSend(entityId, self._GetStateChangeSendEvent(entityId))
+        # When we get the API key, if it's the first time it's being set, request a sync to make sure things are in order.
+        hadKey = self.HomewayApiKey is not None and len(self.HomewayApiKey) > 0
         self.HomewayApiKey = key
+        if hadKey is False:
+            entityId = "startup_sync"
+            e = self._GetStateChangeSendEventAndValidate(entityId)
+            if e is None:
+                self.Logger.error("startup_sync event failed to generate a send payload.")
+            self._QueueStateChangeSend(entityId, e)
 
 
     # Called by the HA connection class when HA sends any event.
@@ -139,11 +142,15 @@ class EventHandler:
                     return
 
         # If we get here, this is an status change we want to send.
-        self._QueueStateChangeSend(entityId, self._GetStateChangeSendEvent(entityId, haVersion, newState_CanBeNone, oldState_CanBeNone))
+        # Build the dict we will send and validate that everything we need to send is there.
+        e = self._GetStateChangeSendEventAndValidate(entityId, haVersion, newState_CanBeNone, oldState_CanBeNone)
+        if e is None:
+            return
+        self._QueueStateChangeSend(entityId, e)
 
 
     # Converts the HA events to our send event format.
-    def _GetStateChangeSendEvent(self, entityId:str, haVersion_CanBeNone:str = None, newState_CanBeNone:dict = None, oldState_CanBeNone:dict = None) -> dict:
+    def _GetStateChangeSendEventAndValidate(self, entityId:str, haVersion_CanBeNone:str = None, newState_CanBeNone:dict = None, oldState_CanBeNone:dict = None) -> dict:
         sendEvent = {
             "EntityId": entityId
         }
@@ -152,21 +159,38 @@ class EventHandler:
 
         # Helpers
         def _removeIfInDict(d:dict, key:str):
+            # Removes a key from the dict if it's there.
             if key in d:
                 del d[key]
         def _trimState(state:dict):
+            # Remove any bloat we don't need, to keep the size down.
             _removeIfInDict(state, "entity_id")
             _removeIfInDict(state, "context")
             _removeIfInDict(state, "last_changed")
             _removeIfInDict(state, "last_updated")
+        def _validateHasRequiredFields(d:dict) -> bool:
+            # Sometimes during startup we get messages without friendly names.
+            # We need the friendly names to talk with both Alexa and Google, so we just ignore them.
+            # The updates are usually for offline devices anyways, maybe that's why they don't have names?
+            a = d.get("attributes", None)
+            if a is None:
+                return False
+            name = a.get("friendly_name", None)
+            if name is None or len(name) == 0:
+                return False
+            return True
         # If there's a new state, add it.
         if newState_CanBeNone is not None:
+            if _validateHasRequiredFields(newState_CanBeNone) is False:
+                return None
             _trimState(newState_CanBeNone)
             # We add the temp units we detect, so our servers know.
             newState_CanBeNone["HwTempUnits"] = self.HaTempUnits
             sendEvent["NewState"] = newState_CanBeNone
         # If there's a old state, add it.
         if oldState_CanBeNone is not None:
+            if _validateHasRequiredFields(newState_CanBeNone) is False:
+                return None
             _trimState(oldState_CanBeNone)
             sendEvent["OldState"] = oldState_CanBeNone
         return sendEvent

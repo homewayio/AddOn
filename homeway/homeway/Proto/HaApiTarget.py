@@ -5,4 +5,3 @@
 class HaApiTarget(object):
     None_ = 1
     Core = 2
-

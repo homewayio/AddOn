@@ -6,4 +6,3 @@ class AddonTypes(object):
     Unknown = 1
     HaContainer = 2
     Standalone = 3
-
