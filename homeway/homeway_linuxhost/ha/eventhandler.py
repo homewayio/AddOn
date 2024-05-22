@@ -189,7 +189,7 @@ class EventHandler:
             sendEvent["NewState"] = newState_CanBeNone
         # If there's a old state, add it.
         if oldState_CanBeNone is not None:
-            if _validateHasRequiredFields(newState_CanBeNone) is False:
+            if _validateHasRequiredFields(oldState_CanBeNone) is False:
                 return None
             _trimState(oldState_CanBeNone)
             sendEvent["OldState"] = oldState_CanBeNone
