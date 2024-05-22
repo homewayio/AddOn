@@ -7,7 +7,7 @@ from homeway.sentry import Sentry
 from homeway.websocketimpl import Client
 
 from .eventhandler import EventHandler
-from .serverinfo import ServerInfo, ServerProtocol
+from .serverinfo import ServerInfo
 
 # Connects to Home Assistant and manages the connection.
 class Connection:
@@ -110,7 +110,7 @@ class Connection:
 
                 # Start the web socket connection.
                 # If we got auth from the env var, we running in the add on and use this address.
-                uri = f"{(ServerInfo.GetServerBaseUrl(ServerProtocol.Websocket))}/api/websocket"
+                uri = f"{(ServerInfo.GetServerBaseUrl('ws'))}/api/websocket"
                 self.Logger.info(f"{self._getLogTag()} Starting connection to [{uri}]")
                 self.Ws = Client(uri, onWsOpen=Opened, onWsData=self._OnData, onWsClose=Closed)
 

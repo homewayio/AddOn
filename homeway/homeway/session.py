@@ -213,7 +213,6 @@ class Session:
         except Exception as e:
             Sentry.Exception("Failed to send handshake syn.", e)
             self.OnSessionError(0)
-            return
 
 
     # This is the main receive function for all messages coming from the server.

@@ -1,12 +1,12 @@
 import platform
 import logging
-import os
 
 import requests
 
+from .mdns import MDns
+from .compat import Compat
 from .localip import LocalIpHelper
 from .streammsgbuilder import StreamMsgBuilder
-from .mdns import MDns
 from .Proto.PathTypes import PathTypes
 from .Proto.HaApiTarget import HaApiTarget
 from .Proto.HttpInitialContext import HttpInitialContext
@@ -141,15 +141,21 @@ class HttpRequest:
             if path != "/api/google_assistant" and path != "/api/alexa/smart_home":
                 raise Exception("A HA core api targeted call was made, but the path is not allowed. "+path)
 
-            # Ensure we have the API key that should be auto set into our docker container
-            token = os.getenv('SUPERVISOR_TOKEN')
-            if token is None or len(token) == 0:
-                logger.error("A HA core api targeted call was made, but we don't have the env token.")
+            # We need to get the access token and the correct server path, depending on if we are running in the addon container or not.
+            serverInfoHandler = Compat.GetServerInfoHandler()
+            if serverInfoHandler is None:
+                raise Exception("A HA core api targeted call was made, but we had no server info handler.")
+
+            # We need to get the access token to talk directly to Home Assistant.
+            accessToken = serverInfoHandler.GetAccessToken()
+            if accessToken is None or len(accessToken) == 0:
+                logger.error("A HA core api targeted call was made, but we don't have an access token.")
             else:
-                # Add the special auth header.
-                headers["Authorization"] = "Bearer "+token
-                # Target the docker mapped core API path.
-                path = "http://supervisor/core" + path
+                # Add the special auth header with the access token.
+                headers["Authorization"] = "Bearer "+accessToken
+
+                # The path is dependent on if we are running in the addon container or standalone, this function handles that.
+                path = serverInfoHandler.GetServerBaseUrl("http") + path
                 pathType = PathTypes.Absolute
 
         # Make the common call.

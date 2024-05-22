@@ -1,14 +1,30 @@
 import os
 import logging
-from enum import Enum
 
 import requests
 
+from homeway.compat import Compat
 
-# Defines the types of protocols that can be built for the server url.
-class ServerProtocol(Enum):
-    Http = 1
-    Websocket = 2
+# Since ServerInfo is a static class, we need to create a handler for it for the compat class.
+class ServerInfoHandler:
+
+    #
+    # Interface Function!!
+    # This must remain the same since it's called by the compat class.
+    #
+    # Returns the access token, either from the environment or passed from the config.
+    def GetAccessToken(self) -> str:
+        return ServerInfo.GetAccessToken()
+
+    #
+    # Interface Function!!
+    # This must remain the same since it's called by the compat class.
+    #
+    # Returns the full <protocol>://<host or ip>:<port> depending on how the access token is setup, either in the docker container or running independently.
+    # Takes a string that must be "http" or "ws" depending on the desired protocol. This can't be an enum since it's used over the compat handler API.
+    # The protocol will automatically be converted to https or wss from the insecure mode as needed, determined by the server config.
+    def GetServerBaseUrl(self, protocol:str) -> str:
+        return ServerInfo.GetServerBaseUrl(protocol)
 
 
 # A common class for storing the Home Assistant server information
@@ -26,11 +42,15 @@ class ServerInfo:
         ServerInfo.ServerPort = serverPort
         ServerInfo.ServerUseHttps = useHttps
         ServerInfo.AccessToken = accessToken_CanBeNone
+        # Also make sure we set the compat class with the server info handler.
+        Compat.SetServerInfoHandler(ServerInfoHandler())
 
 
-    # Returns the full <protocol>://<host or ip>:<port>
+    # Returns the full <protocol>://<host or ip>:<port> depending on how the access token is setup, either in the docker container or running independently.
+    # Takes a string that must be "http" or "ws" depending on the desired protocol. This can't be an enum since it's used over the compat handler API.
+    # The protocol will automatically be converted to https or wss from the insecure mode as needed, determined by the server config.
     @staticmethod
-    def GetServerBaseUrl(p:ServerProtocol) -> str:
+    def GetServerBaseUrl(p:str) -> str:
         # If we got an access token from the env, we are running in an addon,
         # so we will use the docker core path. If we are using the docker hostname,
         # We never want to use https, so force it to false.
@@ -41,12 +61,12 @@ class ServerInfo:
 
         # Figure out the protocol and apply https if needed.
         protocol = None
-        if p == ServerProtocol.Http:
+        if p == "http":
             protocol = "https" if localUseHttps is True else "http"
-        elif p == ServerProtocol.Websocket:
+        elif p == "ws":
             protocol = "wss" if localUseHttps is True else "ws"
         else:
-            raise Exception("Unknown protocol passed to GetServerBaseUrl")
+            raise Exception("Unknown protocol passed to GetServerBaseUrl: "+str(p))
 
         # If we are running in an addon, return the docker hostname core path.
         # No https or port is needed, as it's a local docker hostname.
@@ -92,7 +112,7 @@ class ServerInfo:
             # Make the request.
             headers = {}
             headers["Authorization"] = "Bearer "+accessToken
-            uri = f"{(ServerInfo.GetServerBaseUrl(ServerProtocol.Http))}/api/config"
+            uri = f"{(ServerInfo.GetServerBaseUrl('http'))}/api/config"
             # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
             # This is safe to do, because the connection is either going be over localhost or on the local LAN
             result = requests.get(uri, headers=headers, timeout=timeoutSec, verify=False)
