@@ -13,10 +13,10 @@ LABEL \
 COPY requirements.txt /
 RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
-# Install the optional pacakges for zstandard compression.
-# THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
+# Install the optional pacakges for zstandard compression. The extra packages are required for the zstandard python pip install to build.
 # hadolint ignore=DL3018,DL3019,DL3059
-RUN apk add zstd
+RUN apk add zstd python3 python3-dev gcc zlib-dev musl-dev libffi-dev
+# THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
 RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
 
 # Create a working dir for all of our files.
