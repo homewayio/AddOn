@@ -9,6 +9,7 @@ from .Discovery import Discovery
 from .Configure import Configure
 from .Updater import Updater
 from .Permissions import Permissions
+from .OptionalDepsInstaller import OptionalDepsInstaller
 
 class Installer:
 
@@ -79,6 +80,9 @@ class Installer:
         permissions = Permissions()
         permissions.EnsureRunningAsRootOrSudo(context)
 
+        # Since this runs an async thread, kick it off now so it can start working.
+        OptionalDepsInstaller.TryToInstallDepsAsync(context)
+
         # We will do discovery to see if we find any other existing instances.
         discovery = Discovery()
         discovery.Discovery(context)
@@ -105,6 +109,10 @@ class Installer:
 
         # Just before we start (or restart) the service, ensure all of the permission are set correctly
         permissions.EnsureFinalPermissions(context)
+
+        # If there was an install running, wait for it to finish now, before the service starts.
+        # For most installs, the user will take longer to add the info than it takes to install zstandard.
+        OptionalDepsInstaller.WaitForInstallToComplete()
 
         # We are fully configured, create the service file and it's dependent files.
         service = Service()
