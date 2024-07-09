@@ -127,8 +127,15 @@ class HandshakeSyn(object):
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 1
 
+    # HandshakeSyn
+    def ReceiveCompressionType(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 2
+
 def HandshakeSynStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(11)
+    builder.StartObject(12)
 
 def Start(builder: octoflatbuffers.Builder):
     HandshakeSynStart(builder)
@@ -204,6 +211,12 @@ def HandshakeSynAddAddonType(builder: octoflatbuffers.Builder, addonType: int):
 
 def AddAddonType(builder: octoflatbuffers.Builder, addonType: int):
     HandshakeSynAddAddonType(builder, addonType)
+
+def HandshakeSynAddReceiveCompressionType(builder: octoflatbuffers.Builder, receiveCompressionType: int):
+    builder.PrependInt8Slot(11, receiveCompressionType, 2)
+
+def AddReceiveCompressionType(builder: octoflatbuffers.Builder, receiveCompressionType: int):
+    HandshakeSynAddReceiveCompressionType(builder, receiveCompressionType)
 
 def HandshakeSynEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()

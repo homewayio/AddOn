@@ -25,7 +25,7 @@ class WebStreamImpl(threading.Thread):
         self.Logger:logging.Logger = args[0]
         self.Id = args[1]
         self.Session = args[2]
-        self.OpenWebStreamMsg = None
+        self.OpenWebStreamMsg:WebStreamMsg.WebStreamMsg = None
         self.IsClosed = False
         self.HasSentCloseMessage = False
         self.StateLock = threading.Lock()
@@ -47,7 +47,7 @@ class WebStreamImpl(threading.Thread):
     #
     # This function is called on the main Socket receive thread, so it should pass the
     # message off to the thread as quickly as possible.
-    def OnIncomingServerMessage(self, webStreamMsg):
+    def OnIncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
         # Don't accept messages after we are closed.
         if self.IsClosed:
             self.Logger.info("Web stream class "+str(self.Id)+" got a incoming message after it has been closed.")
@@ -140,7 +140,7 @@ class WebStreamImpl(threading.Thread):
             # Timeout after 60 seconds just to check that we aren't closed.
             # It's important to set this value to None, otherwise on loops it will hold it's old value
             # which can accidentally re-process old messages.
-            webStreamMsg = None
+            webStreamMsg:WebStreamMsg.WebStreamMsg = None
             try:
                 webStreamMsg = self.MsgQueue.get(timeout=60)
             except Exception as _:
@@ -191,7 +191,7 @@ class WebStreamImpl(threading.Thread):
                 return
 
 
-    def initFromOpenMessage(self, webStreamMsg):
+    def initFromOpenMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
         # Sanity check.
         if self.OpenWebStreamMsg is not None:
             # Throw so we reset the connection.

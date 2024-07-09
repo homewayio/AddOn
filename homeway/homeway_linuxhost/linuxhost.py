@@ -9,6 +9,7 @@ from homeway.pingpong import PingPong
 from homeway.commandhandler import CommandHandler
 from homeway.homewaycore import Homeway
 from homeway.httprequest import HttpRequest
+from homeway.compression import Compression
 from homeway.Proto.AddonTypes import AddonTypes
 
 from .config import Config
@@ -104,6 +105,9 @@ class LinuxHost:
             Telemetry.Init(self.Logger)
             if devLocalHomewayServerAddress_CanBeNone is not None:
                 Telemetry.SetServerProtocolAndDomain("http://"+devLocalHomewayServerAddress_CanBeNone)
+
+            # Init compression
+            Compression.Init(self.Logger, storageDir)
 
             # Init the mdns client
             MDns.Init(self.Logger, storageDir)

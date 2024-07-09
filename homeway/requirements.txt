@@ -10,6 +10,10 @@
 #   Thus we need version 1.6.0 or higher.
 # dnspython
 #	We depend on a feature that was released with 2.3.0, so we need to require at least that.
+# zstandard
+#   zstandard gives us great compression that's super fast, but it requires a native lib to installed. The PY package will come with a lib and or try to build it, but we can also install it via apt-get.
+#   For the complexity, we can't list it as a required install, since it won't work on some platforms. So instead we will try to install it during runtime, and then it will be used after the following restart.
+#   The package version is defined in homeway.compression.ZStandardPipPackageString
 #
 # Other lib version notes:
 #   certifi - We use to keep certs on the device that we need for let's encrypt. So we want to keep it fresh.
@@ -27,3 +31,4 @@ urllib3>=1.26.15,<1.27.0
 pyyaml
 sentry-sdk>=1.19.1,<2
 configparser
+#zstandard <version>

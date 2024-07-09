@@ -8,6 +8,7 @@ from .compat import Compat
 from .localip import LocalIpHelper
 from .streammsgbuilder import StreamMsgBuilder
 from .Proto.PathTypes import PathTypes
+from .Proto.DataCompression import DataCompression
 from .Proto.HaApiTarget import HaApiTarget
 from .Proto.HttpInitialContext import HttpInitialContext
 
@@ -68,57 +69,127 @@ class HttpRequest:
         # TODO - It might be worth to add some logic to try to detect no protocol hostnames, like test.com/helloworld.
         return PathTypes.Relative
 
-    # The result of a successfully made http request.
-    # "successfully made" means we talked to the server, not the the http
-    # response is good.
+
+    # This result class is a wrapper around the requests PY lib Response object.
+    # For the most part, it should abstract away what's needed from the Response object, so that an actual Response object isn't needed
+    # for all http calls. However, sometimes the actual Response object might be in this result object, because a ref to it needs to be held
+    # so the body stream can be read, assuming there's no full body buffer.
     #
-    # FullBodyBuffer defaults to None. But if it's set, it should be used instead of reading from the http response body.
+    # There are three ways this class can contain a body to be used.
+    #       1) ResponseForBodyRead - If this is not None, then there's a requests.Response attached to this Result and it can be used to be read from.
+    #              Note, in this case, ideally the Result is used with a `with` keyword to cleanup when it's done.
+    #       2) FullBodyBuffer - If this is not None, then there's a fully read body buffer that should be used.
+    #              In this case, the size of the body is known, it's the size of the full body buffer. The size can't change.
+    #       3) CustomBodyStream - If this is not None, then there's a custom body stream that should be used.
+    #              This callback can be implemented by anything. The size is unknown and should continue until the callback returns None.
+    #                   customBodyStreamCallback() -> byteArray : Called to get more bytes. If None is returned, the stream is done.
+    #                   customBodyStreamClosedCallback() -> None : MUST BE CALLED when this Result object is closed, to clean up the stream.
     class Result():
-        def __init__(self, result, url, didFallback, fullBodyBuffer=None):
-            self.result = result
-            self.url:str = url
-            self.didFallback:bool = didFallback
-            self.fullBodyBuffer = fullBodyBuffer
-            self.isZlibCompressed:bool = False
-            self.fullBodyBufferPreCompressedSize:int = 0
+        def __init__(self, statusCode:int, headers:dict, url:str, didFallback:bool, fullBodyBuffer=None, requestLibResponseObj:requests.Response=None, customBodyStreamCallback=None, customBodyStreamClosedCallback=None):
+            # Status code isn't a property because some things need to set it externally to the class. (Result.StatusCode = 302)
+            self.StatusCode = statusCode
+            self._headers = headers
+            self._url:str = url
+            self._requestLibResponseObj = requestLibResponseObj
+            self._didFallback:bool = didFallback
+            self._fullBodyBuffer = fullBodyBuffer
+            self._bodyCompressionType = DataCompression.None_
+            self._fullBodyBufferPreCompressedSize:int = 0
+            self.SetFullBodyBuffer(fullBodyBuffer)
+            self._customBodyStreamCallback = customBodyStreamCallback
+            self._customBodyStreamClosedCallback = customBodyStreamClosedCallback
+            if (self._customBodyStreamCallback is not None and self._customBodyStreamClosedCallback is None) or (self._customBodyStreamCallback is None and self._customBodyStreamClosedCallback is not None):
+                raise Exception("Both the customBodyStreamCallback and customBodyStreamClosedCallback must be set!")
 
         @property
-        def Result(self):
-            return self.result
+        def Headers(self) -> dict:
+            return self._headers
 
         @property
-        def Url(self):
-            return self.url
+        def Url(self) -> str:
+            return self._url
 
         @property
-        def DidFallback(self):
-            return self.didFallback
+        def DidFallback(self) -> bool:
+            return self._didFallback
+
+        # This should only be used for reading the http stream body and it might be None
+        # If this Result was created without one.
+        @property
+        def ResponseForBodyRead(self) -> requests.Response:
+            return self._requestLibResponseObj
 
         @property
-        def FullBodyBuffer(self):
+        def FullBodyBuffer(self) -> bytearray:
             # Defaults to None
-            return self.fullBodyBuffer
+            return self._fullBodyBuffer
 
         @property
-        def IsBodyBufferZlibCompressed(self):
-            # There must be a buffer and the flag must be set.
-            return self.isZlibCompressed and self.fullBodyBuffer is not None
+        def BodyBufferCompressionType(self) -> DataCompression:
+            # Defaults to None
+            return self._bodyCompressionType
 
         @property
-        def BodyBufferPreCompressSize(self):
+        def BodyBufferPreCompressSize(self) -> int:
             # There must be a buffer
-            if self.fullBodyBuffer is None:
+            if self._fullBodyBuffer is None:
                 return 0
-            return self.fullBodyBufferPreCompressedSize
+            return self._fullBodyBufferPreCompressedSize
 
         # Note the buffer can be bytes or bytearray object!
         # A bytes object is more efficient, but bytearray can be edited.
-        def SetFullBodyBuffer(self, buffer, isZlibCompressed:bool = False, preCompressedSize:int = 0):
-            self.fullBodyBuffer = buffer
-            self.isZlibCompressed = isZlibCompressed
-            self.fullBodyBufferPreCompressedSize = preCompressedSize
-            if isZlibCompressed and preCompressedSize <= 0:
+        def SetFullBodyBuffer(self, buffer, compressionType:DataCompression = DataCompression.None_, preCompressedSize:int = 0):
+            self._fullBodyBuffer = buffer
+            self._bodyCompressionType = compressionType
+            self._fullBodyBufferPreCompressedSize = preCompressedSize
+            if compressionType != DataCompression.None_ and preCompressedSize <= 0:
                 raise Exception("The pre-compression full size must be set if the buffer is compressed.")
+
+        # It's important we clear all of the vars that are set above.
+        # This is used by the system that updates the request object with a 304 if the cache headers match.
+        def ClearFullBodyBuffer(self):
+            self._fullBodyBuffer = None
+            self._bodyCompressionType = DataCompression.None_
+            self._fullBodyBufferPreCompressedSize = 0
+
+        # Since most things use request Stream=True, this is a helpful util that will read the entire
+        # content of a request and return it. Note if the request has no defined length, this will read
+        # as long as the stream will go.
+        def ReadAllContentFromStreamResponse(self) -> None:
+            # Ensure we have a stream to read.
+            if self._requestLibResponseObj is None:
+                raise Exception("ReadAllContentFromStreamResponse was called on a result with no request lib Response object.")
+            buffer = None
+            # We can't simply use response.content, since streaming was enabled.
+            # We need to use iter_content, since it will keep returning data until all is read.
+            # We use a high chunk count, so most of the time it will read all of the content in one go.
+            for chunk in self._requestLibResponseObj.iter_content(10000000):
+                if buffer is None:
+                    buffer = chunk
+                else:
+                    buffer += chunk
+            self.SetFullBodyBuffer(buffer)
+
+        @property
+        def GetCustomBodyStreamCallback(self):
+            return self._customBodyStreamCallback
+
+        @property
+        def GetCustomBodyStreamClosedCallback(self):
+            return self._customBodyStreamClosedCallback
+
+        # We need to support the with keyword incase we have an actual Response object.
+        def __enter__(self):
+            if self._requestLibResponseObj is not None:
+                self._requestLibResponseObj.__enter__()
+            return self
+
+        # We need to support the with keyword incase we have an actual Response object.
+        def __exit__(self, t, v, tb):
+            if self._requestLibResponseObj is not None:
+                self._requestLibResponseObj.__exit__(t, v, tb)
+            if self._customBodyStreamClosedCallback is not None:
+                self._customBodyStreamClosedCallback()
 
 
     # Handles making all http calls out of the plugin to locally ports, other services running locally on the device, or
@@ -337,7 +408,7 @@ class HttpRequest:
 
     # This function should always return a AttemptResult object.
     @staticmethod
-    def MakeHttpCallAttempt(logger, attemptName, method, url, headers, data, mainResult, isFallback, nextFallbackUrl, allowRedirects:bool = False):
+    def MakeHttpCallAttempt(logger, attemptName, method, url, headers, data, mainResult, isFallback, nextFallbackUrl, allowRedirects:bool = False) -> Result:
         response = None
         try:
             # Try to make the http call.
@@ -376,14 +447,17 @@ class HttpRequest:
         if response is not None and response.status_code != 404:
             # We got a valid response, we are done.
             # Return true and the result object, so it can be returned.
-            return HttpRequest.AttemptResult(True, HttpRequest.Result(response, url, isFallback))
+            return HttpRequest.AttemptResult(True, HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response))
 
         # Check if we have another fallback URL to try.
         if nextFallbackUrl is not None:
             # We have more fallbacks to try.
             # Return false so we keep going, but also return this response if we had one. This lets
             # use capture the main result object, so we can use it eventually if all fallbacks fail.
-            return HttpRequest.AttemptResult(False, HttpRequest.Result(response, url, isFallback))
+            result = None
+            if response is not None:
+                result = HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response)
+            return HttpRequest.AttemptResult(False, result)
 
         # We don't have another fallback, so we need to end this.
         if mainResult is not None:

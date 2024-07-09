@@ -14,6 +14,7 @@ from .localip import LocalIpHelper
 from .streammsgbuilder import StreamMsgBuilder
 from .serverauth import ServerAuthHelper
 from .sentry import Sentry
+from .compression import Compression
 
 from .Proto import StreamMessage
 from .Proto import HandshakeAck
@@ -21,6 +22,7 @@ from .Proto import MessageContext
 from .Proto import WebStreamMsg
 from .Proto import Summon
 from .Proto.AddonTypes import AddonTypes
+from .Proto.DataCompression import DataCompression
 
 class Session:
 
@@ -203,10 +205,16 @@ class Session:
                 raise Exception("Rsa challenge generation failed.")
             rasChallengeKeyVerInt = ServerAuthHelper.c_ServerAuthKeyVersion
 
+            # Define which type of compression we can receive (beyond None)
+            # Ideally this is zstandard lib, but all client must support zlib, so we can fallback to it.
+            receiveCompressionType = DataCompression.Zlib
+            if Compression.Get().CanUseZStandardLib:
+                receiveCompressionType = DataCompression.ZStandard
+
             # Build the message
             buf = StreamMsgBuilder.BuildHandshakeSyn(self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
                 HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIp(),
-                rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType)
+                rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType, receiveCompressionType)
 
             # Send!
             self.Stream.SendMsg(buf)

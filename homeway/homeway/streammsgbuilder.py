@@ -4,12 +4,13 @@ from .Proto import MessageContext
 from .Proto import HandshakeSyn
 from .Proto import StreamMessage
 from .Proto.AddonTypes import AddonTypes
+from .Proto.DataCompression import DataCompression
 
 # A helper class that builds our Stream messages as flatbuffers.
 class StreamMsgBuilder:
 
     @staticmethod
-    def BuildHandshakeSyn(pluginId, privateKey, isPrimarySession, pluginVersion, localHttpProxyPort, localIp, rsaChallenge, rasKeyVersionInt, summonMethod, addonType:AddonTypes):
+    def BuildHandshakeSyn(pluginId, privateKey, isPrimarySession, pluginVersion, localHttpProxyPort, localIp, rsaChallenge, rasKeyVersionInt, summonMethod, addonType:AddonTypes, receiveCompressionType:DataCompression):
         # Get a buffer
         builder = StreamMsgBuilder.CreateBuffer(500)
 
@@ -37,6 +38,7 @@ class StreamMsgBuilder:
         HandshakeSyn.AddLocalHttpProxyPort(builder, localHttpProxyPort)
         HandshakeSyn.AddRsaChallenge(builder, rasChallengeOffset)
         HandshakeSyn.AddRasChallengeVersion(builder, rasKeyVersionInt)
+        HandshakeSyn.AddReceiveCompressionType(builder, receiveCompressionType)
         synOffset = HandshakeSyn.End(builder)
 
         return StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.HandshakeSyn, synOffset)

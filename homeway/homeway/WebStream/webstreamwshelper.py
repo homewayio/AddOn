@@ -2,7 +2,6 @@
 
 import threading
 import time
-import zlib
 import logging
 
 import websocket
@@ -14,6 +13,7 @@ from ..mdns import MDns
 from ..streammsgbuilder import StreamMsgBuilder
 from ..localip import LocalIpHelper
 from ..websocketimpl import Client
+from ..compression import Compression, CompressionContext
 from ..Proto import WebStreamMsg
 from ..Proto import MessageContext
 from ..Proto import WebSocketDataTypes
@@ -34,13 +34,14 @@ class WebStreamWsHelper:
         self.Id = streamId
         self.Logger = logger
         self.WebStream = webStream
-        self.WebStreamOpenMsg = webStreamOpenMsg
+        self.WebStreamOpenMsg:WebStreamMsg.WebStreamMsg = webStreamOpenMsg
         self.IsClosed = False
         self.StateLock = threading.Lock()
         self.OpenedTime = openedTime
         self.Ws = None
         self.FirstWsMessageSentToLocal = False
         self.ResolvedLocalHostnameUrl = None
+        self.CompressionContext = CompressionContext(self.Logger)
 
         # These vars indicate if the actual websocket is opened or closed.
         # This is different from IsClosed, which is tracking if the webstream closed status.
@@ -234,13 +235,19 @@ class WebStreamWsHelper:
             except Exception as _ :
                 pass
 
+        # Ensure the compressor is cleaned up
+        try:
+            self.CompressionContext.__exit__(None, None, None)
+        except Exception as e:
+            Sentry.Exception("Websocket stream helper failed to clean up the compression context.", e)
+
 
     # Called when a new message has arrived for this stream from the server.
     # This function should throw on critical errors, that will reset the connection.
     # Returning true will case the websocket to close on return.
     # This function is called on it's own thread from the web stream, so it's ok to block
     # as long as it gets cleaned up when the socket closes.
-    def IncomingServerMessage(self, webStreamMsg):
+    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
 
         # We can get messages from this web stream before the actual websocket has opened and is ready for messages.
         # If this happens, when we try to send the message on the socket and we will get an error saying "the socket is closed" (which is incorrect, it's not open yet).
@@ -268,10 +275,9 @@ class WebStreamWsHelper:
             buffer = bytearray(0)
 
         # If the message is compressed, decompress it.
-        if webStreamMsg.DataCompression() == DataCompression.DataCompression.Brotli:
-            raise Exception("IncomingServerMessage Failed - Brotli decompress not possible.")
-        elif webStreamMsg.DataCompression() == DataCompression.DataCompression.Zlib:
-            buffer = zlib.decompress(buffer)
+        compressionType = webStreamMsg.DataCompression()
+        if compressionType != DataCompression.DataCompression.None_:
+            buffer = Compression.Get().Decompress(self.CompressionContext, buffer, webStreamMsg.OriginalDataSize(), False, compressionType)
 
         # Get the send type.
         sendType = 0
@@ -314,15 +320,14 @@ class WebStreamWsHelper:
             else:
                 raise Exception("Web stream ws helper got a message type that's not supported. "+str(msgType))
 
-            # Some messages are large, so compression helps.
-            # We also don't consider the message type, since binary messages can very easily be
-            # text as well, and the cost of compression in terms of CPU is low.
-            usingCompression = len(buffer) > 200
+            # Figure out if we should compress the data.
+            usingCompression = len(buffer) >= Compression.MinSizeToCompress
             originalDataSize = 0
+            compressionResult = None
             if usingCompression:
-                # See notes about the quality and such in the readContentFromBodyAndMakeDataVector.
                 originalDataSize = len(buffer)
-                buffer = zlib.compress(buffer, 3)
+                compressionResult = Compression.Get().Compress(self.CompressionContext, buffer)
+                buffer = compressionResult.Bytes
 
             # Send the message along!
             builder = StreamMsgBuilder.CreateBuffer(len(buffer) + 200)
@@ -338,7 +343,7 @@ class WebStreamWsHelper:
             WebStreamMsg.AddIsControlFlagsOnly(builder, False)
             WebStreamMsg.AddWebsocketDataType(builder, sendType)
             if usingCompression:
-                WebStreamMsg.AddDataCompression(builder, DataCompression.DataCompression.Zlib)
+                WebStreamMsg.AddDataCompression(builder, compressionResult.CompressionType)
                 WebStreamMsg.AddOriginalDataSize(builder, originalDataSize)
             if dataOffset is not None:
                 WebStreamMsg.AddData(builder, dataOffset)

@@ -13,6 +13,11 @@ LABEL \
 COPY requirements.txt /
 RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
+# Install the optional pacakges for zstandard compression.
+# THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
+RUN apk add zstd
+RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
+
 # Create a working dir for all of our files.
 WORKDIR /app
 

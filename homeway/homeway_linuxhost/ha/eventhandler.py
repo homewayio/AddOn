@@ -198,7 +198,7 @@ class EventHandler:
 
     def _QueueStateChangeSend(self, entityId:str, sendEvent:dict):
         # We collapse individual calls in to a single batch call based on a time threshold.
-        self.Logger.debug("_QueueStateChangeSend called")
+        self.Logger.debug(f"_QueueStateChangeSend called `{entityId}`")
         with self.Lock:
             # Some individual entities seem to be really spammy, we have seen some lights
             # that send updates very often. To mitigate that, we will keep track of how many times

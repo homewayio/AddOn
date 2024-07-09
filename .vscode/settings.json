@@ -1,5 +1,4 @@
 {
-    "python.pythonPath": "py3venv/bin/python",
     "cSpell.words": [
         "aarch",
         "ABNF",
@@ -8,6 +7,7 @@
         "armv",
         "authed",
         "bashio",
+        "boundarydonotcross",
         "Brotli",
         "brpaz",
         "Buildx",
@@ -18,6 +18,7 @@
         "contenv",
         "crypo",
         "Damerell",
+        "Decompressor",
         "devcontainer",
         "DGRAM",
         "elif",
@@ -45,6 +46,7 @@
         "khtml",
         "linuxhost",
         "localip",
+        "mbps",
         "mdns",
         "microreads",
         "mjpegstreamer",
@@ -95,7 +97,8 @@
         "webstream",
         "webstreamhttphelper",
         "webstreamimpl",
-        "webstreamwshelper"
+        "webstreamwshelper",
+        "zstandard"
     ],
     "pylint.args": [
         "--rcfile",
