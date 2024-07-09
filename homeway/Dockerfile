@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
 # Install the optional pacakges for zstandard compression.
 # THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
+# hadolint disable=DL3018
+# hadolint disable=DL3019
+# hadolint disable=DL3059
 RUN apk add zstd
 RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
 
