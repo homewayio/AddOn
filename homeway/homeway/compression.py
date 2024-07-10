@@ -269,36 +269,37 @@ class Compression:
         # Try to load the zstandard library, if it fails, we won't use it.
         # Some systems don't have the native lib this will try to load, so we will fall back to zlib.
         self.CanUseZStandardLib = False
-        try:
-            #pylint: disable=import-outside-toplevel,unused-import
-            import zstandard as zstd
+        # TODO - Temp disabled.
+        # try:
+        #     #pylint: disable=import-outside-toplevel,unused-import
+        #     import zstandard as zstd
 
-            # Since we are using zlib, try to load the pre-trained dictionary.
-            # This will throw if it fails, and we must load this dict to use zstandard, because the server expects it.
-            ZStandardDictionary.Get().InitPreComputedDict()
+        #     # Since we are using zlib, try to load the pre-trained dictionary.
+        #     # This will throw if it fails, and we must load this dict to use zstandard, because the server expects it.
+        #     ZStandardDictionary.Get().InitPreComputedDict()
 
-            # Only set this flag after everything is setup and good.
-            self.CanUseZStandardLib = True
-            self.Logger.info(f"Compression is using zstandard with {self.ZStandardThreadCount} threads")
+        #     # Only set this flag after everything is setup and good.
+        #     self.CanUseZStandardLib = True
+        #     self.Logger.info(f"Compression is using zstandard with {self.ZStandardThreadCount} threads")
 
-            # Once the state is set, make a few compressors and decompressors so they are cached and ready to go.
-            c = self.RentZStandardCompressor()
-            c2 = self.RentZStandardCompressor()
-            self.ReturnZStandardCompressor(c)
-            self.ReturnZStandardCompressor(c2)
+        #     # Once the state is set, make a few compressors and decompressors so they are cached and ready to go.
+        #     c = self.RentZStandardCompressor()
+        #     c2 = self.RentZStandardCompressor()
+        #     self.ReturnZStandardCompressor(c)
+        #     self.ReturnZStandardCompressor(c2)
 
-            d = self.RentZStandardDecompressor()
-            d2 = self.RentZStandardDecompressor()
-            self.ReturnZStandardDecompressor(d)
-            self.ReturnZStandardDecompressor(d2)
-        except Exception as e:
-            self.Logger.info(f"Failed to load the zstandard lib, so we won't use it. Error: {e}")
+        #     d = self.RentZStandardDecompressor()
+        #     d2 = self.RentZStandardDecompressor()
+        #     self.ReturnZStandardDecompressor(d)
+        #     self.ReturnZStandardDecompressor(d2)
+        # except Exception as e:
+        #     self.Logger.info(f"Failed to load the zstandard lib, so we won't use it. Error: {e}")
 
-        # If we can't use zstandard, we assume it's not installed since it doesn't install as a required dependency.
-        # In that case, we will use this function to try to install it async, and it will be used on the next restart.
-        # But, if the system has two or less cores, dont try to install, because it's probably not powerful enough to use it.
-        if self.CanUseZStandardLib is False and cpuCores >= Compression.ZStandardMinCoreCountForInstall:
-            self._TryInstallZStandardIfNeededAsync()
+        # # If we can't use zstandard, we assume it's not installed since it doesn't install as a required dependency.
+        # # In that case, we will use this function to try to install it async, and it will be used on the next restart.
+        # # But, if the system has two or less cores, dont try to install, because it's probably not powerful enough to use it.
+        # if self.CanUseZStandardLib is False and cpuCores >= Compression.ZStandardMinCoreCountForInstall:
+        #     self._TryInstallZStandardIfNeededAsync()
 
 
     # Given a buffer of data, compress it using the best available compression library.
