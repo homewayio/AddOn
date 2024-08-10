@@ -72,6 +72,26 @@ class HttpRequest:
         return PathTypes.Relative
 
 
+    # Given a relative URL or absolute URL, returns the path with no query string.
+    # Can throw if there's a string issue.
+    @staticmethod
+    def ParseOutPath(uri:str) -> str:
+        # Start the path at 0, assuming a relative URL.
+        pathStart = 0
+        protocolEnd = uri.find("://")
+        if protocolEnd != -1:
+            # If there's a protocol start, parse to the end of the hostname and possible port.
+            pathStart = uri.find("/", protocolEnd+3)
+            # If this is an absolute URL with no path, return a /.
+            if pathStart == -1:
+                return "/"
+        # Remove the query string, if there is one.
+        queryStart = uri.find("?", pathStart)
+        if queryStart == -1:
+            queryStart = len(uri)
+        return uri[pathStart:queryStart]
+
+
     # This result class is a wrapper around the requests PY lib Response object.
     # For the most part, it should abstract away what's needed from the Response object, so that an actual Response object isn't needed
     # for all http calls. However, sometimes the actual Response object might be in this result object, because a ref to it needs to be held

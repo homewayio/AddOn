@@ -11,6 +11,7 @@ from .headerimpl import BaseProtocol
 from ..httprequest import HttpRequest
 from ..streammsgbuilder import StreamMsgBuilder
 from ..commandhandler import CommandHandler
+from ..customfileserver import CustomFileServer
 from ..compression import Compression, CompressionContext
 from ..sentry import Sentry
 from ..compat import Compat
@@ -160,8 +161,11 @@ class WebStreamHttpHelper:
         isFromCache = False
         # If this is a special command for Homeway, we handle it differently.
         if CommandHandler.Get().IsCommandRequest(httpInitialContext):
-            # This HandleCommand wil return a mock  hwHttpResult, including a full mock response object.
+            # This HandleRequest wil return a valid httpResult, with a full result.
             hwHttpResult = CommandHandler.Get().HandleCommand(httpInitialContext, self.UploadBuffer)
+        elif CustomFileServer.Get().IsCustomFileRequest(httpInitialContext, method):
+            # This HandleRequest wil return a valid httpResult, with a full result.
+            hwHttpResult = CustomFileServer.Get().HandleRequest(httpInitialContext)
         else:
             # Check if we got a cache hit.
             if hwHttpResult is not None:

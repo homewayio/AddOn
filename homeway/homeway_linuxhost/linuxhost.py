@@ -6,12 +6,14 @@ from homeway.sentry import Sentry
 from homeway.hostcommon import HostCommon
 from homeway.telemetry import Telemetry
 from homeway.pingpong import PingPong
-from homeway.commandhandler import CommandHandler
 from homeway.homewaycore import Homeway
 from homeway.httprequest import HttpRequest
 from homeway.compression import Compression
 from homeway.httpsessions import HttpSessions
 from homeway.Proto.AddonTypes import AddonTypes
+from homeway.commandhandler import CommandHandler
+from homeway.customfileserver import CustomFileServer
+
 
 from .config import Config
 from .secrets import Secrets
@@ -119,6 +121,9 @@ class LinuxHost:
             # Setup the command handler
             # This must be setup before the config manager.
             CommandHandler.Init(self.Logger)
+
+            # Setup the custom file server
+            CustomFileServer.Init(self.Logger)
 
             # Setup the Home Assistant config manager
             configManager = ConfigManager(self.Logger)
@@ -264,6 +269,9 @@ class LinuxHost:
 
         # Set the current API key to the event handler
         self.HaEventHandler.SetHomewayApiKey(apiKey)
+
+        # Set the current API key to the custom file server
+        CustomFileServer.Get().UpdateAddonConfig(self.GetPluginId(), apiKey)
 
         # Tell the web server if there's a connect user or not.
         hasConnectedAccount = connectedAccounts is not None and len(connectedAccounts) > 0
