@@ -1,5 +1,6 @@
 import threading
-import requests
+
+from .httpsessions import HttpSessions
 
 # A helper class for reporting telemetry.
 class Telemetry:
@@ -48,7 +49,8 @@ class Telemetry:
                 event["Tags"] = tagsOpt
 
             # Send the event.
-            response = requests.post(Telemetry.ServerProtocolAndDomain+'/api/stats/v2/telemetryaccumulator', json=event, timeout=1*60)
+            url = Telemetry.ServerProtocolAndDomain+'/api/stats/v2/telemetryaccumulator'
+            response = HttpSessions.GetSession(url).post(url, json=event, timeout=1*60)
 
             # Check for success.
             if response.status_code == 200:

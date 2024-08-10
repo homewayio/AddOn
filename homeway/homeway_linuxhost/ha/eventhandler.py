@@ -4,9 +4,8 @@ import json
 import logging
 import threading
 
-import requests
-
 from homeway.sentry import Sentry
+from homeway.httpsessions import HttpSessions
 
 from .serverinfo import ServerInfo
 
@@ -287,7 +286,7 @@ class EventHandler:
                 url = "https://homeway.io/api/plugin-api/statechangeevents"
                 if self.DevLocalHomewayServerAddress_CanBeNone is not None:
                     url = f"http://{self.DevLocalHomewayServerAddress_CanBeNone}/api/plugin-api/statechangeevents"
-                result = requests.post(url, json={"PluginId": self.PluginId, "ApiKey": self.HomewayApiKey, "Events": sendEvents }, timeout=30)
+                result = HttpSessions.GetSession(url).post(url, json={"PluginId": self.PluginId, "ApiKey": self.HomewayApiKey, "Events": sendEvents }, timeout=30)
 
                 # Validate the response.
                 if result.status_code != 200:

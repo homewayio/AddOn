@@ -4,6 +4,8 @@ from ..sentry import Sentry
 from ..streammsgbuilder import StreamMsgBuilder
 from ..httprequest import HttpRequest
 
+from ..Proto.HttpInitialContext import HttpInitialContext
+
 # Indicates the base protocol, not if it's secure or not.
 class BaseProtocol:
     Http = 1
@@ -17,7 +19,7 @@ class HeaderHelper:
 
     # Called by slipstream and the main http class to gather and add required headers.
     @staticmethod
-    def GatherRequestHeaders(logger:logging.Logger, httpInitialContextOptional, protocol) :
+    def GatherRequestHeaders(logger:logging.Logger, httpInitialContextOptional:HttpInitialContext, protocol) :
 
         hostAddress = HttpRequest.GetDirectServiceAddress()
 
@@ -33,6 +35,7 @@ class HeaderHelper:
                 i += 1
 
                 # Get the values & validate
+                # These Key() and Value() calls are relatively what expensive, so we only call them once.
                 name = StreamMsgBuilder.BytesToString(header.Key())
                 value = StreamMsgBuilder.BytesToString(header.Value())
                 if name is None or value is None:
@@ -77,7 +80,7 @@ class HeaderHelper:
                     value = "http://" + hostAddress
 
                 # Add the header. (use the original case)
-                sendHeaders[StreamMsgBuilder.BytesToString(header.Key())] = value
+                sendHeaders[name] = value
 
         # The `X-Forwarded-Host` tells the web server we are talking to what it's actual
         # hostname and port are. This allows it to set outbound urls and references to be correct to the right host.

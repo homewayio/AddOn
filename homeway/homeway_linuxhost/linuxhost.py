@@ -10,6 +10,7 @@ from homeway.commandhandler import CommandHandler
 from homeway.homewaycore import Homeway
 from homeway.httprequest import HttpRequest
 from homeway.compression import Compression
+from homeway.httpsessions import HttpSessions
 from homeway.Proto.AddonTypes import AddonTypes
 
 from .config import Config
@@ -68,6 +69,9 @@ class LinuxHost:
             # Find the version of the plugin, this is required and it will throw if it fails.
             pluginVersionStr = Version.GetPluginVersion(versionFileDir)
             self.Logger.info("Plugin Version: %s", pluginVersionStr)
+
+            # Setup the HttpSession cache early, so it can be used whenever
+            HttpSessions.Init(self.Logger)
 
             # Setup Sentry as soon as we know the plugin version.
             dist = "addon" if self.IsRunningInHaAddonEnv else "standalone"
