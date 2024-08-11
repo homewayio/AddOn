@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 1.3.5-6
+## 1.3.5-7
 
 - 🏎️ Even more speed improvements!
 - 🪲 Fixing a few bugs that cause the Home Assistant frontend to break.

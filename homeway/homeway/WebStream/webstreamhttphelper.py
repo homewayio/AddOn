@@ -390,7 +390,7 @@ class WebStreamHttpHelper:
                     WebStreamMsg.AddFullStreamDataSize(builder, contentLength)
                 if compressBody:
                     if self.CompressionType is None:
-                        raise Exception(f"The body of this message should be compressed but not compression type is set. status: {hwHttpResult.StatusCode} url: {uri} readSize: {contentReadBytes} fullbuffercompression: {hwHttpResult.BodyBufferCompressionType}]")
+                        raise Exception(f"The body of this message should be compressed but not compression type is set. status: {hwHttpResult.StatusCode} url: {uri}, readSize: {contentReadBytes}, fullbuffercompression: {hwHttpResult.BodyBufferCompressionType}, contentType: {contentTypeLower}, contentLength: {contentLength}")
                     WebStreamMsg.AddDataCompression(builder, self.CompressionType)
                     WebStreamMsg.AddOriginalDataSize(builder, nonCompressedBodyReadSize)
                 if isLastMessage:
