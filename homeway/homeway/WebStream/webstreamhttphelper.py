@@ -339,6 +339,16 @@ class WebStreamHttpHelper:
                     # Always update the content length, because the new size could be smaller or larger than the original.
                     contentLength = nonCompressedBodyReadSize
 
+                # Kind of Special Case - We also need to check if the body read got anything back.
+                # We have seen some web servers that will return a 404 for a resource like a JS file, the content length will be None but the content type will be "application/javascript"
+                # This means we might have set the `compressBody` flag to True, but we didn't get any data back. In this case, we need to set the compressBody flag to False.
+                # Or else the logic that sends the compression type will fail, because no compression type was set.
+                if compressBody and isFirstResponse and nonCompressedBodyReadSize == 0:
+                    # Ensure the compression type is not set.
+                    if self.CompressionType is not None:
+                        raise Exception(f"We found a request that had compression enabled, but didn't read a body length, but it has a compression type set. status: {hwHttpResult.StatusCode} url: {uri}, readSize: {contentReadBytes}, fullbuffercompression: {hwHttpResult.BodyBufferCompressionType}, contentType: {contentTypeLower}, contentLength: {contentLength}")
+                    compressBody = False
+
                 # Since this operation can take a while, check if we closed.
                 if self.IsClosed:
                     break

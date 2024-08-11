@@ -164,6 +164,8 @@ class HttpRequest:
             self._fullBodyBuffer = buffer
             self._bodyCompressionType = compressionType
             self._fullBodyBufferPreCompressedSize = preCompressedSize
+            if compressionType != DataCompression.None_ and (preCompressedSize == 0 or len(buffer) == 0):
+                raise Exception("The pre-compress size or the buffer size can't be zero if compression type is set.")
             if compressionType != DataCompression.None_ and preCompressedSize <= 0:
                 raise Exception("The pre-compression full size must be set if the buffer is compressed.")
 
