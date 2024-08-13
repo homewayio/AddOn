@@ -1,0 +1,40 @@
+---
+# yamllint disable rule:line-length
+# yamllint disable rule:comments
+# yamllint disable rule:comments-indentation
+services:
+  homeway:
+    image: homewayio/homeway:latest
+    environment:
+      # The IP address or hostname of your Home Assistant instance.
+      - HOME_ASSISTANT_IP=homeassistant.local
+
+      # A Long-Lived Access Token from your Home Assistant instance.
+      # See https://github.com/homewayio/AddOn/blob/main/docker-readme.md for instructions.
+      - HOME_ASSISTANT_ACCESS_TOKEN=<token>
+
+      # Optional: Your Home Assistnat server port.
+      #- HOME_ASSISTANT_PORT=8123
+    volumes:
+      # Specify a path mapping for the required persistent storage
+      # This can also be an absolue path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
+      - ./data:/data
+
+
+  # Add as many addons as you want! Just make the name `homeway` name and data path unique!
+  # homeway-2:
+  #   image: homewayio/homeway:latest
+  #   environment:
+  #     # The IP address or hostname of your Home Assistant instance.
+  #     - HOME_ASSISTANT_IP=homeassistant.local
+
+  #     # A Long-Lived Access Token from your Home Assistant instance.
+  #     # See https://github.com/homewayio/AddOn/blob/main/docker-readme.md for instructions.
+  #     - HOME_ASSISTANT_ACCESS_TOKEN=<token>
+
+  #     # Optional: Your Home Assistnat server port.
+  #     #- HOME_ASSISTANT_PORT=8123
+  #   volumes:
+  #     # Specify a path mapping for the required persistent storage
+  #     # This can also be an absolue path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
+  #     - ./data-2:/data
