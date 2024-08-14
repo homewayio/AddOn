@@ -67,6 +67,8 @@ jobs:
           pip install "zstandard>=0.21.0,<0.23.0"
       - name: Analyzing the code with pylint
         run: |
+          pylint ./homeway_installer/
+          pylint ./homeway_standalone_docker/
           pylint ./homeway/homeway
           pylint ./homeway/homeway_linuxhost/
 

@@ -4,5 +4,6 @@
 
 class AddonTypes(object):
     Unknown = 1
-    HaContainer = 2
-    Standalone = 3
+    HaAddon = 2
+    StandaloneCli = 3
+    StandaloneDocker = 4

@@ -4,9 +4,9 @@ Secure, private, and free remote access to your Home Assistant from anywhere! In
 
 There are three ways you can setup Homeway:
 
-1) Use Home Assistant's build-in add-on model.
-2) Use the standalone docker image.
-3) Use the standalone Linux CLI.
+1) [Use Home Assistant's build-in add-on model.](https://homeway.io/getstarted?source=github_docker_readme&addon=true) - Recommended
+2) [Use the standalone docker image.](https://homeway.io/getstarted?source=github_docker_readme&cli=true)
+3) [Use the standalone Linux CLI.](https://homeway.io/getstarted?source=github_docker_readme&docker=true)
 
 **If your Home Assistant server supports add-ons, installing the Homeway add-on is recommended for easy and full functionality. [Follow this link for a step-by-step Homeway add-on setup guide.](https://homeway.io/getstarted?source=github_docker_readme&addon=true)**
 
@@ -37,7 +37,7 @@ To use the Homeway Standalone Docker Container, you need to get the following in
 To create a Long-Lived Access Token in Home Assistant, follow these steps:
 
 1. Open the Home Assistant web UI and go to your user profile:
-    - Something like http://homeassistant.local:8123/profile
+    - Something like: http://homeassistant.local:8123/profile
 2. On your profile page, click the "Security" tab at the top.
 3. Scroll down to the bottom, to the "Long-lived access tokens" box.
 4. Click "CREATE TOKEN"
@@ -81,13 +81,9 @@ When you first run the docker container, these two values must be set at environ
     - HOME_ASSISTANT_PORT=(Port of your Home Assistant server)
         - Defaults to `8123`
 
-Pull the docker container locally:
-
-`docker pull homewayio/homeway`
-
 Run the docker container passing the required information:
 
-`docker run --name homeway -e HOME_ASSISTANT_IP=localhost -e HOME_ASSISTANT_ACCESS_TOKEN=token -v /data:/data -d homeway`
+`docker run --name homeway -e HOME_ASSISTANT_IP=localhost -e HOME_ASSISTANT_ACCESS_TOKEN=token -v /data:/data -d homewayio/homeway`
 
 Follow the "Linking Your Homeway Standalone Docker Addon" steps above to link the addon to your account.
 

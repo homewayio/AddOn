@@ -30,6 +30,7 @@ class ConfigFile:
             config.SetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, ip)
             config.SetStr(Config.HomeAssistantSection, Config.HaPortKey, port)
             config.SetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, accessToken)
+            return True
         except Exception as e:
             Logger.Error("Failed to write config. "+str(e))
-            return False
+        return False

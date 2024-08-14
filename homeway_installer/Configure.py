@@ -128,7 +128,7 @@ class Configure:
             for ip in foundIps:
                 count += 1
                 Logger.Info(f"  {count}) {ip}:{Configure.c_DefaultHomeAssistantPortStr}")
-            Logger.Info(f"  m) Manually enter the server information")
+            Logger.Info("  m) Manually enter the server information")
             Logger.Blank()
             while True:
                 response = input("Enter the number next to the Home Assistant server you want to use. Or enter `m` to manually specify the connection details: ")
@@ -280,12 +280,9 @@ class Configure:
         failedDueToAuth = False
         with lock:
             # If success doesn't exist, it's failed.
-            if "success" in result:
-                capturedSuccess = result["success"]
-            if "exception" in result:
-                capturedEx = result["exception"]
-            if "failedDueToAuth" in result:
-                failedDueToAuth = result["failedDueToAuth"]
+            capturedSuccess = result.get("success", False)
+            capturedEx = result.get("exception", None)
+            failedDueToAuth = result.get("failedDueToAuth", False)
 
         # If there is an access token but auth failed, don't return success overall.
         if accessToken is not None and failedDueToAuth:

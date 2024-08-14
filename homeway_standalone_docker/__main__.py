@@ -10,6 +10,7 @@ import subprocess
 
 #
 # This standalone docker host is the entry point for the docker container.
+# If you're looking for the Home Assistant addon, check the /homeway dir.
 #
 
 from homeway.homeway_linuxhost.config import Config
@@ -103,7 +104,7 @@ if __name__ == '__main__':
         # Get the HA access token
         haAccessToken = os.environ.get("HOME_ASSISTANT_ACCESS_TOKEN", None)
         if haAccessToken is not None:
-            logger.info(f"Setting Home Assistant Access Token: {haAccessToken}")
+            logger.info("Setting Home Assistant Access Token.")
             config.SetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, haAccessToken)
         # Ensure something is set now.
         if config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None) is None:
@@ -144,6 +145,7 @@ if __name__ == '__main__':
             "LogsDir" : logDirPath,
             "StorageDir" : localStoragePath,
             "IsRunningInHaAddonEnv" : False,
+            "IsRunningAsStandaloneDocker" : True
         }
 
         # Convert the launch string into what's expected.

@@ -20,14 +20,21 @@ Free remote access to your Home Assistant from anywhere! Including [Amazon Alexa
 
 [![Open your Home Assistant instance and show the dashboard of an add-on.](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=6a6435e4_homeway&repository_url=https%3A%2F%2Fgithub.com%2Fhomewayio%2Faddon)
 
-- Click the button above to open the Homeway add-on page in your Home Assistance.
-- On the Homeway add-on page, click the "INSTALL" text.
-- When the Homeway add-on install is done, click the "START" text.
-- Click the "OPEN WEB UI" text.
-- Click the button to link your Homeway account.
-- Done!
+1. Click the button above to open the Homeway add-on page in your Home Assistance.
+2. On the Homeway add-on page, click the "INSTALL" text.
+3. When the Homeway add-on install is done, click the "START" text.
+4. Click the "OPEN WEB UI" text.
+5. Click the button to link your Homeway account.
+6. Done!
 
-If you need help, read our [complete setup guide](https://homeway.io/getstarted?source=github_full_guide)!
+If you need help, read our [step-by-step setup guide](https://homeway.io/getstarted?source=github_readme_full_guide).
+
+### Homeway Standalone Setup
+
+If your Home Assistant server doesn't support Add-ons, there are two standalone install options:
+
+- [Homeway Standalone CLI](https://homeway.io/getstarted?source=github_readme_cli&standalone=true) - Ideal to install on the same device running Home Assistant.
+- [Homeway Standalone Docker](https://homeway.io/getstarted?source=github_readme_docker&standalone=true) - Installs anywhere Docker runs!
 
 ### Feedback & Bugs
 

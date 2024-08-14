@@ -4,6 +4,8 @@ import json
 import base64
 from enum import Enum
 
+from homeway.Proto.AddonTypes import AddonTypes
+
 from .linuxhost import LinuxHost
 
 #
@@ -80,6 +82,13 @@ if __name__ == '__main__':
         StorageDir = _GetConfigVarAndValidate(config, "StorageDir", ConfigDataTypes.Path)
         IsRunningInHaAddonEnv = _GetConfigVarAndValidate(config, "IsRunningInHaAddonEnv", ConfigDataTypes.Bool)
 
+        # This is an optional arg added for the standalone docker version.
+        # If it doesn't exist, the value is False.
+        IsRunningAsStandaloneDocker = False
+        if "IsRunningAsStandaloneDocker" in config:
+            IsRunningAsStandaloneDocker = _GetConfigVarAndValidate(config, "IsRunningAsStandaloneDocker", ConfigDataTypes.Bool)
+
+
     except Exception as e:
         _PrintErrorAndExit(f"Exception while loading json config. Error:{str(e)}, Config: {jsonConfigStr}")
 
@@ -94,8 +103,15 @@ if __name__ == '__main__':
 
     # Run!
     try:
+        # Get the addon type.
+        addon = AddonTypes.StandaloneCli
+        if IsRunningInHaAddonEnv:
+            addon = AddonTypes.HaAddon
+        if IsRunningAsStandaloneDocker:
+            addon = AddonTypes.StandaloneDocker
+
         # Create and run the main host!
-        host = LinuxHost(AddonDataRootDir, LogsDir, IsRunningInHaAddonEnv, devConfig_CanBeNone)
+        host = LinuxHost(AddonDataRootDir, LogsDir, addon, devConfig_CanBeNone)
         host.RunBlocking(StorageDir, VersionFileDir, devConfig_CanBeNone)
     except Exception as e:
         _PrintErrorAndExit(f"Exception leaked from main host class. Error:{str(e)}")

@@ -31,14 +31,14 @@ from .ha.serverdiscovery import ServerDiscovery
 # This file is the main host for the linux service.
 class LinuxHost:
 
-    def __init__(self, addonDataRootDir:str, logsDir:str, IsRunningInHaAddonEnv:bool, devConfig_CanBeNone) -> None:
+    def __init__(self, addonDataRootDir:str, logsDir:str, addonType:AddonTypes, devConfig_CanBeNone) -> None:
         # When we create our class, make sure all of our core requirements are created.
         self.Secrets = None
         self.WebServer = None
         self.HaEventHandler = None
 
-        # Indicates if we are running in the docker addon container.
-        self.IsRunningInHaAddonEnv = IsRunningInHaAddonEnv
+        # Indicates if we are running as the Home Assistant addon, or standalone docker or cli.
+        self.AddonType = addonType
 
         try:
             # First, we need to load our config.
@@ -76,8 +76,12 @@ class LinuxHost:
             HttpSessions.Init(self.Logger)
 
             # Setup Sentry as soon as we know the plugin version.
-            dist = "addon" if self.IsRunningInHaAddonEnv else "standalone"
-            Sentry.Setup(pluginVersionStr, dist, devConfig_CanBeNone is not None)
+            addonTypeStr = "HomeAssistantAddon"
+            if self.AddonType is AddonTypes.StandaloneDocker:
+                addonTypeStr = "StandaloneDocker"
+            elif self.AddonType is AddonTypes.StandaloneCli:
+                addonTypeStr = "StandaloneCli"
+            Sentry.Setup(pluginVersionStr, addonTypeStr, devConfig_CanBeNone is not None)
 
             # We don't store any sensitive things in teh config file, since all config files are sometimes backed up publicly.
             self.Secrets = Secrets(self.Logger, storageDir, self.Config)
@@ -96,7 +100,7 @@ class LinuxHost:
             # We start it as early as possible so the user can load the web page ASAP.
             # We always create the class, but only start the server for the in HA addon.
             self.WebServer = WebServer(self.Logger, pluginId, devConfig_CanBeNone)
-            if self.IsRunningInHaAddonEnv:
+            if self.AddonType is AddonTypes.HaAddon:
                 self.WebServer.Start()
 
             # Unpack any dev vars that might exist
@@ -182,17 +186,11 @@ class LinuxHost:
             configManager.SetHaConnection(haConnection)
             configManager.UpdateConfigIfNeeded()
 
-            # Get the addon type
-            if self.IsRunningInHaAddonEnv:
-                addonType = AddonTypes.HaContainer
-            else:
-                addonType = AddonTypes.Standalone
-
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()
             if devLocalHomewayServerAddress_CanBeNone is not None:
                 pluginConnectUrl = HostCommon.GetPluginConnectionUrl(fullHostString="ws://"+devLocalHomewayServerAddress_CanBeNone)
-            oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr, addonType)
+            oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr, self.AddonType)
             oe.RunBlocking()
         except Exception as e:
             Sentry.Exception("!! Exception thrown out of main host run function.", e)
