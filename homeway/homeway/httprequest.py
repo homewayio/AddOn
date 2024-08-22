@@ -496,20 +496,21 @@ class HttpRequest:
                 logger.info(attemptName + " http NO HEADERS URL threw an exception: "+str(e))
 
         # Check if we got a valid response.
-        if response is not None and response.status_code != 404:
-            # We got a valid response, we are done.
-            # Return true and the result object, so it can be returned.
-            return HttpRequest.AttemptResult(True, HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response))
+        if response is not None:
+            if response.status_code != 404:
+                # We got a valid response, we are done.
+                # Return true and the result object, so it can be returned.
+                return HttpRequest.AttemptResult(True, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
+            else:
+                # We got a 404, which is a valid response, but we need to keep going to the next fallback.
+                logger.info(attemptName + " failed with a 404. Trying the next fallback.")
 
         # Check if we have another fallback URL to try.
         if nextFallbackUrl is not None:
             # We have more fallbacks to try.
             # Return false so we keep going, but also return this response if we had one. This lets
             # use capture the main result object, so we can use it eventually if all fallbacks fail.
-            result = None
-            if response is not None:
-                result = HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response)
-            return HttpRequest.AttemptResult(False, result)
+            return HttpRequest.AttemptResult(False, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
 
         # We don't have another fallback, so we need to end this.
         if mainResult is not None:
@@ -517,6 +518,18 @@ class HttpRequest:
             logger.info(attemptName + " failed and we have no more fallbacks. Returning the main URL response.")
             return HttpRequest.AttemptResult(True, mainResult)
         else:
+            # If we have a response, return it.
+            if response is not None:
+                logger.error(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
+                return HttpRequest.AttemptResult(True, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
+
             # Otherwise return the failure.
-            logger.error(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
+            logger.error(attemptName + " failed and we have no more fallbacks. We have no main response, but will return the current response.")
             return HttpRequest.AttemptResult(True, None)
+
+
+    @staticmethod
+    def _buildHttRequestResultFromResponse(response:requests.Response, url:str, isFallback:bool) -> Result:
+        if response is None:
+            return None
+        return HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response)
