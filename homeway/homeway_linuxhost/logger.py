@@ -28,6 +28,7 @@ class LoggerInit:
             logLevelOverride_CanBeNone = logLevelOverride_CanBeNone.upper()
             print("Dev config override log level from "+logLevel+" to "+logLevelOverride_CanBeNone)
             logLevel = logLevelOverride_CanBeNone
+        logLevel = "DEBUG"
 
         # Set the final log level.
         logger.setLevel(logLevel)

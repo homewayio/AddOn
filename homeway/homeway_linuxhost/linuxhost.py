@@ -81,6 +81,7 @@ class LinuxHost:
                 addonTypeStr = "StandaloneDocker"
             elif self.AddonType is AddonTypes.StandaloneCli:
                 addonTypeStr = "StandaloneCli"
+            self.Logger.info("Plugin Type: %s", addonTypeStr)
             Sentry.Setup(pluginVersionStr, addonTypeStr, devConfig_CanBeNone is not None)
 
             # We don't store any sensitive things in teh config file, since all config files are sometimes backed up publicly.
