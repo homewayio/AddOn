@@ -21,7 +21,8 @@
 #
 
 # Set this to terminate on error.
-set -e
+# We don't do this anymore, because some commands return non-zero exit codes, but still are successful.
+# set -e
 
 # Get the root path of the repo, aka, where this script is executing
 HA_REPO_DIR=$(readlink -f $(dirname "$0"))
