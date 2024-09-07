@@ -1,6 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.5.0
+
+- 🚀 Major CPU and memory performance improvements! Homeway is now EVEN FASTER!!
+- 🐛 Other minor bug fixes.
+
 ## 1.4.0-5
 
 - 🐋 Adding a standalone docker image! Using the built in Home Assistant addon is the best option, but for those who can't, they can now use docker!
