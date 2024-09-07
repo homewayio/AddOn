@@ -4,7 +4,7 @@ import threading
 import time
 import logging
 
-import websocket
+import octowebsocket
 
 from .headerimpl import HeaderHelper
 from ..sentry import Sentry
@@ -283,11 +283,11 @@ class WebStreamWsHelper:
         sendType = 0
         msgType = webStreamMsg.WebsocketDataType()
         if msgType == WebSocketDataTypes.WebSocketDataTypes.Text:
-            sendType = websocket.ABNF.OPCODE_TEXT
+            sendType = octowebsocket.ABNF.OPCODE_TEXT
         elif msgType == WebSocketDataTypes.WebSocketDataTypes.Binary:
-            sendType = websocket.ABNF.OPCODE_BINARY
+            sendType = octowebsocket.ABNF.OPCODE_BINARY
         elif msgType == WebSocketDataTypes.WebSocketDataTypes.Close:
-            sendType = websocket.ABNF.OPCODE_CLOSE
+            sendType = octowebsocket.ABNF.OPCODE_CLOSE
         else:
             raise Exception("Web stream ws was sent a data type that's unknown. "+str(msgType))
 
@@ -312,9 +312,9 @@ class WebStreamWsHelper:
             # Figure out the data type
             # TODO - we should support the OPCODE_CONT type at some point. But it's not needed right now.
             sendType = WebSocketDataTypes.WebSocketDataTypes.None_
-            if msgType == websocket.ABNF.OPCODE_BINARY:
+            if msgType == octowebsocket.ABNF.OPCODE_BINARY:
                 sendType = WebSocketDataTypes.WebSocketDataTypes.Binary
-            elif msgType == websocket.ABNF.OPCODE_TEXT:
+            elif msgType == octowebsocket.ABNF.OPCODE_TEXT:
                 sendType = WebSocketDataTypes.WebSocketDataTypes.Text
                 # In PY3 using the modern websocket_client lib the text also comes as a byte buffer.
             else:

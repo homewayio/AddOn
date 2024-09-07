@@ -3,11 +3,10 @@
 #
 # Notes on versions
 #
-# websocket_client
-# 	For the websocket_client, some older versions seem to have a thread issue that causes the 24 hour disconnect logic to fail, and eventually makes the thread limit get hit.
-# 	Version 1.4.0 also has an SSL error in it. https://github.com/websocket-client/websocket-client/issues/857
-#	Update: We also found a bug where the ping timer doesn't get cleaned up: https://github.com/websocket-client/websocket-client/pull/918
-#   Thus we need version 1.6.0 or higher.
+# octowebsocket_client
+#   We forked this package so we could add a flag to disable websocket frame masking when sending messages, which got us a 30% CPU reduction.
+#   For a full list of changes, reasons, and version details, see the repo readme.md
+#   For the source lib, we must be on version 1.6 due to a bug before that version.
 # dnspython
 #	We depend on a feature that was released with 2.3.0, so we need to require at least that.
 # zstandard
@@ -20,9 +19,9 @@
 #   httpx - Is an asyncio http lib. It seems to be required by dnspython, but dnspython doesn't enforce it. We had a user having an issue that updated to 0.24.0, and it resolved the issue.
 #   urllib3 - There is a bug with parsing headers in versions older than 1.26.? (https://github.com/diyan/pywinrm/issues/269). At least 1.26.6 fixes it, ubt we decide to just stick with a newer version.
 #
-websocket_client>=1.6.0,<1.6.99
+octowebsocket_client==1.8.2
 requests>=2.24.0
-octoflatbuffers==24.3.26
+octoflatbuffers==24.3.27
 certifi>=2023.7.22
 rsa>=4.9
 dnspython>=2.3.0

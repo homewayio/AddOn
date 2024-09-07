@@ -45,7 +45,7 @@ class StreamMsgBuilder:
 
 
     @staticmethod
-    def CreateBuffer(size):
+    def CreateBuffer(size) -> octoflatbuffers.Builder:
         return octoflatbuffers.Builder(size)
 
 

@@ -2,8 +2,8 @@ import queue
 import ssl
 import threading
 import certifi
-import websocket
-from websocket import WebSocketApp
+import octowebsocket
+from octowebsocket import WebSocketApp
 
 from .sentry import Sentry
 
@@ -11,6 +11,12 @@ from .sentry import Sentry
 class Client:
 
     def __init__(self, url, onWsOpen = None, onWsMsg = None, onWsData = None, onWsClose = None, onWsError = None, headers:dict = None, subProtocolList:list = None):
+
+        # Set the default timeout for the socket. There's no other way to do this than this global var, and it will be shared by all websockets.
+        # This is used when the system is writing or receiving, but not when it's waiting to receive, as that's a select()
+        # We set it to be something high because most all errors will be handled other ways, but this prevents the websocket from hanging forever.
+        # The value is in seconds, we currently set it to 10 minutes.
+        octowebsocket.setdefaulttimeout(10 * 60)
 
         # Since we also fire onWsError if there is a send error, we need to capture
         # the callback and have some vars to ensure it only gets fired once.
@@ -200,9 +206,9 @@ class Client:
 
     def Send(self, msgBytes, isData):
         if isData:
-            self.SendWithOptCode(msgBytes, websocket.ABNF.OPCODE_BINARY)
+            self.SendWithOptCode(msgBytes, octowebsocket.ABNF.OPCODE_BINARY)
         else:
-            self.SendWithOptCode(msgBytes, websocket.ABNF.OPCODE_TEXT)
+            self.SendWithOptCode(msgBytes, octowebsocket.ABNF.OPCODE_TEXT)
 
 
     def SendWithOptCode(self, msgBytes, opcode):
@@ -226,7 +232,10 @@ class Client:
                 if context is None or context.Buffer is None:
                     return
                 # Send it!
-                self.Ws.send(context.Buffer, context.OptCode)
+                # Important! We don't want to use the frame mask because it adds about 30% CPU usage on low end devices.
+                # The frame masking was only need back when websockets were used over the internet without SSL.
+                # Our server, OctoPrint, and Moonraker all accept unmasked frames, so its safe to do this for all WS.
+                self.Ws.send(context.Buffer, context.OptCode, False)
         except Exception as e:
             # If any exception happens during sending, we want to report the error
             # and shutdown the entire websocket.

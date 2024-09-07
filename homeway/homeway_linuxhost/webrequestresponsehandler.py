@@ -63,7 +63,7 @@ class WebRequestResponseHandler:
     # If we returned a context above in CheckIfResponseNeedsToBeHandled, this will be called after the web request is made
     # and the body is fully read. The entire body will be read into the bodyBuffer.
     # We are able to modify the bodyBuffer as we wish or not, but we must return the full bodyBuffer back to be returned.
-    def HandleResponse(self, contextObject:ResponseHandlerContext, bodyBuffer: bytes) -> bytes:
+    def HandleResponse(self, contextObject:ResponseHandlerContext, hwHttpResult:HttpRequest.Result, bodyBuffer: bytes) -> bytes:
         try:
             if contextObject.Type == ResponseHandlerContext.HomeAssistantHtmlPage:
                 return self._HandleHomeAssistantHtmlPage(bodyBuffer)
