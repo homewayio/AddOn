@@ -48,7 +48,7 @@ class MsgBuilderContext:
 class WebStreamHttpHelper:
 
     # Called by the main socket thread so this should be quick!
-    def __init__(self, streamId, logger:logging.Logger, webStream, webStreamOpenMsg, openedTime):
+    def __init__(self, streamId, logger:logging.Logger, webStream, webStreamOpenMsg:WebStreamMsg.WebStreamMsg, openedTime):
         self.Id = streamId
         self.Logger = logger
         self.WebStream = webStream
@@ -456,12 +456,12 @@ class WebStreamHttpHelper:
                 webStreamMsgOffset = WebStreamMsg.End(builderContext.Builder)
 
                 # Wrap in the StreamMsg and finalize.
-                outputBuf = StreamMsgBuilder.CreateStreamMsgAndFinalize(builderContext.Builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
+                buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.CreateStreamMsgAndFinalize(builderContext.Builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
 
                 # Send the message.
                 # If this is the last, we need to make sure to set that we have set the closed flag.
                 serviceSendStartSec = time.time()
-                self.WebStream.SendToStream(outputBuf, isLastMessage, True)
+                self.WebStream.SendToStream(buffer, msgStartOffsetBytes, msgSizeBytes, isLastMessage, True)
                 thisServiceSendTimeSec = time.time() - serviceSendStartSec
                 self.ServiceUploadTimeSec += thisServiceSendTimeSec
                 if thisServiceSendTimeSec > self.ServiceUploadTimeHighWaterMarkSec:
@@ -469,9 +469,9 @@ class WebStreamHttpHelper:
 
                 # Do a debug check to see if our pre-allocated flatbuffer size was too small.
                 # If this fires often, we should increase the c_MsgStreamOverheadSize size.
-                finalFullBufferBytes = len(builderContext.Builder.Bytes)
+                finalFullBufferBytes = len(buffer)
                 if finalFullBufferBytes > lastBodyReadLength + builderContext.c_MsgStreamOverheadSize and self.Logger.isEnabledFor(logging.DEBUG):
-                    delta = len(outputBuf) - (lastBodyReadLength + builderContext.c_MsgStreamOverheadSize)
+                    delta = msgSizeBytes - (lastBodyReadLength + builderContext.c_MsgStreamOverheadSize)
                     self.Logger.warn(f"The flatbuffer internal buffer had to be resized from the guess we set. Flatbuffer full buffer size: {finalFullBufferBytes}, last body read length: {lastBodyReadLength}; overrage delta: {delta}")
 
                 # Clear this flag

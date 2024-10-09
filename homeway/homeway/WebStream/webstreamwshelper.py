@@ -291,8 +291,16 @@ class WebStreamWsHelper:
         else:
             raise Exception("Web stream ws was sent a data type that's unknown. "+str(msgType))
 
-        # Send!
-        self.Ws.SendWithOptCode(buffer, sendType)
+        # Before we send, make sure we have a local websocket still and it's not closed.
+        # If the websocket object is closed ignore this message. It will throw if the socket is closed
+        # which will take down the entire Stream. But since it's closed the web stream is already cleaning up.
+        # This can happen if the socket closes locally and we sent the message to clean up to the service, but there
+        # were already inbound messages on the way.
+        localWs = self.Ws
+        if self.IsWsObjClosed or self.IsClosed or localWs is None:
+            return True
+        # Send using the known non-null local ws object.
+        localWs.SendWithOptCode(buffer, optCode=sendType)
 
         # Log for perf tracking
         if self.FirstWsMessageSentToLocal is False:
@@ -348,10 +356,10 @@ class WebStreamWsHelper:
             if dataOffset is not None:
                 WebStreamMsg.AddData(builder, dataOffset)
             webStreamMsgOffset = WebStreamMsg.End(builder)
-            outputBuf = StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
+            buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
 
             # Send it!
-            self.WebStream.SendToStream(outputBuf)
+            self.WebStream.SendToStream(buffer, msgStartOffsetBytes, msgSizeBytes)
         except Exception as e:
             Sentry.Exception(self.getLogMsgPrefix()+ " got an error while trying to forward websocket data to the service.", e)
             self.WebStream.Close()

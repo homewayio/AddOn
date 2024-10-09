@@ -239,7 +239,7 @@ class Configure:
                                     "type": "auth",
                                     "access_token": accessToken
                                 })
-                                ws.Send(authMsg.encode('utf-8'), False)
+                                ws.Send(authMsg.encode('utf-8'), isData=False)
                                 result["state"] = 2
                         elif "type" in msg and msg["type"] == "auth_ok":
                             # Auth success!

@@ -239,7 +239,7 @@ class WebStreamImpl(threading.Thread):
 
 
     # Called by the helpers to send messages to the server.
-    def SendToStream(self, buffer, isCloseFlagSet = False, silentlyFail = False):
+    def SendToStream(self, buffer:bytearray, msgStartOffsetBytes:int, msgSize:int, isCloseFlagSet = False, silentlyFail = False):
         # Make sure we aren't closed. If we are, don't allow the message to be sent.
         with self.StateLock:
             if self.IsClosed is True:
@@ -261,7 +261,7 @@ class WebStreamImpl(threading.Thread):
 
         # Send now
         try:
-            self.Session.Send(buffer)
+            self.Session.Send(buffer, msgStartOffsetBytes, msgSize)
         except Exception as e:
             Sentry.Exception("Web stream "+str(self.Id)+ " failed to send a message to the Stream.", e)
 

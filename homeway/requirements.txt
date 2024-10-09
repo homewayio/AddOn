@@ -19,7 +19,7 @@
 #   httpx - Is an asyncio http lib. It seems to be required by dnspython, but dnspython doesn't enforce it. We had a user having an issue that updated to 0.24.0, and it resolved the issue.
 #   urllib3 - There is a bug with parsing headers in versions older than 1.26.? (https://github.com/diyan/pywinrm/issues/269). At least 1.26.6 fixes it, ubt we decide to just stick with a newer version.
 #
-octowebsocket_client==1.8.2
+octowebsocket_client==1.8.3
 requests>=2.24.0
 octoflatbuffers==24.3.27
 certifi>=2023.7.22

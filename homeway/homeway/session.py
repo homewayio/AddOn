@@ -48,9 +48,9 @@ class Session:
         self.Stream.OnSessionError(self.SessionId, backoffModifierSec)
 
 
-    def Send(self, msg):
+    def Send(self, buffer:bytearray, msgStartOffsetBytes:int, msgSize:int):
         # The message is already encoded, pass it along to the socket.
-        self.Stream.SendMsg(msg)
+        self.Stream.SendMsg(buffer, msgStartOffsetBytes, msgSize)
 
 
     def HandleSummonRequest(self, msg):
@@ -212,12 +212,12 @@ class Session:
                 receiveCompressionType = DataCompression.ZStandard
 
             # Build the message
-            buf = StreamMsgBuilder.BuildHandshakeSyn(self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
+            buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.BuildHandshakeSyn(self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
                 HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIp(),
                 rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType, receiveCompressionType)
 
             # Send!
-            self.Stream.SendMsg(buf)
+            self.Stream.SendMsg(buffer, msgStartOffsetBytes, msgSizeBytes)
         except Exception as e:
             Sentry.Exception("Failed to send handshake syn.", e)
             self.OnSessionError(0)

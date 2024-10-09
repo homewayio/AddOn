@@ -207,8 +207,9 @@ class Connection:
             if self.Logger.isEnabledFor(logging.DEBUG) and Connection.c_LogWsMessages:
                 self.Logger.debug(f"{self._getLogTag()} Sending Ws Message {jsonStr}")
 
-            # Send.
-            ws.Send(jsonStr.encode(), False)
+            # Since we must encode the data, which will create a copy, we might as well just send the buffer as normal,
+            # without adding the extra space for the header. We can add the header here or in the WS lib, it's the same amount of work.
+            ws.Send(jsonStr.encode(), isData=False)
             return True
         except Exception as e:
             Sentry.Exception("SendMsg exception.", e)
