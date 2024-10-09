@@ -1,6 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.5.1
+
+- 🚀 Even MORE major CPU and memory performance improvements!
+- 🐛 Other minor bug fixes.
+
 ## 1.5.0
 
 - 🚀 Major CPU and memory performance improvements! Homeway is now EVEN FASTER!!
