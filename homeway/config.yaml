@@ -38,4 +38,4 @@ image: ghcr.io/homewayio/homeway/{arch}
 # Note when this version number changes, we must make a release to start a docker container build immediately, since HA will start looking for the new version.
 # Basically: Make the final commit -> test and check lint actions (if a docker change, push to docker-test to ensure it builds) -> bump the version number -> create GitHub release.
 # UPDATE THE CHANGE LOG!
-version: 1.5.4
+version: 1.5.5

@@ -1,13 +1,9 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 1.5.3
+## 1.5.2-5
 
-- 🪲 Attempting to fix a network permissions error.
-
-## 1.5.2
-
-- 🪲 Adding debug logging to help hunt a bug with the connection stability.
+- 🪲 Fixing some final stability bugs for launch!
 
 ## 1.5.1
 
