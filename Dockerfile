@@ -42,5 +42,6 @@ RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q "zstanda
 
 # For docker, we use our homeway_standalone_docker host to handle the runtime setup and launch of the serivce.
 WORKDIR ${REPO_DIR}
+
 # Use the full path to the venv, we msut use this [] notation for our ctlc handler to work in the contianer
 ENTRYPOINT ["/root/homeway-env/bin/python", "-m", "homeway_standalone_docker"]

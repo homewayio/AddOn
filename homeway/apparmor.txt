@@ -1,11 +1,18 @@
+# This file has been taken from the Home Assistant addon dev package
+# https://developers.home-assistant.io/docs/add-ons/presentation#apparmor
+# From the default template config, ADDON_SLUG needs to be replaced with "homeway"
+
 #include <tunables/global>
 
-profile ADDON_SLUG flags=(attach_disconnected,mediate_deleted) {
+profile homeway flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   # Capabilities
   file,
   signal (send) set=(kill,term,int,hup,cont),
+
+  # Allow all network traffic
+  network,
 
   # S6-Overlay
   /init ix,
@@ -19,6 +26,7 @@ profile ADDON_SLUG flags=(attach_disconnected,mediate_deleted) {
   /etc/cont-finish.d/** rwix,
   /run/{,**} rwk,
   /dev/tty rw,
+  /app/** rw,
 
   # Bashio
   /usr/lib/bashio/** ix,
@@ -34,7 +42,10 @@ profile ADDON_SLUG flags=(attach_disconnected,mediate_deleted) {
     #include <abstractions/base>
 
     # Receive signals from S6-Overlay
-    signal (receive) peer=*_ADDON_SLUG,
+    signal (receive) peer=*_homeway,
+
+    # Allow all network traffic
+    network,
 
     # Access to options.json and other files within your addon
     /data/** rw,
