@@ -40,7 +40,13 @@ RUN whoami
 # { "VersionFileDir":"/app", "AddonDataRootDir":"/data", "StorageDir":"/data", "LogsDir":"/data", "IsRunningInHaAddonEnv":true }
 #
 # Note if we every move past "python3", we need to update apparmor.
-CMD [ "python3", "-m", "homeway_linuxhost", "eyAiVmVyc2lvbkZpbGVEaXIiOiIvYXBwIiwgIkFkZG9uRGF0YVJvb3REaXIiOiIvZGF0YSIsICJTdG9yYWdlRGlyIjoiL2RhdGEiLCAiTG9nc0RpciI6Ii9kYXRhIiwgIklzUnVubmluZ0luSGFBZGRvbkVudiI6dHJ1ZSB9" ]
+#CMD [ "python3", "-m", "homeway_linuxhost", "eyAiVmVyc2lvbkZpbGVEaXIiOiIvYXBwIiwgIkFkZG9uRGF0YVJvb3REaXIiOiIvZGF0YSIsICJTdG9yYWdlRGlyIjoiL2RhdGEiLCAiTG9nc0RpciI6Ii9kYXRhIiwgIklzUnVubmluZ0luSGFBZGRvbkVudiI6dHJ1ZSB9" ]
+
+# Set the run script exectuable.
+RUN chmod a+x /app/run.sh
+
+# Create a command to launch the run script.
+CMD [ "/app/run.sh" ]
 
 # Build arguments
 ARG BUILD_ARCH
