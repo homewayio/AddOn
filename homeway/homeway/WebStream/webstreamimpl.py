@@ -290,9 +290,9 @@ class WebStreamImpl(threading.Thread):
             WebStreamMsg.AddIsCloseMsg(builder, True)
             WebStreamMsg.AddCloseDueToRequestConnectionFailure(builder, self.ClosedDueToRequestConnectionError)
             webStreamMsgOffset = WebStreamMsg.End(builder)
-            outputBuf = StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
+            buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
             # Set the flag to silently fail, since the message might have already been sent by the helper.
-            self.SendToStream(outputBuf, True, True)
+            self.SendToStream(buffer, msgStartOffsetBytes, msgSizeBytes, True, True)
         except Exception as e:
             # This is bad, log it and kill the stream.
             Sentry.Exception("Exception thrown while trying to send close message for web stream "+str(self.Id), e)
