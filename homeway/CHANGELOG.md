@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 1.5.7
+
+- 🛠️ Minor update to allow the logging level to be changed for debugging.
+
 ## 1.5.6
 
 - 🚀 Adding a new feature to drastically improve streaming API performance!
