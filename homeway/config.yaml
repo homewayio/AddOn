@@ -27,6 +27,12 @@ arch:
 map:
   - homeassistant_config:rw
 
+# Add some config options for user to control the addon.
+options:
+  debug_level: "info"
+schema:
+  debug_level: "str?"
+
 # Allows the addon to make home assistant authed API calls to the core.
 homeassistant_api: true
 auth_api: true

@@ -5,29 +5,44 @@ import logging.handlers
 from pathlib import Path
 
 from .config import Config
+from .ha.options import Options
 
 class LoggerInit:
 
+
+    c_DefaultLogLevel = "INFO"
+
+
     # Sets up and returns the main logger object
     @staticmethod
-    def GetLogger(config, logsDir, logLevelOverride_CanBeNone) -> logging.Logger:
+    def GetLogger(config:Config, logsDir:str, logLevelOverride_CanBeNone) -> logging.Logger:
         logger = logging.getLogger()
 
-        # From the possible logging values, read the current value from the config.
-        # If there is no value or it doesn't map, use the default.
+        # Always try to get a value from the config, so the default is set if there's no value.
+        logLevel = config.GetStr(Config.LoggingSection, Config.LogLevelKey, LoggerInit.c_DefaultLogLevel)
+
+        # Try to get a value from the addon options, if it exists.
+        addonOptionsLogLevel = Options.Get().GetOption(Options.LoggerLevel, None)
+        if addonOptionsLogLevel is not None:
+            print(f"Log level is set to {addonOptionsLogLevel} from the addon options.")
+            logLevel = addonOptionsLogLevel
+
+        # Allow the dev config to override the log level.
+        if logLevelOverride_CanBeNone is not None:
+            print(f"Log level is set to {logLevelOverride_CanBeNone} from the addon options.")
+            logLevel = logLevelOverride_CanBeNone
+
+        # Ensure the value we end up with is a valid log level.
         possibleValueList = [
             "DEBUG",
             "INFO",
             "WARNING",
             "ERROR",
         ]
-        logLevel = config.GetStrIfInAcceptableList(Config.LoggingSection, Config.LogLevelKey, "INFO", possibleValueList)
-
-        # Allow the dev config to override the log level.
-        if logLevelOverride_CanBeNone is not None:
-            logLevelOverride_CanBeNone = logLevelOverride_CanBeNone.upper()
-            print("Dev config override log level from "+logLevel+" to "+logLevelOverride_CanBeNone)
-            logLevel = logLevelOverride_CanBeNone
+        logLevel = logLevel.upper().strip()
+        if logLevel not in possibleValueList:
+            print(f"Invalid log level `{logLevel}`, defaulting to {LoggerInit.c_DefaultLogLevel}")
+            logLevel = LoggerInit.c_DefaultLogLevel
 
         # Set the final log level.
         logger.setLevel(logLevel)
