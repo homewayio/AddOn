@@ -267,7 +267,8 @@ class WebStreamHttpHelper:
             # The boundary stream is used for webcam streams, and it's an ideal place to package and send each frame
             boundaryStr = None
             # Pull out the content type value, so we can use it to figure out if we want to compress this data or not
-            contentTypeLower =None
+            contentTypeLower = None
+            ogLocationHeaderValue = None
             headers = hwHttpResult.Headers
             for name, value in headers.items():
                 nameLower = name.lower()
@@ -292,7 +293,13 @@ class WebStreamHttpHelper:
                 elif nameLower == "location":
                     # We have noticed that some proxy servers aren't setup correctly to forward the x-forwarded-for and such headers.
                     # So when the web server responds back with a 301 or 302, the location header might not have the correct hostname, instead an ip like 127.0.0.1.
-                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders)
+                    ogLocationHeaderValue = value
+                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders, httpInitialContext)
+
+            if ogLocationHeaderValue is not None:
+                # Also set the og location, so the server has it if it needs it.
+                # This has to be set out of the loop.
+                hwHttpResult.Headers["x-og-location"] = ogLocationHeaderValue
 
             # We also look at the content-type to determine if we should add compression to this request or not.
             # general rule of thumb is that compression is quite cheap but really helps with text, so we should compress when we

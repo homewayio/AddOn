@@ -371,6 +371,7 @@ class HttpRequest:
             # requests lib and everything will work. However, on some systems mDNS isn't support and the call will fail. On top of that, mDNS
             # is super flakey, and it will randomly stop working often. For both of those reasons, we will check if we find a local address, and try
             # to resolve it manually. Our logic has a cache and local disk backup, so if mDNS is being flakey, our logic will recover it.
+            # TODO - This could break servers that need the hostname to use the right service - but the fallback should cover it.
             localResolvedUrl = MDns.Get().TryToResolveIfLocalHostnameFound(url)
             if localResolvedUrl is not None:
                 # The function will only return back the full URL if a local hostname was found and it was able to resolve to an IP.

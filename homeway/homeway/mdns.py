@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import json
+from typing import Optional
 
 import dns.resolver
 
@@ -49,14 +50,20 @@ class MDns:
 
         # Now that we support only PY3, this should never fail.
         try:
-            # Setup the client
+            # Setup the clients
+            # This is a normal DNS resolver so we can test the host file / local DNS
             self.dnsResolver = dns.resolver.Resolver()
+
+            # This is the mDNS resolver, which will broadcast to the local network.
+            self.mdnsResolver = dns.resolver.Resolver()
             # Use the mdns multicast address
-            self.dnsResolver.nameservers = ["224.0.0.251"]
+            self.mdnsResolver.nameservers = ["224.0.0.251"]
             # Use the mdns port.
-            self.dnsResolver.port = 5353
+            self.mdnsResolver.port = 5353
+
         except Exception as e:
             self.dnsResolver = None
+            self.mdnsResolver = None
             self.Logger.warn("Failed to create DNS class, local dns resolve is disabled. "+str(e))
 
 
@@ -144,8 +151,29 @@ class MDns:
         self.LogDebug("We didn't use a cached entry and the resolved failed, and no existing cache entry was found.")
         return None
 
+
     # Returns a string with the local IP if the IP can be found, otherwise, it returns None.
-    def _TryToResolve(self, domain):
+    def _TryToResolve(self, domain:str) -> Optional[str]:
+
+        # Before we try to resolve with the mdns, first do a quick normal DNS lookup.
+        # This will handle cases where the user has setup the host file or local DNS to resolve the domain.
+        # We do this first, because we know it will be quick to succeeded or fail.
+        try:
+            # We can use a short timeout, because a local DNS should be really fast.
+            # Even 50ms is a long time.
+            answers = self.dnsResolver.resolve(domain, lifetime=0.050, raise_on_no_answer=False)
+
+            # If we find a valid answer, then we are done!
+            ip = self._HandleDnsAnswer(domain, answers)
+            if ip is not None:
+                self.LogDebug(f"Domain {domain} resolved with the standard DNS resolver.")
+                return ip
+
+        except dns.resolver.LifetimeTimeout:
+            pass
+        except Exception as e:
+            self.Logger.error("Failed to resolve DNS for domain "+str(domain)+" e:"+str(e))
+        # If we fail, move on to the mdns resolve.
 
         # We have seen that occasionally a first resolve won't work, but future resolves will.
         # For this reason, we do shorter lifetime resolves, but try a few times.
@@ -174,38 +202,12 @@ class MDns:
 
                 # Since we do caching, we allow the lifetime of the lookup to be longer, so we have a better chance of getting it.
                 # Don't allow this to throw, so we don't get nosy exceptions on lookup failures.
-                answers = self.dnsResolver.resolve(domain, lifetime=1.0, raise_on_no_answer=False, source=localAdapterIp)
+                answers = self.mdnsResolver.resolve(domain, lifetime=1.0, raise_on_no_answer=False, source=localAdapterIp)
 
-                # Look get the list of IPs returned from the query. Sometimes, there's a multiples. For example, we have seen if docker is installed
-                # there are sometimes 172.x addresses.
-                ipList = []
-                if answers is not None:
-                    for data in answers:
-                        # Validate.
-                        if data is None or data.address is None or len(data.address) == 0:
-                            self.Logger.warn("Dns result had data, but there was no IP address")
-                            continue
-
-                        self.LogDebug("Resolver found ip "+data.address+" for local hostname "+domain)
-                        ipList.append(data.address)
-
-                # If there are no ips, continue trying.
-                if len(ipList) == 0:
-                    continue
-
-                # Find which is the primary.
-                primaryIp = self.GetSameLanIp(ipList)
-
-                # Always update the cache
-                with self.Lock:
-                    self.Cache[domain.lower()] = self.CreateCacheEntryDict(primaryIp)
-
-                # Save the cache file.
-                # TODO - We could async this, but since this will usually be called in the background as a cache refresh anyways, there's no need.
-                self._SaveCacheFile()
-
-                # Return the result.
-                return primaryIp
+                # Try to find a valid IP from the results.
+                ip = self._HandleDnsAnswer(domain, answers)
+                if ip is not None:
+                    return ip
 
             except dns.resolver.LifetimeTimeout:
                 # This happens if no one responds, which is expected if the domain has no one listening.
@@ -216,9 +218,42 @@ class MDns:
             # If we failed to find anything or it threw, don't return so we try again.
 
 
+    # Returns a successful IP address if one is found, otherwise, it returns None.
+    def _HandleDnsAnswer(self, domain:str, answers: dns.resolver.Answer) -> Optional[str]:
+        # Look get the list of IPs returned from the query. Sometimes, there's a multiples. For example, we have seen if docker is installed
+        # there are sometimes 172.x addresses.
+        ipList = []
+        if answers is not None:
+            for data in answers:
+                # Validate.
+                if data is None or data.address is None or len(data.address) == 0:
+                    self.Logger.warn("Dns result had data, but there was no IP address")
+                    continue
+                self.LogDebug("Resolver found ip "+data.address+" for local hostname "+domain)
+                ipList.append(data.address)
+
+        # If there are no ips, continue trying.
+        if len(ipList) == 0:
+            return None
+
+        # Find which is the primary.
+        primaryIp = self.GetSameLanIp(ipList)
+
+        # Always update the cache
+        with self.Lock:
+            self.Cache[domain.lower()] = self.CreateCacheEntryDict(primaryIp)
+
+        # Save the cache file.
+        # TODO - We could async this, but since this will usually be called in the background as a cache refresh anyways, there's no need.
+        self._SaveCacheFile()
+
+        # Return the result.
+        return primaryIp
+
+
     # Given a list of at least 1 IP, this will always return a string that's an IP. It should be the IP we think
     # is the correct IP address for the same local LAN we are on.
-    def GetSameLanIp(self, ipList):
+    def GetSameLanIp(self, ipList) -> str:
         # If there is just one, return it.
         if len(ipList) == 1:
             self.LogDebug("Only one ip returned in the query, returning it")
