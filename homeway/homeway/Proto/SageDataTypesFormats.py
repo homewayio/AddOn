@@ -2,5 +2,7 @@
 
 # namespace: Proto
 
-class SageAudioFormats(object):
-    PCM = 0
+class SageDataTypesFormats(object):
+    None_ = 0
+    Text = 1
+    AudioPCM = 2

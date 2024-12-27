@@ -4,7 +4,7 @@
 
 import octoflatbuffers
 from typing import Any
-from homeway.Proto.SageAudioDataContext import SageAudioDataContext
+from homeway.Proto.SageDataContext import SageDataContext
 from typing import Optional
 class SageStreamMessage(object):
     __slots__ = ['_tab']
@@ -53,25 +53,8 @@ class SageStreamMessage(object):
         return False
 
     # SageStreamMessage
-    def Type(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
-
-    # SageStreamMessage
-    def AudioContext(self) -> Optional[SageAudioDataContext]:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
-        if o != 0:
-            x = self._tab.Indirect(o + self._tab.Pos)
-            obj = SageAudioDataContext()
-            obj.Init(self._tab.Bytes, x)
-            return obj
-        return None
-
-    # SageStreamMessage
     def AudioData(self, j: int):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             a = self._tab.Vector(o)
             return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
@@ -79,39 +62,49 @@ class SageStreamMessage(object):
 
     # SageStreamMessage
     def AudioDataAsNumpy(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
         return 0
 
     # SageStreamMessage
     def AudioDataAsByteArray(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.GetVectorAsByteArray(o)
         return 0
 
     # SageStreamMessage
     def AudioDataLength(self) -> int:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SageStreamMessage
     def AudioDataIsNone(self) -> bool:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
     # SageStreamMessage
-    def Text(self) -> Optional[str]:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+    def Type(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
+            return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # SageStreamMessage
+    def DataContext(self) -> Optional[SageDataContext]:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = SageDataContext()
+            obj.Init(self._tab.Bytes, x)
+            return obj
         return None
 
 def SageStreamMessageStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(8)
+    builder.StartObject(7)
 
 def Start(builder: octoflatbuffers.Builder):
     SageStreamMessageStart(builder)
@@ -140,20 +133,8 @@ def SageStreamMessageAddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg:
 def AddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg: bool):
     SageStreamMessageAddIsCloseMsg(builder, isCloseMsg)
 
-def SageStreamMessageAddType(builder: octoflatbuffers.Builder, type: int):
-    builder.PrependInt8Slot(4, type, 0)
-
-def AddType(builder: octoflatbuffers.Builder, type: int):
-    SageStreamMessageAddType(builder, type)
-
-def SageStreamMessageAddAudioContext(builder: octoflatbuffers.Builder, audioContext: int):
-    builder.PrependUOffsetTRelativeSlot(5, octoflatbuffers.number_types.UOffsetTFlags.py_type(audioContext), 0)
-
-def AddAudioContext(builder: octoflatbuffers.Builder, audioContext: int):
-    SageStreamMessageAddAudioContext(builder, audioContext)
-
 def SageStreamMessageAddAudioData(builder: octoflatbuffers.Builder, audioData: int):
-    builder.PrependUOffsetTRelativeSlot(6, octoflatbuffers.number_types.UOffsetTFlags.py_type(audioData), 0)
+    builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(audioData), 0)
 
 def AddAudioData(builder: octoflatbuffers.Builder, audioData: int):
     SageStreamMessageAddAudioData(builder, audioData)
@@ -164,11 +145,17 @@ def SageStreamMessageStartAudioDataVector(builder, numElems: int) -> int:
 def StartAudioDataVector(builder, numElems: int) -> int:
     return SageStreamMessageStartAudioDataVector(builder, numElems)
 
-def SageStreamMessageAddText(builder: octoflatbuffers.Builder, text: int):
-    builder.PrependUOffsetTRelativeSlot(7, octoflatbuffers.number_types.UOffsetTFlags.py_type(text), 0)
+def SageStreamMessageAddType(builder: octoflatbuffers.Builder, type: int):
+    builder.PrependInt8Slot(5, type, 0)
 
-def AddText(builder: octoflatbuffers.Builder, text: int):
-    SageStreamMessageAddText(builder, text)
+def AddType(builder: octoflatbuffers.Builder, type: int):
+    SageStreamMessageAddType(builder, type)
+
+def SageStreamMessageAddDataContext(builder: octoflatbuffers.Builder, dataContext: int):
+    builder.PrependUOffsetTRelativeSlot(6, octoflatbuffers.number_types.UOffsetTFlags.py_type(dataContext), 0)
+
+def AddDataContext(builder: octoflatbuffers.Builder, dataContext: int):
+    SageStreamMessageAddDataContext(builder, dataContext)
 
 def SageStreamMessageEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()

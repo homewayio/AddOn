@@ -4,84 +4,84 @@
 
 import octoflatbuffers
 from typing import Any
-class SageAudioDataContext(object):
+class SageDataContext(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset: int = 0):
         n = octoflatbuffers.encode.Get(octoflatbuffers.packer.uoffset, buf, offset)
-        x = SageAudioDataContext()
+        x = SageDataContext()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsSageAudioDataContext(cls, buf, offset=0):
+    def GetRootAsSageDataContext(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-    # SageAudioDataContext
+    # SageDataContext
     def Init(self, buf: bytes, pos: int):
         self._tab = octoflatbuffers.table.Table(buf, pos)
 
-    # SageAudioDataContext
-    def Format(self):
+    # SageDataContext
+    def DataType(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-    # SageAudioDataContext
+    # SageDataContext
     def SampleRate(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-    # SageAudioDataContext
+    # SageDataContext
     def Channels(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-    # SageAudioDataContext
+    # SageDataContext
     def BitsPerSample(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-def SageAudioDataContextStart(builder: octoflatbuffers.Builder):
+def SageDataContextStart(builder: octoflatbuffers.Builder):
     builder.StartObject(4)
 
 def Start(builder: octoflatbuffers.Builder):
-    SageAudioDataContextStart(builder)
+    SageDataContextStart(builder)
 
-def SageAudioDataContextAddFormat(builder: octoflatbuffers.Builder, format: int):
-    builder.PrependInt8Slot(0, format, 0)
+def SageDataContextAddDataType(builder: octoflatbuffers.Builder, dataType: int):
+    builder.PrependInt8Slot(0, dataType, 0)
 
-def AddFormat(builder: octoflatbuffers.Builder, format: int):
-    SageAudioDataContextAddFormat(builder, format)
+def AddDataType(builder: octoflatbuffers.Builder, dataType: int):
+    SageDataContextAddDataType(builder, dataType)
 
-def SageAudioDataContextAddSampleRate(builder: octoflatbuffers.Builder, sampleRate: int):
+def SageDataContextAddSampleRate(builder: octoflatbuffers.Builder, sampleRate: int):
     builder.PrependUint32Slot(1, sampleRate, 0)
 
 def AddSampleRate(builder: octoflatbuffers.Builder, sampleRate: int):
-    SageAudioDataContextAddSampleRate(builder, sampleRate)
+    SageDataContextAddSampleRate(builder, sampleRate)
 
-def SageAudioDataContextAddChannels(builder: octoflatbuffers.Builder, channels: int):
+def SageDataContextAddChannels(builder: octoflatbuffers.Builder, channels: int):
     builder.PrependInt8Slot(2, channels, 0)
 
 def AddChannels(builder: octoflatbuffers.Builder, channels: int):
-    SageAudioDataContextAddChannels(builder, channels)
+    SageDataContextAddChannels(builder, channels)
 
-def SageAudioDataContextAddBitsPerSample(builder: octoflatbuffers.Builder, bitsPerSample: int):
+def SageDataContextAddBitsPerSample(builder: octoflatbuffers.Builder, bitsPerSample: int):
     builder.PrependInt8Slot(3, bitsPerSample, 0)
 
 def AddBitsPerSample(builder: octoflatbuffers.Builder, bitsPerSample: int):
-    SageAudioDataContextAddBitsPerSample(builder, bitsPerSample)
+    SageDataContextAddBitsPerSample(builder, bitsPerSample)
 
-def SageAudioDataContextEnd(builder: octoflatbuffers.Builder) -> int:
+def SageDataContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
 
 def End(builder: octoflatbuffers.Builder) -> int:
-    return SageAudioDataContextEnd(builder)
+    return SageDataContextEnd(builder)
