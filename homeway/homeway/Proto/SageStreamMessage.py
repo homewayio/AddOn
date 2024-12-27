@@ -53,7 +53,7 @@ class SageStreamMessage(object):
         return False
 
     # SageStreamMessage
-    def AudioData(self, j: int):
+    def Data(self, j: int):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             a = self._tab.Vector(o)
@@ -61,28 +61,28 @@ class SageStreamMessage(object):
         return 0
 
     # SageStreamMessage
-    def AudioDataAsNumpy(self):
+    def DataAsNumpy(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
         return 0
 
     # SageStreamMessage
-    def AudioDataAsByteArray(self):
+    def DataAsByteArray(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.GetVectorAsByteArray(o)
         return 0
 
     # SageStreamMessage
-    def AudioDataLength(self) -> int:
+    def DataLength(self) -> int:
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SageStreamMessage
-    def AudioDataIsNone(self) -> bool:
+    def DataIsNone(self) -> bool:
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
@@ -133,17 +133,17 @@ def SageStreamMessageAddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg:
 def AddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg: bool):
     SageStreamMessageAddIsCloseMsg(builder, isCloseMsg)
 
-def SageStreamMessageAddAudioData(builder: octoflatbuffers.Builder, audioData: int):
-    builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(audioData), 0)
+def SageStreamMessageAddData(builder: octoflatbuffers.Builder, data: int):
+    builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 
-def AddAudioData(builder: octoflatbuffers.Builder, audioData: int):
-    SageStreamMessageAddAudioData(builder, audioData)
+def AddData(builder: octoflatbuffers.Builder, data: int):
+    SageStreamMessageAddData(builder, data)
 
-def SageStreamMessageStartAudioDataVector(builder, numElems: int) -> int:
+def SageStreamMessageStartDataVector(builder, numElems: int) -> int:
     return builder.StartVector(1, numElems, 1)
 
-def StartAudioDataVector(builder, numElems: int) -> int:
-    return SageStreamMessageStartAudioDataVector(builder, numElems)
+def StartDataVector(builder, numElems: int) -> int:
+    return SageStreamMessageStartDataVector(builder, numElems)
 
 def SageStreamMessageAddType(builder: octoflatbuffers.Builder, type: int):
     builder.PrependInt8Slot(5, type, 0)
