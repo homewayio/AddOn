@@ -74,14 +74,14 @@ class SageStreamMessage(object):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(octoflatbuffers.number_types.Int8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+            return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
         return 0
 
     # SageStreamMessage
     def AudioDataAsNumpy(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
-            return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Int8Flags, o)
+            return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
         return 0
 
     # SageStreamMessage
