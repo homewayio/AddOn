@@ -10,6 +10,8 @@ from homeway.sentry import Sentry
 
 from .sagehandler import SageHandler
 from .fabric import Fabric
+from .fibermanager import FiberManager
+
 
 # The main root host for Sage
 class SageHost:
@@ -22,6 +24,7 @@ class SageHost:
         self.PluginId:str = None
         self.ApiKey:str = None
         self.Fabric:Fabric = None
+        self.FiberManager:FiberManager = None
 
 
     # Once the api key is known, we can start.
@@ -30,7 +33,9 @@ class SageHost:
         self.ApiKey = apiKey
 
         # Start the fabric connection with Homeway
-        self.Fabric = Fabric(self.Logger, self.PluginId, self.ApiKey)
+        self.FiberManager = FiberManager(self.Logger)
+        self.Fabric = Fabric(self.Logger, self.FiberManager, self.PluginId, self.ApiKey)
+        self.FiberManager.SetFabric(self.Fabric)
         self.Fabric.Start()
 
         # Start an independent thread to run asyncio.
@@ -49,11 +54,11 @@ class SageHost:
     # The main asyncio loop for the server.
     async def _ServerThread(self):
 
+        # Get the current model info from the service.
         info = self._GetInfo()
 
         self.Logger.info(f"Starting wyoming server on port {SageHost.c_ServerPort}")
         server = AsyncServer.from_uri(f"tcp://0.0.0.0:{SageHost.c_ServerPort}")
-        model_lock = asyncio.Lock()
 
         # Run!
         await server.run(
@@ -62,10 +67,12 @@ class SageHost:
                 info,
                 self.Logger,
                 self.Fabric,
+                self.FiberManager,
             )
         )
 
 
+    # Returns the Info object filled with all of the current model options.
     def _GetInfo(self) -> Info:
         models = [
             AsrModel(
