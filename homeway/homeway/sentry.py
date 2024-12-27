@@ -35,39 +35,39 @@ class Sentry:
         Sentry.IsDevMode = isDevMode
 
         # Only setup sentry if we aren't in dev mode.
-        if Sentry.IsDevMode is False:
-            try:
-                # We don't want sentry to capture error logs, which is it's default.
-                # We do want the logging for breadcrumbs, so we will leave it enabled.
-                sentry_logging = LoggingIntegration(
-                    level=logging.INFO,        # Capture info and above as breadcrumbs
-                    event_level=logging.FATAL  # Only send FATAL errors and above.
-                )
+        # if Sentry.IsDevMode is False:
+        #     try:
+        #         # We don't want sentry to capture error logs, which is it's default.
+        #         # We do want the logging for breadcrumbs, so we will leave it enabled.
+        #         sentry_logging = LoggingIntegration(
+        #             level=logging.INFO,        # Capture info and above as breadcrumbs
+        #             event_level=logging.FATAL  # Only send FATAL errors and above.
+        #         )
 
-                # Setup and init Sentry with our private Sentry server.
-                sentry_sdk.init(
-                    dsn= "https://0f277df18f036d44f9ca11e653485da1@oe-sentry.octoeverywhere.com/5",
-                    integrations= [
-                        sentry_logging,
-                        ThreadingIntegration(propagate_hub=True),
-                    ],
-                    # This is the recommended format
-                    release= f"homeway-plugin@{versionString}",
-                    dist= distType,
-                    environment= "dev" if isDevMode else "production",
-                    before_send= Sentry._beforeSendFilter,
-                    enable_tracing= True,
-                    # This means we will send 100% of errors, maybe we want to reduce this in the future?
-                    sample_rate= 1.0,
-                    traces_sample_rate= 0.01,
-                    profiles_sample_rate= 0.01,
-                )
-            except Exception as e:
-                if Sentry._Logger is not None:
-                    Sentry._Logger.error("Failed to init Sentry: "+str(e))
+        #         # Setup and init Sentry with our private Sentry server.
+        #         sentry_sdk.init(
+        #             dsn= "https://0f277df18f036d44f9ca11e653485da1@oe-sentry.octoeverywhere.com/5",
+        #             integrations= [
+        #                 sentry_logging,
+        #                 ThreadingIntegration(propagate_hub=True),
+        #             ],
+        #             # This is the recommended format
+        #             release= f"homeway-plugin@{versionString}",
+        #             dist= distType,
+        #             environment= "dev" if isDevMode else "production",
+        #             before_send= Sentry._beforeSendFilter,
+        #             enable_tracing= True,
+        #             # This means we will send 100% of errors, maybe we want to reduce this in the future?
+        #             sample_rate= 1.0,
+        #             traces_sample_rate= 0.01,
+        #             profiles_sample_rate= 0.01,
+        #         )
+        #     except Exception as e:
+        #         if Sentry._Logger is not None:
+        #             Sentry._Logger.error("Failed to init Sentry: "+str(e))
 
-            # Set that sentry is ready to use.
-            Sentry.IsSentrySetup = True
+        #     # Set that sentry is ready to use.
+        #     Sentry.IsSentrySetup = True
 
 
     @staticmethod
