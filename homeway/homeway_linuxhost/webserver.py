@@ -193,6 +193,16 @@ class WebServer:
                     Setup Alexa Or Google Assistant
                 </div>
             </div>
+            <div style="display: flex; justify-content: center;" id="goToAppSetup">
+                <div class="pinkButton" style="width:300px">
+                    Setup Your Home Assistant App
+                </div>
+            </div>
+            <div style="display: flex; justify-content: center;" id="goToLocalAccessSetup">
+                <div class="pinkButton" style="width:300px">
+                    Node-RED, Unraid, AdGuard &amp; More<br/>Remote Access
+                </div>
+            </div>
             <div style="display: flex; justify-content: center; margin-top:20px" id="goToDashboardButton">
                 <div class="blueButton" style="width:300px">
                     Go To Your Homeway Dashboard
@@ -207,6 +217,8 @@ class WebServer:
         document.getElementById("linkAccountButton").onclick = (event) => { window.open('"""+pluginLinkUrl+"""', '_blank').focus(); };
         document.getElementById("goToDashboardButton").onclick = (event) => { window.open("https://homeway.io/dashboard?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAssistantSetup").onclick = (event) => { window.open("https://homeway.io/assistant?source=addon_control", '_blank').focus(); };
+        document.getElementById("goToAppSetup").onclick = (event) => { window.open("https://homeway.io/app?source=addon_control", '_blank').focus(); };
+        document.getElementById("goToLocalAccessSetup").onclick = (event) => { window.open("https://homeway.io/localaccess?source=addon_control", '_blank').focus(); };
         if("""+connectingTimerBool+""")
         {
             setInterval(()=> {location.reload();}, 1000)
