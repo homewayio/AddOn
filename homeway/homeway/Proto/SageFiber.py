@@ -4,7 +4,7 @@
 
 import octoflatbuffers
 from typing import Any
-from octoflatbuffers.table import Table
+from homeway.Proto.SageStreamMessage import SageStreamMessage
 from typing import Optional
 class SageFiber(object):
     __slots__ = ['_tab']
@@ -25,38 +25,26 @@ class SageFiber(object):
         self._tab = octoflatbuffers.table.Table(buf, pos)
 
     # SageFiber
-    def ContextType(self):
+    def Message(self) -> Optional[SageStreamMessage]:
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
-        return 0
-
-    # SageFiber
-    def Context(self) -> Optional[octoflatbuffers.table.Table]:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            obj = Table(bytearray(), 0)
-            self._tab.Union(obj, o)
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = SageStreamMessage()
+            obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
 def SageFiberStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(2)
+    builder.StartObject(1)
 
 def Start(builder: octoflatbuffers.Builder):
     SageFiberStart(builder)
 
-def SageFiberAddContextType(builder: octoflatbuffers.Builder, contextType: int):
-    builder.PrependUint8Slot(0, contextType, 0)
+def SageFiberAddMessage(builder: octoflatbuffers.Builder, message: int):
+    builder.PrependUOffsetTRelativeSlot(0, octoflatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
 
-def AddContextType(builder: octoflatbuffers.Builder, contextType: int):
-    SageFiberAddContextType(builder, contextType)
-
-def SageFiberAddContext(builder: octoflatbuffers.Builder, context: int):
-    builder.PrependUOffsetTRelativeSlot(1, octoflatbuffers.number_types.UOffsetTFlags.py_type(context), 0)
-
-def AddContext(builder: octoflatbuffers.Builder, context: int):
-    SageFiberAddContext(builder, context)
+def AddMessage(builder: octoflatbuffers.Builder, message: int):
+    SageFiberAddMessage(builder, message)
 
 def SageFiberEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
