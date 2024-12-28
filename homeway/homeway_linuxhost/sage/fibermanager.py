@@ -125,6 +125,57 @@ class FiberManager:
         return response.Text
 
 
+    # TODO
+    def Speak(self, text:str) -> bytearray:
+
+        # This is only called on the first message sent, this sends the audio settings.
+        def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
+            # TODO
+            return self._CreateDataContext(builder, SageDataTypesFormats.Text, 0, 0, 0)
+
+        class ResponseContext:
+            Bytes = None
+            StatusCode = None
+        response:ResponseContext = ResponseContext()
+
+        # This can be called at anytime, streaming or waiting for the response.
+        # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
+        def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
+            # For listen, this should only be called once
+            if response.StatusCode is not None:
+                raise Exception("Sage Listen onDataStreamReceived called more than once.")
+
+            # Check for a failure, which can happen at anytime.
+            # If we have anything but a 200, stop processing now.
+            response.StatusCode = statusCode
+            if response.StatusCode != 200:
+                return
+
+            # This data format must be text.
+            dataType = dataContext.DataType()
+            if dataType != SageDataTypesFormats.AudioPCM:
+                response.StatusCode = 500
+                raise Exception("Sage Listen got a response that wasn't text?")
+
+            # Set the text.
+            response.Bytes = data
+
+        # Do the operation, stream or wait for the response.
+        data = text.encode("utf-8")
+        result = self._SendAndReceive(SageOperationTypes.Speak, data, createDataContextOffset, onDataStreamReceived, True)
+
+        # If we failed, we always return None, for both upload streaming or the final response.
+        if result is False:
+            return None
+
+        # If the status code is set at any time and not 200, we failed, regardless of the mode.
+        if response.StatusCode is not None and response.StatusCode != 200:
+            self.Logger.error(f"Sage Listen failed with status code {response.StatusCode}")
+            return None
+
+        return response.Bytes
+
+
     # A helper function that allows us to send messages for many different types of actions.
     # Returns true on success, false on failure.
     # Note the behavior of isTransmissionDone:
@@ -137,7 +188,7 @@ class FiberManager:
                         sendData:bytearray,
                         dataContextCreateCallback,
                         onDataStreamReceivedCallback,
-                        isTransmissionDone:bool=False,
+                        isTransmissionDone:bool=True,
                         timeoutSec:float = 20.0) -> bool:
 
         # First, get or create the stream.

@@ -90,7 +90,8 @@ class Fabric:
                     self.Logger.info(f"{self._getLogTag()} Websocket closed")
 
                 # Start the web socket connection.
-                uri = "ws://10.0.0.15/sage-fabric-websocket"
+                #uri = "ws://10.0.0.229/sage-fabric-websocket"
+                uri = "wss://homeway.io/sage-fabric-websocket"
                 headers = {}
                 headers["X-Plugin-Id"] = self.PrinterId
                 headers["X-Api-Key"] = self.ApiKey
@@ -121,4 +122,4 @@ class Fabric:
 
 
     def _getLogTag(self) -> str:
-        return f"Fabric [{self.ConId}]"
+        return f"Sage Fabric [{self.ConId}]"

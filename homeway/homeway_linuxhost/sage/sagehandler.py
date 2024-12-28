@@ -1,5 +1,6 @@
 import logging
 import time
+import math
 
 from wyoming.asr import Transcript
 from wyoming.tts import Synthesize
@@ -78,37 +79,39 @@ class SageHandler(AsyncEventHandler):
         if Synthesize.is_type(event.type):
             transcript = Synthesize.from_event(event)
 
-            # # Ensure all of the text is joined on one line.
-            # text = " ".join(transcript.text.strip().splitlines())
+            # Ensure all of the text is joined on one line.
+            text = " ".join(transcript.text.strip().splitlines())
 
-            # self.Logger.debug(f"Sage - Synthesize Start - {text}")
+            self.Logger.debug(f"Sage - Synthesize Start - {text}")
 
-            # start = time.time()
+            start = time.time()
+            bytes = self.FiberManager.Speak(text)
+
             # url = "https://homeway.io/api/sage/speak"
             # response = HttpSessions.GetSession(url).post(url, json={"Text": text}, timeout=120)
 
-            # # Compute the audio values.
-            # data = response.content
-            # rate = 24000
-            # width = 2
-            # channels = 1
-            # bytesPerSample = width * channels
-            # bytesPerChunk = bytesPerSample * 1024
-            # chunks = int(math.ceil(len(data) / bytesPerChunk))
+            # Compute the audio values.
+            data = bytes
+            rate = 24000
+            width = 2
+            channels = 1
+            bytesPerSample = width * channels
+            bytesPerChunk = bytesPerSample * 1024
+            chunks = int(math.ceil(len(data) / bytesPerChunk))
 
-            # # Start the response.
-            # await self.write_event(AudioStart(rate=rate, width=width, channels=channels).event())
+            # Start the response.
+            await self.write_event(AudioStart(rate=rate, width=width, channels=channels).event())
 
-            # # Write the audio chunks.
-            # for i in range(chunks):
-            #     offset = i * bytesPerChunk
-            #     chunk = data[offset : offset + bytesPerChunk]
-            #     await self.write_event(AudioChunk(audio=chunk, rate=rate, width=width, channels=channels).event())
+            # Write the audio chunks.
+            for i in range(chunks):
+                offset = i * bytesPerChunk
+                chunk = data[offset : offset + bytesPerChunk]
+                await self.write_event(AudioChunk(audio=chunk, rate=rate, width=width, channels=channels).event())
 
-            # # Write the end event.
-            # await self.write_event(AudioStop().event())
-            # self.Logger.warn(f"Sage Synthesize End - {text} - time: {time.time() - start}")
-            # return True
+            # Write the end event.
+            await self.write_event(AudioStop().event())
+            self.Logger.warn(f"Sage Synthesize End - {text} - time: {time.time() - start}")
+            return True
 
 
         # For all other events, return True.
@@ -197,6 +200,6 @@ class SageHandler(AsyncEventHandler):
                 return True
 
             # Send the text back to the client.
-            self.Logger.debug(f"Sage Listen End - {text} - latency: {time.time() - start}s")
+            self.Logger.info(f"Sage Listen End - {text} - latency: {time.time() - start}s")
             await self.write_event(Transcript(text=text).event())
             return True

@@ -25,10 +25,16 @@ class SageHost:
         self.ApiKey:str = None
         self.Fabric:Fabric = None
         self.FiberManager:FiberManager = None
+        self.WyomingServerThreadRunning = False
 
 
     # Once the api key is known, we can start.
+    # Note this is called every time the main WS connection is reset.
     def Start(self, pluginId:str, apiKey:str):
+        # TODO - We need to update the API key or restart the WS
+        if self.PluginId is not None:
+            return
+
         self.PluginId = pluginId
         self.ApiKey = apiKey
 
@@ -39,7 +45,9 @@ class SageHost:
         self.Fabric.Start()
 
         # Start an independent thread to run asyncio.
-        threading.Thread(target=self._run).start()
+        if self.WyomingServerThreadRunning is False:
+            self.WyomingServerThreadRunning = True
+            threading.Thread(target=self._run).start()
 
 
     def _run(self):
