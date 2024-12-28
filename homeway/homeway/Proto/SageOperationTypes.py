@@ -6,3 +6,4 @@ class SageOperationTypes(object):
     None_ = 0
     Listen = 1
     Speak = 2
+    ModelCommunication = 3
