@@ -80,6 +80,8 @@
         "routable",
         "rwix",
         "sagehandler",
+        "sagehost",
+        "sagetranscribehandler",
         "serverauth",
         "servercon",
         "serverdiscovery",

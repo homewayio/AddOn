@@ -274,8 +274,8 @@ class LinuxHost:
         # Set the current API key to the event handler
         self.HaEventHandler.SetHomewayApiKey(apiKey)
 
-        # Once we have the API key, we can start the Sage system.
-        self.Sage.Start(self.GetPluginId(), apiKey)
+        # Once we have the API key, we can start or refresh the Sage system.
+        self.Sage.StartOrRefresh(self.GetPluginId(), apiKey)
 
         # Set the current API key to the custom file server
         CustomFileServer.Get().UpdateAddonConfig(self.GetPluginId(), apiKey)

@@ -1,10 +1,11 @@
+import time
 import asyncio
 import logging
 import threading
 from functools import partial
 
-from wyoming.info import AsrModel, AsrProgram, Attribution, Info, TtsProgram, TtsVoice, TtsVoiceSpeaker, HandleProgram,HandleModel, IntentProgram, IntentModel
 from wyoming.server import AsyncServer
+from wyoming.zeroconf import register_server
 
 from homeway.sentry import Sentry
 
@@ -25,29 +26,34 @@ class SageHost:
         self.ApiKey:str = None
         self.Fabric:Fabric = None
         self.FiberManager:FiberManager = None
-        self.WyomingServerThreadRunning = False
 
 
     # Once the api key is known, we can start.
-    # Note this is called every time the main WS connection is reset.
-    def Start(self, pluginId:str, apiKey:str):
-        # TODO - We need to update the API key or restart the WS
-        if self.PluginId is not None:
-            return
+    # Note this is called every time the main WS connection to Homeway is reset, which happens about every day.
+    def StartOrRefresh(self, pluginId:str, apiKey:str):
 
+        # Set or update these values.
         self.PluginId = pluginId
         self.ApiKey = apiKey
 
-        # Start the fabric connection with Homeway
+        # After the first run, we just do a restart to refresh.
+        if self.Fabric is not None:
+            self.Logger.info("Refreshing Sage Fabric connection.")
+            self.Fabric.UpdateApiKey(self.ApiKey)
+            # Calling close will cause the websocket to close and the connection loop will restart it.
+            self.Fabric.Close()
+            return
+
+        self.Logger.info("Starting Sage Fabric connection.")
+
+        # This is the first run, get things going.
         self.FiberManager = FiberManager(self.Logger)
         self.Fabric = Fabric(self.Logger, self.FiberManager, self.PluginId, self.ApiKey)
         self.FiberManager.SetFabric(self.Fabric)
         self.Fabric.Start()
 
         # Start an independent thread to run asyncio.
-        if self.WyomingServerThreadRunning is False:
-            self.WyomingServerThreadRunning = True
-            threading.Thread(target=self._run).start()
+        threading.Thread(target=self._run).start()
 
 
     def _run(self):
@@ -57,142 +63,35 @@ class SageHost:
                 asyncio.run(self._ServerThread())
             except Exception as e:
                 Sentry.Exception("SageHost Asyncio Error", e)
+            self.Logger.error("Sage exited the asyncio loop. Restarting in 30 seconds.")
+            time.sleep(30)
 
 
     # The main asyncio loop for the server.
     async def _ServerThread(self):
 
-        # Get the current model info from the service.
-        info = self._GetInfo()
-
+        # Setup the server
         self.Logger.info(f"Starting wyoming server on port {SageHost.c_ServerPort}")
         server = AsyncServer.from_uri(f"tcp://0.0.0.0:{SageHost.c_ServerPort}")
+
+        # Setup zeroconf for Home Assistant discovery.
+        try:
+            # The name seems to be anything with no spaces, usually using _
+            # The port is the port the server is running on.
+            # We don't set the host, which makes the function get the system's IP.
+            await register_server(
+                name="Homeway_Zeroconf",
+                port=server.port,
+            )
+        except Exception as e:
+            Sentry.Exception("Zeroconf Error", e)
 
         # Run!
         await server.run(
             partial(
                 SageHandler,
-                info,
                 self.Logger,
                 self.Fabric,
                 self.FiberManager,
             )
         )
-
-
-    # Returns the Info object filled with all of the current model options.
-    def _GetInfo(self) -> Info:
-        models = [
-            AsrModel(
-                name="Hw Test",
-                description="Some model?",
-                attribution=Attribution(
-                    name="Homeway",
-                    url="https://homeway.io/",
-                ),
-                installed=True,
-                languages=["en"],
-                version="0.0.1"
-            )
-        ]
-
-        voices = [
-            TtsVoice(
-                name="homeway-voice",
-                description="test voice - deepgram long name test",
-                attribution=Attribution(
-                    name="Homeway",
-                            url="https://homeway.io/",
-                ),
-                installed=True,
-                version="0.0.1",
-                languages=[
-                    "en"
-                ],
-                speakers=[
-                    TtsVoiceSpeaker("name-speaker")
-                ]
-            )
-        ]
-
-        info = Info(
-            asr=[
-                AsrProgram(
-                    name="homeway-voice-speech-render",
-                    description="Test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    version="0.0.1",
-                    models=models,
-
-                )
-            ],
-            tts=[
-                TtsProgram(
-                    name="homeway-text-to-speech",
-                    description="test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    voices=voices,
-                    version="0.0.1",
-                )
-            ],
-            handle= [
-                HandleProgram(
-                    name="homeway-handle",
-                    description="test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    version="0.0.1",
-                    models=[
-                        HandleModel(
-                            name="homeway-handle-model",
-                            description="test",
-                            attribution=Attribution(
-                                name="Homeway",
-                                url="https://homeway.io/",
-                            ),
-                            installed=True,
-                            version="0.0.1",
-                            languages=["en"],
-                        )
-                    ]
-                )
-            ],
-            intent=
-            [
-                IntentProgram(
-                    name="homeway-intent",
-                    description="test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    version="0.0.1",
-                    models=[
-                        IntentModel(
-                            name="homeway-intent-model",
-                            description="test",
-                            attribution=Attribution(
-                                name="Homeway",
-                                url="https://homeway.io/",
-                            ),
-                            installed=True,
-                            version="0.0.1",
-                            languages=["en"],
-                        )
-                    ]
-                )
-            ]
-        )
-        return info

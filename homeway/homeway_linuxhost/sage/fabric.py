@@ -27,6 +27,12 @@ class Fabric:
         self.IsConnected = False
 
 
+    # Updates the API key if we get a new one from the server.
+    def UpdateApiKey(self, apiKey:str) -> None:
+        self.ApiKey = apiKey
+
+
+    # Starts the connection thread.
     def Start(self) -> None:
         t = threading.Thread(target=self._ConnectionThread)
         t.daemon = True
@@ -90,7 +96,7 @@ class Fabric:
                     self.Logger.info(f"{self._getLogTag()} Websocket closed")
 
                 # Start the web socket connection.
-                #uri = "ws://10.0.0.229/sage-fabric-websocket"
+                #uri = "ws://10.0.0.15/sage-fabric-websocket"
                 uri = "wss://homeway.io/sage-fabric-websocket"
                 headers = {}
                 headers["X-Plugin-Id"] = self.PrinterId

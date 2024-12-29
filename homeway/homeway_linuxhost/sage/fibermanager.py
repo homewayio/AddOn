@@ -2,8 +2,8 @@ import sys
 import struct
 import logging
 import threading
-import octoflatbuffers
 from typing import List
+import octoflatbuffers
 
 from homeway.sentry import Sentry
 
@@ -15,10 +15,8 @@ from homeway.Proto.SageDataTypesFormats import SageDataTypesFormats
 
 from .fabric import Fabric
 
-
 # Manages the fiber streams being sent over Fabric.
 class FiberManager:
-
 
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
@@ -67,20 +65,19 @@ class FiberManager:
     # First, call this with isTransmissionDone set to false to upload stream data. When called like this, this does not block.
     # When the audio is fully streamed, call with isTransmissionDone and the reaming buffer (if any) to get the response. This will block.
     # No matter how it's called, it returns None on failure. If this fails at anytime during a stream, it should not be called again until ResetListen is called.
-    def Listen(self, isTransmissionDone:bool, audio:bytes, audioFormat:SageDataTypesFormats, sampleRate:int, channels:int, bitsPerSample:int) -> str:
+    async def Listen(self, isTransmissionDone:bool, audio:bytes, audioFormat:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int) -> str:
 
         # This is only called on the first message sent, this sends the audio settings.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, audioFormat, sampleRate, channels, bitsPerSample)
+            return self._CreateDataContext(builder, audioFormat, sampleRate, channels, bytesPerSample)
 
+        # onDataStreamReceived can be called at anytime, streaming or waiting for the response.
+        # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
         class ResponseContext:
             Text = None
             StatusCode = None
         response:ResponseContext = ResponseContext()
-
-        # This can be called at anytime, streaming or waiting for the response.
-        # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
-        def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
+        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
             # For listen, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Listen onDataStreamReceived called more than once.")
@@ -89,7 +86,7 @@ class FiberManager:
             # If we have anything but a 200, stop processing now.
             response.StatusCode = statusCode
             if response.StatusCode != 200:
-                return
+                return False
 
             # This data format must be text.
             dataType = dataContext.DataType()
@@ -99,9 +96,10 @@ class FiberManager:
 
             # Set the text.
             response.Text = data.decode("utf-8")
+            return True
 
         # Do the operation, stream or wait for the response.
-        result = self._SendAndReceive(SageOperationTypes.Listen, audio, createDataContextOffset, onDataStreamReceived, isTransmissionDone)
+        result = await self._SendAndReceive(SageOperationTypes.Listen, audio, createDataContextOffset, onDataStreamReceived, isTransmissionDone)
 
         # If we failed, we always return None, for both upload streaming or the final response.
         if result is False:
@@ -125,8 +123,52 @@ class FiberManager:
         return response.Text
 
 
+    # Called with a text string to synthesize audio.
+    # async streamingDataReceivedCallback(SpeakDataResponse) -> bool
+    #   If the callback returns False, the operation will stop.
+    # Return True on success, False on failure.
+    async def Speak(self, text:str, streamingDataReceivedCallback) -> bool:
+
+        # Creates the sending data context for the text we want to send.
+        def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
+            return self._CreateDataContext(builder, SageDataTypesFormats.Text)
+
+        # This onDataStreamReceived will be called each time there's more chunked audio data
+        # to stream back.
+        class ResponseContext:
+            StatusCode:int = None
+        response:ResponseContext = ResponseContext()
+        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
+
+            # Check for a failure, which can happen at anytime.
+            # If we have anything but a 200, stop processing now.
+            response.StatusCode = statusCode
+            if response.StatusCode != 200:
+                return
+
+            # Create the data object and call the handler.
+            # If it returns false, we will stop.
+            dataResponse = SpeakDataResponse(data, dataContext.DataType(), dataContext.SampleRate(), dataContext.Channels(), dataContext.BytesPerSample())
+            return await streamingDataReceivedCallback(dataResponse)
+
+        # Do the operation, stream or wait for the response.
+        data = text.encode("utf-8")
+        result = await self._SendAndReceive(SageOperationTypes.Speak, data, createDataContextOffset, onDataStreamReceived)
+
+        # If we failed, return false.
+        if result is False:
+            return False
+
+        # If the status code is set at any time and not 200, we failed, regardless of the mode.
+        if response.StatusCode is not None and response.StatusCode != 200:
+            self.Logger.error(f"Sage Speak failed with status code {response.StatusCode}")
+            return False
+
+        return True
+
+
     # TODO
-    def Speak(self, text:str) -> bytearray:
+    async def Transcript(self, text:str) -> bytearray:
 
         # This is only called on the first message sent, this sends the audio settings.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
@@ -140,7 +182,7 @@ class FiberManager:
 
         # This can be called at anytime, streaming or waiting for the response.
         # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
-        def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
+        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext):
             # For listen, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Listen onDataStreamReceived called more than once.")
@@ -149,20 +191,21 @@ class FiberManager:
             # If we have anything but a 200, stop processing now.
             response.StatusCode = statusCode
             if response.StatusCode != 200:
-                return
+                return False
 
             # This data format must be text.
             dataType = dataContext.DataType()
-            if dataType != SageDataTypesFormats.AudioPCM:
+            if dataType != SageDataTypesFormats.Text:
                 response.StatusCode = 500
                 raise Exception("Sage Listen got a response that wasn't text?")
 
             # Set the text.
             response.Bytes = data
+            return True
 
         # Do the operation, stream or wait for the response.
         data = text.encode("utf-8")
-        result = self._SendAndReceive(SageOperationTypes.Speak, data, createDataContextOffset, onDataStreamReceived, True)
+        result = await self._SendAndReceive(SageOperationTypes.ModelCommunication, data, createDataContextOffset, onDataStreamReceived, True)
 
         # If we failed, we always return None, for both upload streaming or the final response.
         if result is False:
@@ -173,7 +216,7 @@ class FiberManager:
             self.Logger.error(f"Sage Listen failed with status code {response.StatusCode}")
             return None
 
-        return response.Bytes
+        return response.Bytes.decode("utf-8")
 
 
     # A helper function that allows us to send messages for many different types of actions.
@@ -183,7 +226,7 @@ class FiberManager:
     #   When it's called and isTransmissionDone is set to True, the final data will be sent and the function will block until a response is received.
     # The onDataReceivedCallback can be called many times if the response is being streamed.
     # The onDataReceivedCallback can also be called on any call into this function with a status code, if the stream closed early for some reason.
-    def _SendAndReceive(self,
+    async def _SendAndReceive(self,
                         requestType:SageOperationTypes,
                         sendData:bytearray,
                         dataContextCreateCallback,
@@ -304,7 +347,8 @@ class FiberManager:
 
                 # Process the data.
                 for d in data:
-                    onDataStreamReceivedCallback(statusCode, d, dataContext)
+                    if await onDataStreamReceivedCallback(statusCode, d, dataContext) is False:
+                        return False
 
                 # If we processed all the data and the stream is done, we're done.
                 if isDataDownloadComplete:
@@ -341,12 +385,15 @@ class FiberManager:
 
 
     # Builds the data context.
-    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats, sampleRate:int, channels:int, bitsPerSample:int) -> int:
+    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats, sampleRate:int=None, channels:int=None, bytesPerSample:int=None) -> int:
         SageDataContext.Start(builder)
         SageDataContext.AddDataType(builder, dataFormat)
-        SageDataContext.AddSampleRate(builder, sampleRate)
-        SageDataContext.AddChannels(builder, channels)
-        SageDataContext.AddBitsPerSample(builder, bitsPerSample)
+        if sampleRate is not None:
+            SageDataContext.AddSampleRate(builder, sampleRate)
+        if channels is not None:
+            SageDataContext.AddChannels(builder, channels)
+        if bytesPerSample is not None:
+            SageDataContext.AddBytesPerSample(builder, bytesPerSample)
         return SageDataContext.End(builder)
 
 
@@ -458,6 +505,16 @@ class FiberManager:
                 return (struct.unpack('1B', buffer[0 + bufferOffset])[0] << 24) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 8) + struct.unpack('1B', buffer[3 + bufferOffset])[0]
             else:
                 return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
+
+
+# Hold the context of the result for the speak function.
+class SpeakDataResponse:
+    def __init__(self, data:bytearray, dataType:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int):
+        self.Bytes = data
+        self.DataFormat = dataType
+        self.SampleRate = sampleRate
+        self.Channels = channels
+        self.BytesPerSample = bytesPerSample
 
 
 # Used to track the current state of a stream.
