@@ -1,6 +1,6 @@
 import logging
 import time
-import math
+import json
 
 from wyoming.asr import Transcript
 from wyoming.tts import Synthesize
@@ -12,17 +12,23 @@ from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.info import Describe, AsrModel, AsrProgram, Attribution, Info, TtsProgram, TtsVoice, TtsVoiceSpeaker, HandleProgram,HandleModel, IntentProgram, IntentModel
 
 from .fabric import Fabric
+from .sagehistory import SageHistory
 from .fibermanager import FiberManager, SpeakDataResponse
 from .sagetranscribehandler import SageTranscribeHandler
 
 
 class SageHandler(AsyncEventHandler):
 
+    # This is the max length of any string we will process, be it for transcribing, synthesizing, or anything else.
+    # This is more of a sanity check, the server will have it's own limits.
+    c_MaxStringLength = 500
+
     def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.Logger = logger
         self.Fabric = fabric
         self.FiberManager = fiberManger
+        self.SageHistory = SageHistory(logger)
 
         # This is created when the first audio stream starts and is reset when the stream ends.
         # It handles holding the context of the incoming audio stream for transcribing.
@@ -38,10 +44,6 @@ class SageHandler(AsyncEventHandler):
     # The main event handler for all wyoming events.
     # Returning False will disconnect the client.
     async def handle_event(self, event: Event) -> bool:
-
-        import json
-        self.Logger.debug(f"Wyoming event: {event.type} - {json.dumps(event.data, indent = 4)}")
-
 
         # Fired when the server is first connected to and the client wants to know what models are available.
         if Describe.is_type(event.type):
@@ -62,19 +64,37 @@ class SageHandler(AsyncEventHandler):
             # Let the handler handle the event.
             return await self.SageTranscribeHandler.HandleStreamingAudio(event)
 
-
-        self.Logger.debug(f"Wyoming event: {event.type}")
-
         # Fired when there's a input phrase from the user that the client wants to run the model on.
         if Transcript.is_type(event.type):
             transcript = Transcript.from_event(event)
-            self.Logger.debug(f"Sage - Transcript Start - {transcript.text}")
+
+            # Add the user text to the history, making it the most recent message.
+            newMsg = self._EnforceMaxStringLength(transcript.text)
+            self.Logger.debug(f"Sage - Transcript Start - {newMsg}")
+            self.SageHistory.AddUserText(newMsg)
+
+            # Get the history as a json object.
+            msgJsonStr = json.dumps(self.SageHistory.GetHistoryJsonObj())
+
+            # Make the request.
             start = time.time()
-            responseText = await self.FiberManager.Transcript(transcript.text)
-            self.Logger.info(f"Sage - Transcript End - {transcript.text} -> {responseText} - time: {time.time() - start}")
+            responseText = await self.FiberManager.Transcript(msgJsonStr)
+
+            # Check the result
+            if responseText is None:
+                await self.WriteError("Homeway Sage failed to transcribe the text.")
+                return True
+
+            # Ensure the response text is not too long.
+            responseText = self._EnforceMaxStringLength(responseText)
+
+            # Add the assistant text to the history.
+            self.Logger.debug(f"Sage - Transcript End - {newMsg} -> {responseText} - time: {time.time() - start}")
+            self.SageHistory.AddAssistantText(responseText)
+
+            # Send the response back to the client.
             await self.write_event(Handled(responseText).event())
             return True
-
 
         # Fired when the client wants to synthesize a voice for the given text.
         if Synthesize.is_type(event.type):
@@ -82,6 +102,7 @@ class SageHandler(AsyncEventHandler):
 
             # Ensure all of the text is joined on one line.
             text = " ".join(transcript.text.strip().splitlines())
+            text = self._EnforceMaxStringLength(text)
 
             # Since the Sage Fabric supports streaming, the Synthesize result will some times come back in chunks.
             # We will get multiple callbacks on the streamingDataReceivedCallback function, each with a chunk.
@@ -121,6 +142,15 @@ class SageHandler(AsyncEventHandler):
         return True
 
 
+    # Ensures the text is not too long.
+    def _EnforceMaxStringLength(self, text:str) -> str:
+        if len(text) < SageHandler.c_MaxStringLength:
+            return text
+        self.Logger.warning(f"Sage - User input text too long, truncating. Length: {len(text)}")
+        return text[:SageHandler.c_MaxStringLength]
+
+
+    # TODO - all of this
     async def _HandleDescribe(self) -> bool:
         models = [
             AsrModel(

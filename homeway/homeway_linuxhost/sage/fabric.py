@@ -39,11 +39,14 @@ class Fabric:
         t.start()
 
 
-    # Closes the connection if it's open.
+    # Closes the connection, if it's open.
     def Close(self) -> None:
         ws = self.Ws
+        # If there's an active websocket.
         if ws is not None:
-            ws.Close()
+            # And it's connected (dont interrupt the connection process)
+            if self.IsConnected is True:
+                ws.Close()
 
 
     # Sends a message using fabric.
@@ -97,7 +100,7 @@ class Fabric:
 
                 # Start the web socket connection.
                 #uri = "ws://10.0.0.15/sage-fabric-websocket"
-                uri = "wss://homeway.io/sage-fabric-websocket"
+                uri = "wss://starport-v1.homeway.io/sage-fabric-websocket" # TODO make a new hostname like starport for these connections
                 headers = {}
                 headers["X-Plugin-Id"] = self.PrinterId
                 headers["X-Api-Key"] = self.ApiKey

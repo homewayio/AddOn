@@ -27,6 +27,8 @@ class SageTranscribeHandler:
         self.SageHandler = sageHandler
         self.FiberManager = fiberManager
 
+        self.Logger.debug(f"Sage - Listen Start")
+
         # Reset any existing Listen action in the fiber manager.
         self.FiberManager.ResetListen()
 
@@ -138,7 +140,7 @@ class SageTranscribeHandler:
                 return True
 
             # Send the text back to the client.
-            self.Logger.info(f"Sage Listen End - {text} - latency: {time.time() - start}s")
+            self.Logger.debug(f"Sage Listen End - {text} - latency: {time.time() - start}s")
             await self._WriteEvent(Transcript(text=text).event())
             return True
 
