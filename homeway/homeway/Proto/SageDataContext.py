@@ -44,7 +44,7 @@ class SageDataContext(object):
         return 0
 
     # SageDataContext
-    def BitsPerSample(self):
+    def BytesPerSample(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
@@ -74,11 +74,11 @@ def SageDataContextAddChannels(builder: octoflatbuffers.Builder, channels: int):
 def AddChannels(builder: octoflatbuffers.Builder, channels: int):
     SageDataContextAddChannels(builder, channels)
 
-def SageDataContextAddBitsPerSample(builder: octoflatbuffers.Builder, bitsPerSample: int):
-    builder.PrependInt8Slot(3, bitsPerSample, 0)
+def SageDataContextAddBytesPerSample(builder: octoflatbuffers.Builder, bytesPerSample: int):
+    builder.PrependInt8Slot(3, bytesPerSample, 0)
 
-def AddBitsPerSample(builder: octoflatbuffers.Builder, bitsPerSample: int):
-    SageDataContextAddBitsPerSample(builder, bitsPerSample)
+def AddBytesPerSample(builder: octoflatbuffers.Builder, bytesPerSample: int):
+    SageDataContextAddBytesPerSample(builder, bytesPerSample)
 
 def SageDataContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
