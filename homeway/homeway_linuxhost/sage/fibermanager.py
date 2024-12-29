@@ -234,7 +234,7 @@ class FiberManager:
                         requestType:SageOperationTypes,
                         sendData:bytearray,
                         dataContextCreateCallback,
-                        onDataStreamReceivedCallback,
+                        onDataStreamReceivedCallbackAsync,
                         isTransmissionDone:bool=True,
                         timeoutSec:float = 20.0) -> bool:
 
@@ -301,7 +301,7 @@ class FiberManager:
                 # If we are doing the upload stream, check that the stream wasn't aborted from the server side before returning.
                 if context.StatusCode is not None or context.IsAborted:
                     # If the stream was aborted, fire the callback and return False
-                    onDataStreamReceivedCallback(context.StatusCode, None, None)
+                    await onDataStreamReceivedCallbackAsync(context.StatusCode, None, None)
                     return False
 
                 # Otherwise, keep the context around and return success.
@@ -334,7 +334,7 @@ class FiberManager:
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
                     context.StatusCode = 408
-                    onDataStreamReceivedCallback(context.StatusCode, None, None)
+                    await onDataStreamReceivedCallbackAsync(context.StatusCode, None, None)
                     return False
 
                 # Process the data
@@ -343,7 +343,7 @@ class FiberManager:
 
                 # Process the data.
                 for d in data:
-                    if await onDataStreamReceivedCallback(statusCode, d, dataContext) is False:
+                    if await onDataStreamReceivedCallbackAsync(statusCode, d, dataContext) is False:
                         return False
 
                 # If we processed all the data and the stream is done, we're done.
