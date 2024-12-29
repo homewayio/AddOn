@@ -330,6 +330,12 @@ class FiberManager:
                     # Clear the event under lock to ensure we don't miss a set.
                     context.Event.clear()
 
+                # Check for a stream abort, before we check if there's no data.
+                if context.IsAborted:
+                    self.Logger.error(f"Sage message stream was aborted: {context.StatusCode}")
+                    await onDataStreamReceivedCallbackAsync(context.StatusCode, None, None)
+                    return False
+
                 # Regardless of the other vars, if we didn't get any data, the response wait timed out.
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
