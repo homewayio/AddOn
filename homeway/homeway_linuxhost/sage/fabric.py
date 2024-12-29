@@ -12,11 +12,12 @@ class Fabric:
     # For debugging, it's too chatty to enable always.
     c_LogWsMessages = False
 
-    def __init__(self, logger:logging.Logger, fiberManager, pluginId:str, apiKey:str) -> None:
+    def __init__(self, logger:logging.Logger, fiberManager, pluginId:str, apiKey:str, devLocalHomewayServerAddress_CanBeNone:str) -> None:
         self.Logger = logger
         self.FiberManager = fiberManager
         self.PrinterId = pluginId
         self.ApiKey = apiKey
+        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
 
         # The current websocket connection and Id
         self.ConId = 0
@@ -52,13 +53,13 @@ class Fabric:
     # Sends a message using fabric.
     # Returns True on success.
     def SendMsg(self, data:bytearray, dataStartOffsetBytes:int, dataLength:int) -> bool:
-        # Check the connection state.
-        if self.IsConnected is False:
-            self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't authed.")
-            return False
         # Capture and check the websocket.
         ws = self.Ws
         if ws is None:
+            self.Logger.error(f"{self._getLogTag()} message tired to be sent while we have no active socket.")
+            return False
+        # Check the connection state.
+        if self.IsConnected is False:
             self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't connected.")
             return False
 
@@ -66,7 +67,7 @@ class Fabric:
             ws.Send(data, dataStartOffsetBytes, dataLength)
             return True
         except Exception as e:
-            Sentry.Exception("Fabric SendMsg exception.", e)
+            Sentry.Exception("Sage Fabric SendMsg exception.", e)
         return False
 
 
@@ -87,7 +88,7 @@ class Fabric:
 
             # If this isn't the first connection, sleep a bit before trying again.
             if self.ConId != 0:
-                self.BackoffCounter += 1
+                self.BackoffCounter += 2
                 self.BackoffCounter = min(self.BackoffCounter, 12)
                 self.Logger.error(f"{self._getLogTag()} sleeping before trying the Sage Fabric connection again.")
                 time.sleep(5 * self.BackoffCounter)
@@ -98,12 +99,18 @@ class Fabric:
                 def Closed(ws:Client):
                     self.Logger.info(f"{self._getLogTag()} Websocket closed")
 
-                # Start the web socket connection.
-                #uri = "ws://10.0.0.15/sage-fabric-websocket"
-                uri = "wss://starport-v1.homeway.io/sage-fabric-websocket" # TODO make a new hostname like starport for these connections
+                # Get the URI, allow for local dev overrides.
+                uri = "wss://hw-sage-v1.homeway.io/sage-fabric-websocket"
+                if self.DevLocalHomewayServerAddress_CanBeNone is not None and len(self.DevLocalHomewayServerAddress_CanBeNone) > 0:
+                    self.Logger.info(f"{self._getLogTag()} Using dev local server address [{self.DevLocalHomewayServerAddress_CanBeNone}]")
+                    uri = f"ws://{self.DevLocalHomewayServerAddress_CanBeNone}/sage-fabric-websocket"
+
+                # Setup the headers.
                 headers = {}
                 headers["X-Plugin-Id"] = self.PrinterId
                 headers["X-Api-Key"] = self.ApiKey
+
+                # Start the websocket.
                 self.Logger.info(f"{self._getLogTag()} Starting fabric connection to [{uri}]")
                 self.Ws = Client(uri, onWsOpen=self._OnConnected, onWsData=self._OnData, onWsClose=Closed, headers=headers)
 

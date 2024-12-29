@@ -169,9 +169,9 @@ class FiberManager:
         return True
 
 
-    # Takes a chat transcript and returns the assistant's response text.
+    # Takes a chat transcript json object and returns the assistant's response text.
     # Returns None on failure.
-    async def Transcript(self, historyJsonStr:str) -> bytearray:
+    async def Transcript(self, chatTranscriptJson:str) -> bytearray:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
@@ -204,7 +204,7 @@ class FiberManager:
             return True
 
         # Encode the input json string.
-        data = historyJsonStr.encode("utf-8")
+        data = chatTranscriptJson.encode("utf-8")
 
         # Do the operation, wait for the result.
         result = await self._SendAndReceive(SageOperationTypes.ModelCommunication, data, createDataContextOffset, onDataStreamReceived, True)
@@ -339,7 +339,7 @@ class FiberManager:
                 # Regardless of the other vars, if we didn't get any data, the response wait timed out.
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
-                    context.StatusCode = 408
+                    context.StatusCode = 608
                     await onDataStreamReceivedCallbackAsync(context.StatusCode, None, None)
                     return False
 
@@ -357,7 +357,7 @@ class FiberManager:
                     return True
 
         except Exception as e:
-            Sentry.Exception("Sage message exception", e)
+            Sentry.Exception("Sage message pipeline exception", e)
         finally:
             # If we don't want to keep the context around, clean it up now.
             if cleanUpContextOnExit:
@@ -456,7 +456,7 @@ class FiberManager:
 
         except Exception as e:
             # If we fail, reset the socket.
-            Sentry.Exception("Sage close message send exception", e)
+            Sentry.Exception("Sage _CleanUpStreamContext exception", e)
             self.Fabric.Close()
 
 
@@ -467,7 +467,7 @@ class FiberManager:
 
         # Check that things make sense.
         if messageSize != len(buf):
-            raise Exception("We got an Sage ws message that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(buf)))
+            raise Exception("Sage Fabric got a ws message that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(buf)))
 
         # Parse the response
         fiber = SageFiber.SageFiber.GetRootAs(buf, 4)
@@ -485,7 +485,7 @@ class FiberManager:
             context = self.StreamContextMap.get(streamId, None)
             if context is None:
                 # If there's no context this is usually ok, it means the stream was closed and this is old.
-                self.Logger.info(f"Sage got a message for stream [{streamId}] but couldn't find the context.")
+                self.Logger.debug(f"Sage got a message for stream [{streamId}] but couldn't find the context.")
                 return
 
             # The abort message doesn't require the other checks.
@@ -493,8 +493,8 @@ class FiberManager:
                 # The abort message should always have a non-success status code.
                 statusCode = msg.StatusCode()
                 if statusCode is None or statusCode < 300:
-                    self.Logger.warning(f"Sage Fiber abort message has an invalid status code. {statusCode} Updating to 700.")
-                    statusCode = 700
+                    self.Logger.warning(f"Sage Fiber abort message has an invalid status code. {statusCode} Updating to 600.")
+                    statusCode = 600
                 context.StatusCode = statusCode
                 context.IsAborted = True
             else:
@@ -502,7 +502,7 @@ class FiberManager:
                 data = msg.DataAsByteArray()
                 isDataTransmissionDone = msg.IsDataTransmissionDone()
                 if data is None:
-                    raise Exception("Sage Fiber message has an invalid data")
+                    raise Exception("Sage Fiber message was missing a data buffer")
                 # Ensure we haven't already gotten the data complete flag.
                 if context.IsDataDownloadComplete:
                     raise Exception("Sage ws message was sent after IsDataDownloadComplete was set.")
@@ -542,7 +542,7 @@ class FiberManager:
                 return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
 
 
-# Hold the context of the result for the speak function.
+# Holds the context of the result for the speak function.
 class SpeakDataResponse:
     def __init__(self, data:bytearray, dataType:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int):
         self.Bytes = data

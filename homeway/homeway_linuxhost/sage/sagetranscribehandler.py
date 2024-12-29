@@ -27,7 +27,7 @@ class SageTranscribeHandler:
         self.SageHandler = sageHandler
         self.FiberManager = fiberManager
 
-        self.Logger.debug(f"Sage - Listen Start")
+        self.Logger.debug("Sage - Listen Start")
 
         # Reset any existing Listen action in the fiber manager.
         self.FiberManager.ResetListen()
@@ -75,7 +75,8 @@ class SageTranscribeHandler:
         if AudioChunk.is_type(event.type):
             e = AudioChunk.from_event(event)
             if e.audio is None or len(e.audio) == 0:
-                await self._WriteError("Homeway Sage received an empty audio chunk.")
+                # This would be ok, if it ever happened. We have logic that will detect if we never got any audio.
+                self.Logger.debug("Homeway Sage Listen - Received an empty audio chunk - ignoring.")
                 return True
 
             # Set the stream start time and check the max streaming time.
@@ -112,8 +113,8 @@ class SageTranscribeHandler:
                 return True
 
             # Ensure the operation didn't take too long.
-            if deltaSec > 0.010:
-                self.Logger.warning(f"Sage Listen upload chunk stream took more than 10ms. Time: {deltaSec}s")
+            if deltaSec > 0.020:
+                self.Logger.warning(f"Sage Listen upload chunk stream took more than 20ms. Time: {deltaSec}s")
 
             # Reset the buffer and last send time.
             self.Buffer = bytearray()
@@ -125,6 +126,7 @@ class SageTranscribeHandler:
             # Ensure we have something to send. If this is None, we never got any audio chunks.
             # This happens sometimes and is fine, we just return an empty string.
             if self.AudioStreamStartTimeSec is None:
+                self.Logger.debug("Sage Listen - We never got any audio chunks, returning an empty transcript.")
                 await self._WriteEvent(Transcript("").event())
                 return True
 
@@ -136,7 +138,7 @@ class SageTranscribeHandler:
 
             # Check for a failure.
             if text is None:
-                await self._WriteError("Homeway Sage Audio Transcribe Failed")
+                await self._WriteError("Homeway Sage Listen - Audio Transcribe Failed")
                 return True
 
             # Send the text back to the client.

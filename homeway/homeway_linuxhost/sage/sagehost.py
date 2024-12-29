@@ -9,23 +9,26 @@ from wyoming.zeroconf import register_server
 
 from homeway.sentry import Sentry
 
-from .sagehandler import SageHandler
 from .fabric import Fabric
+from .sagehandler import SageHandler
+from .sagehistory import SageHistory
 from .fibermanager import FiberManager
-
 
 # The main root host for Sage
 class SageHost:
 
-    # TODO - This should be dynamic to support multiple instances, but it can't change.
-    c_ServerPort = 8765
+    # This is the server port we will use to run the wyoming server.
+    # Maybe this should be dynamic to support multiple instances, but it can't change after it's been discovered.
+    c_ServerPort = 11020
 
-    def __init__(self, logger:logging.Logger):
+    def __init__(self, logger:logging.Logger, devLocalHomewayServerAddress_CanBeNone:str):
         self.Logger = logger
+        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
         self.PluginId:str = None
         self.ApiKey:str = None
         self.Fabric:Fabric = None
         self.FiberManager:FiberManager = None
+        self.SageHistory:SageHistory = SageHistory(logger)
 
 
     # Once the api key is known, we can start.
@@ -48,7 +51,7 @@ class SageHost:
 
         # This is the first run, get things going.
         self.FiberManager = FiberManager(self.Logger)
-        self.Fabric = Fabric(self.Logger, self.FiberManager, self.PluginId, self.ApiKey)
+        self.Fabric = Fabric(self.Logger, self.FiberManager, self.PluginId, self.ApiKey, self.DevLocalHomewayServerAddress_CanBeNone)
         self.FiberManager.SetFabric(self.Fabric)
         self.Fabric.Start()
 
@@ -93,5 +96,7 @@ class SageHost:
                 self.Logger,
                 self.Fabric,
                 self.FiberManager,
+                self.SageHistory,
+                self.DevLocalHomewayServerAddress_CanBeNone,
             )
         )

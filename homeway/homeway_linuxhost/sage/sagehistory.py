@@ -7,56 +7,79 @@ from typing import List
 class SageHistory:
 
     # The max number of history items to keep.
-    c_MaxHistoryItems = 20
+    c_MaxHistoryItems = 40
 
     # The max age of a history item in seconds.
-    c_MaxHistoryItemsAgeSec = 60 * 60 * 24
+    # This is a tricky value, because we don't know if the user closed and opened a new chat.
+    # So we keep track of the last time we got a message, and if it's been too long, we clear the history.
+    # For now we defer to being too long over too short, since the context won't effect new questions much.
+    c_MaxTimeBetweenMessagesSec = 60 * 60
 
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         self.Lock = threading.Lock()
-        self.UserMsgHistory:List[SageHistoryItem] = []
-        self.AssistantMsgHistory:List[SageHistoryItem] = []
+        self.LastMessageReceivedTimeSec = time.time()
+        self.History:List[SageHistoryItem] = []
 
 
     # Sets text the user input.
     def AddUserText(self, text:str) -> None:
-        self.Logger.debug(f"Sage - User Text - {text}")
-        self._AddItem(self.UserMsgHistory, text)
+        self.Logger.debug(f"Homeway Sage - User Text - {text}")
+        self._AddItem("User", text)
 
 
     # Sets text the assistant output.
     def AddAssistantText(self, text:str) -> None:
-        self.Logger.debug(f"Sage - Assistant Text - {text}")
-        self._AddItem(self.AssistantMsgHistory, text)
+        self.Logger.debug(f"Homeway Sage - Assistant Text - {text}")
+        self._AddItem("Assistant", text)
 
 
     # Returns the history as a json object.
     def GetHistoryJsonObj(self) -> dict:
         with self.Lock:
-            # We need to remove any old history items.
-            currentTimeSec = time.time()
-            self.UserMsgHistory = [x for x in self.UserMsgHistory if currentTimeSec - x.TimestampSec < self.c_MaxHistoryItemsAgeSec]
-            self.AssistantMsgHistory = [x for x in self.AssistantMsgHistory if currentTimeSec - x.TimestampSec < self.c_MaxHistoryItemsAgeSec]
-
-            # Now we can return the history.
-            # This json object schema is determined by the server.
-            # Note the most recent user message is the new input.
+            # The format of this json object must be kept in sync with the server.
+            self.Logger.debug(f"Homeway Sage - Building chat history of {len(self.History)} messages.")
+            messages = []
+            for x in self.History:
+                messages.append({
+                    "Type": x.Type,
+                    "Text": x.Text
+                })
             return {
-                "User": [x.Text for x in self.UserMsgHistory],
-                "Assistant": [x.Text for x in self.AssistantMsgHistory]
+                "Messages": messages,
             }
 
 
-    def _AddItem(self, historyList:List["SageHistoryItem"], text:str) -> None:
+    # Adds a history item.
+    def _AddItem(self, msgType:str, text:str) -> None:
+        # Validate the value.
+        if msgType != "User" and msgType != "Assistant":
+            self.Logger.error(f"Homeway Sage - Unknown message type - {msgType}")
+        if len(text) == 0:
+            self.Logger.debug("Homeway Sage - Empty message text - ignoring")
+            return
+
         with self.Lock:
-            historyList.append(SageHistoryItem(text))
-            if len(historyList) > self.c_MaxHistoryItems:
-                historyList.pop(0)
+            # Since we don't get a notification when a new chat has been started, we don't know if the user is
+            # doing a new chat or continuing an old one. So we need to clear the history if it's been too long.
+            currentTimeSec = time.time()
+            if len(self.History) > 0 and currentTimeSec - self.LastMessageReceivedTimeSec > self.c_MaxTimeBetweenMessagesSec:
+                self.Logger.debug("Homeway Sage - Clearing history due to stale time.")
+                self.History.clear()
+
+            # Update the last message time.
+            self.LastMessageReceivedTimeSec = currentTimeSec
+
+            # Add it
+            self.History.append(SageHistoryItem(msgType, text))
+
+            # Check the max history items.
+            if len(self.History) > self.c_MaxHistoryItems:
+                self.History.pop(0)
 
 
 # Keeps track of a single history item.
 class SageHistoryItem:
-    def __init__(self, text:str):
-        self.TimestampSec = time.time()
+    def __init__(self, msgType:str, text:str):
+        self.Type = msgType
         self.Text = text
