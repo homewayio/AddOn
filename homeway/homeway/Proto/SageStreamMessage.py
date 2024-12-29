@@ -46,7 +46,7 @@ class SageStreamMessage(object):
         return False
 
     # SageStreamMessage
-    def IsCloseMsg(self):
+    def IsAbortMsg(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return bool(self._tab.Get(octoflatbuffers.number_types.BoolFlags, o + self._tab.Pos))
@@ -134,11 +134,11 @@ def SageStreamMessageAddIsDataTransmissionDone(builder: octoflatbuffers.Builder,
 def AddIsDataTransmissionDone(builder: octoflatbuffers.Builder, isDataTransmissionDone: bool):
     SageStreamMessageAddIsDataTransmissionDone(builder, isDataTransmissionDone)
 
-def SageStreamMessageAddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg: bool):
-    builder.PrependBoolSlot(3, isCloseMsg, 0)
+def SageStreamMessageAddIsAbortMsg(builder: octoflatbuffers.Builder, isAbortMsg: bool):
+    builder.PrependBoolSlot(3, isAbortMsg, 0)
 
-def AddIsCloseMsg(builder: octoflatbuffers.Builder, isCloseMsg: bool):
-    SageStreamMessageAddIsCloseMsg(builder, isCloseMsg)
+def AddIsAbortMsg(builder: octoflatbuffers.Builder, isAbortMsg: bool):
+    SageStreamMessageAddIsAbortMsg(builder, isAbortMsg)
 
 def SageStreamMessageAddData(builder: octoflatbuffers.Builder, data: int):
     builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(data), 0)

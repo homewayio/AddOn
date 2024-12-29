@@ -5,4 +5,5 @@
 class SageDataTypesFormats(object):
     None_ = 0
     Text = 1
-    AudioPCM = 2
+    Json = 2
+    AudioPCM = 3
