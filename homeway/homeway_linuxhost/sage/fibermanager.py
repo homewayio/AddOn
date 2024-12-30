@@ -1,4 +1,5 @@
 import sys
+import json
 import struct
 import logging
 import threading
@@ -128,11 +129,11 @@ class FiberManager:
     # async streamingDataReceivedCallback(SpeakDataResponse) -> bool
     #   If the callback returns False, the operation will stop.
     # Return True on success, False on failure.
-    async def Speak(self, text:str, streamingDataReceivedCallback) -> bool:
+    async def Speak(self, text:str, voiceName_OrNone:str, streamingDataReceivedCallback) -> bool:
 
         # Creates the sending data context for the text we want to send.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, SageDataTypesFormats.Text)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json)
 
         # This onDataStreamReceived will be called each time there's more chunked audio data
         # to stream back.
@@ -153,8 +154,9 @@ class FiberManager:
             return await streamingDataReceivedCallback(dataResponse)
 
         # Do the operation, stream or wait for the response.
-        data = text.encode("utf-8")
-        result = await self._SendAndReceive(SageOperationTypes.Speak, data, createDataContextOffset, onDataStreamReceived)
+        request = {"Text": text, "VoiceName": voiceName_OrNone}
+        requestBytes = json.dumps(request).encode("utf-8")
+        result = await self._SendAndReceive(SageOperationTypes.Speak, requestBytes, createDataContextOffset, onDataStreamReceived)
 
         # If the status code is set at any time and not 200, we failed, regardless of the mode.
         # Check this before the function result, so we get the status code.

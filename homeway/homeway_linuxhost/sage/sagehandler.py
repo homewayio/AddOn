@@ -106,6 +106,11 @@ class SageHandler(AsyncEventHandler):
         if Synthesize.is_type(event.type):
             transcript = Synthesize.from_event(event)
 
+            # Get the user chosen voice name
+            voiceName = None
+            if transcript.voice is not None:
+                voiceName = transcript.voice.name
+
             # Ensure all of the text is joined on one line.
             text = " ".join(transcript.text.strip().splitlines())
             text = self._EnforceMaxStringLength(text)
@@ -133,8 +138,8 @@ class SageHandler(AsyncEventHandler):
 
             self.Logger.debug(f"Sage - Synthesize Start - {text}")
             start = time.time()
-            result = await self.FiberManager.Speak(text, streamingDataReceivedCallback)
-            self.Logger.debug(f"Sage Synthesize End - {text} - time: {time.time() - start} - chunks: {synthContext.ChunkCount} - bytes: {synthContext.TotalBytes}")
+            result = await self.FiberManager.Speak(text, voiceName, streamingDataReceivedCallback)
+            self.Logger.debug(f"Sage Synthesize End - {text} - voice: {voiceName} - time: {time.time() - start} - chunks: {synthContext.ChunkCount} - bytes: {synthContext.TotalBytes}")
 
             # If we wrote anything, we need to send the audio stop event.
             if synthContext.IsFirstChunk is False:
@@ -182,7 +187,7 @@ class SageHandler(AsyncEventHandler):
                     response = requests.get(url, timeout=5)
                     if response.status_code == 200:
                         await self._HandleServiceInfoAndWriteEvent(response.json())
-                        return
+                        return True
                     self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status_code}")
                 except Exception as e:
                     self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {e}")
@@ -204,119 +209,94 @@ class SageHandler(AsyncEventHandler):
     # This must write the info event or throw, so it will retry the process.
     async def _HandleServiceInfoAndWriteEvent(self, response:dict) -> None:
 
+        def getOrThrow(d:dict, key:str, expectedType:type) -> any:
+            value = d.get(key, None)
+            if value is None:
+                raise Exception(f"Failed to get models from service, no {key}.")
+            if isinstance(value, expectedType) is False:
+                raise Exception(f"Failed to get models from service, {key} is not the expected type.")
+            return value
+
+        def getAttribution(d:dict) -> Attribution:
+            a = getOrThrow(d, "Attribution", dict)
+            return Attribution(getOrThrow(a, "Name", str), getOrThrow(a, "Url", str))
+
         # Parse the response.
-        result = response.get("Result", None)
-        if result is None:
-            raise Exception("Failed to get models from service, no result.")
-        
+        result = getOrThrow(response, "Result", dict)
 
+        # Build the info object from the response.
+        info = Info()
 
-
-        models = [
-            AsrModel(
-                name="Hw Test",
-                description="Some model?",
-                attribution=Attribution(
-                    name="Homeway",
-                    url="https://homeway.io/",
-                ),
+        # Get the AsrPrograms - Speech to Text
+        info.asr = []
+        for p in getOrThrow(result, "SpeechToText", list):
+            program = AsrProgram(
+                name=getOrThrow(p, "Name", str),
+                description=getOrThrow(p, "Description", str),
+                version=getOrThrow(p, "Version", str),
+                attribution=getAttribution(p),
                 installed=True,
-                languages=["en"],
-                version="0.0.1"
+                models=[]
             )
-        ]
+            info.asr.append(program)
+            for m in getOrThrow(p, "Options", list):
+                model = AsrModel(
+                    name=getOrThrow(m, "Name", str),
+                    description=getOrThrow(m, "Description", str),
+                    version=getOrThrow(m, "Version", str),
+                    languages=getOrThrow(m, "Languages", list),
+                    attribution=getAttribution(m),
+                    installed=True
+                )
+                program.models.append(model)
 
-        voices = [
-            TtsVoice(
-                name="deepgram-sage",
-                description="Deepgram Sage",
-                attribution=Attribution(
-                    name="Homeway",
-                            url="https://homeway.io/",
-                ),
+        # Get the IntentProgram - ChatGPT
+        info.intent = []
+        for p in getOrThrow(result, "LlmChat", list):
+            program = IntentProgram(
+                name=getOrThrow(p, "Name", str),
+                description=getOrThrow(p, "Description", str),
+                version=getOrThrow(p, "Version", str),
+                attribution=getAttribution(p),
                 installed=True,
-                version="0.0.1",
-                languages=[
-                    "en"
-                ],
+                models=[]
             )
-        ]
-
-        info = Info(
-            intent=
-            [
-                IntentProgram(
-                    name="homeway-intent-2",
-                    description="test-test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    version="0.0.1",
-                    models=[
-                        IntentModel(
-                            name="homeway-intent-model",
-                            description="test",
-                            attribution=Attribution(
-                                name="Homeway",
-                                url="https://homeway.io/",
-                            ),
-                            installed=True,
-                            version="0.0.1",
-                            languages=["en"],
-                        ),
-                         IntentModel(
-                            name="homeway-intent-model-gpt",
-                            description="tes2",
-                            attribution=Attribution(
-                                name="Homeway",
-                                url="https://homeway.io/",
-                            ),
-                            installed=True,
-                            version="0.0.1",
-                            languages=["en"],
-                        )
-                    ]
+            info.intent.append(program)
+            for m in getOrThrow(p, "Options", list):
+                model = IntentModel(
+                    name=getOrThrow(m, "Name", str),
+                    description=getOrThrow(m, "Description", str),
+                    version=getOrThrow(m, "Version", str),
+                    languages=getOrThrow(m, "Languages", list),
+                    attribution=getAttribution(m),
+                    installed=True
                 )
-            ],
-            asr=[
-                AsrProgram(
-                    name="Homeway Free Speech To Text - OpenAI, Deepgram, Google, etc.",
-                    description="Test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    version="0.0.1",
-                    models=models,
+                program.models.append(model)
 
+        # Get the TtsProgram - Text to Speech
+        info.tts = []
+        voiceCount = 0
+        for p in getOrThrow(result, "TextToSpeech", list):
+            program = TtsProgram(
+                name=getOrThrow(p, "Name", str),
+                description=getOrThrow(p, "Description", str),
+                version=getOrThrow(p, "Version", str),
+                attribution=getAttribution(p),
+                installed=True,
+                voices=[]
+            )
+            info.tts.append(program)
+            for m in getOrThrow(p, "Options", list):
+                voice = TtsVoice(
+                    name=getOrThrow(m, "Name", str),
+                    description=getOrThrow(m, "Description", str),
+                    version=getOrThrow(m, "Version", str),
+                    languages=getOrThrow(m, "Languages", list),
+                    attribution=getAttribution(m),
+                    installed=True
                 )
-            ],
-            tts=[
-                TtsProgram(
-                    name="homeway-text-to-speech",
-                    description="test",
-                    attribution=Attribution(
-                        name="Homeway",
-                        url="https://homeway.io/",
-                    ),
-                    installed=True,
-                    voices=voices,
-                    version="0.0.1",
+                voiceCount += 1
+                program.voices.append(voice)
 
-                )
-            ],
-           
- 
-        )
-
-        if info is None:
-            
-            # TODO error handle?
-            return False
+        self.Logger.info("Returning Sage Info to client. Voices: " + str(voiceCount))
         await self.write_event(info.event())
-        return True
-    
-
