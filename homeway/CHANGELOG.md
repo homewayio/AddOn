@@ -4,7 +4,7 @@
 ## 2.0.0
 
 - 🤖 Introducing [Homeway Sage](https://blog.homeway.io/homeway-sage-free-private-intelligent-chatgpt-for-home-assistant-assist-voice/)! Your free, private, and smart Home Assistant Assist!
-    - Homeway's Sage assistant uses the latest AI services to empower you Home Assistant Assist for free.
+    - Homeway's Sage assistant uses the latest AI services to empower your Home Assistant Assist for free.
     - Free OpenAI GPT4 chat with extended functions like web search, live sports, live weather, memory, and more.
     - Free text-to-speech powered by OpenAI, Google, Amazon, and more! (you can pick!)
     - Free low-latency speech-to-text powered by the latest AI models.
