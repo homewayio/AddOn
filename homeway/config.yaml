@@ -27,6 +27,15 @@ arch:
 map:
   - homeassistant_config:rw
 
+# We don't use the default port because it conflicts with software like giv_tcp. So we use our own random port.
+ingress_port: 45120
+
+# We need to expose the port for the Wyoming protocol for Sage.
+ports:
+  "11027/tcp": null
+ports_description:
+  "11027/tcp": "Homeway's Sage Assist Wyoming Protocol"
+
 # Add some config options for user to control the addon.
 options:
   debug_level: "info"
@@ -44,4 +53,4 @@ image: ghcr.io/homewayio/homeway/{arch}
 # Note when this version number changes, we must make a release to start a docker container build immediately, since HA will start looking for the new version.
 # Basically: Make the final commit -> test and check lint actions (if a docker change, push to docker-test to ensure it builds) -> bump the version number -> create GitHub release.
 # UPDATE THE CHANGE LOG!
-version: 1.5.8
+version: 2.0.0

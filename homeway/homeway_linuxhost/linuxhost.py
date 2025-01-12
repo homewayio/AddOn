@@ -26,6 +26,7 @@ from .ha.connection import Connection
 from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
 from .ha.serverdiscovery import ServerDiscovery
+from .sage.sagehost import SageHost
 
 
 # This file is the main host for the linux service.
@@ -36,6 +37,7 @@ class LinuxHost:
         self.Secrets = None
         self.WebServer = None
         self.HaEventHandler = None
+        self.Sage:SageHost = None
 
         # Indicates if we are running as the Home Assistant addon, or standalone docker or cli.
         self.AddonType = addonType
@@ -187,6 +189,9 @@ class LinuxHost:
             configManager.SetHaConnection(haConnection)
             configManager.UpdateConfigIfNeeded()
 
+            # Setup the sage sub system, it won't be started until the primary connection is established.
+            self.Sage = SageHost(self.Logger, pluginVersionStr, devLocalHomewayServerAddress_CanBeNone)
+
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()
             if devLocalHomewayServerAddress_CanBeNone is not None:
@@ -269,6 +274,9 @@ class LinuxHost:
         # Set the current API key to the event handler
         self.HaEventHandler.SetHomewayApiKey(apiKey)
 
+        # Once we have the API key, we can start or refresh the Sage system.
+        self.Sage.StartOrRefresh(self.GetPluginId(), apiKey)
+
         # Set the current API key to the custom file server
         CustomFileServer.Get().UpdateAddonConfig(self.GetPluginId(), apiKey)
 
@@ -295,5 +303,3 @@ class LinuxHost:
     #
     def OnPluginUpdateRequired(self):
         self.Logger.error("!!! A Plugin Update Is Required -- If This Plugin Isn't Updated It Might Stop Working !!!")
-        # TODO
-        #self.Logger.error("!!! Please use the update manager          !!!")

@@ -18,6 +18,8 @@
 #   certifi - We use to keep certs on the device that we need for let's encrypt. So we want to keep it fresh.
 #   httpx - Is an asyncio http lib. It seems to be required by dnspython, but dnspython doesn't enforce it. We had a user having an issue that updated to 0.24.0, and it resolved the issue.
 #   urllib3 - There is a bug with parsing headers in versions older than 1.26.? (https://github.com/diyan/pywinrm/issues/269). At least 1.26.6 fixes it, ubt we decide to just stick with a newer version.
+#   wyoming - For sage and the local assist APIs. We have built or logic on 1.6 and since this isn't a huge lib we will lock to that.
+#   zeroconf - Used internally in the wyoming lib for service discovery.
 #
 octowebsocket_client==1.8.3
 requests>=2.24.0
@@ -30,4 +32,6 @@ urllib3>=1.26.15,<1.27.0
 pyyaml
 sentry-sdk>=1.19.1,<2
 configparser
+wyoming==1.6.0
+zeroconf
 #zstandard <version>

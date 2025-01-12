@@ -49,9 +49,11 @@ class ServerCon:
     # we will reconnect quickly again. Remember we always add the random reconnect time as well.
     WsConnectBackOffSec_Default = 1
     # We always add a random second count to the reconnect sleep to add variance. This is the min value.
-    WsConnectRandomMinSec = 2
+    # Remember the server takes about 5 seconds to reboot, so connecting before then is useless.
+    WsConnectRandomMinSec = 10
     # We always add a random second count to the reconnect sleep to add variance. This is the max value.
-    WsConnectRandomMaxSec = 10
+    # Having a wider window allows the client to reconnect at different times, which is good for the server.
+    WsConnectRandomMaxSec = 30
 
     def __init__(self, host, endpoint:str, isPrimaryConnection:bool, shouldUseLowestLatencyServer:bool, pluginId:str, privateKey:str,
                   logger:logging.Logger, statusChangeHandler, pluginVersion:str, runForSeconds, summonMethod, addonType:AddonTypes):

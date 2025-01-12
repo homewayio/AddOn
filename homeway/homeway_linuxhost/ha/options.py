@@ -34,7 +34,10 @@ class Options:
     # Get an option from the options file.
     def GetOption(self, key: str, default: str = None) -> str:
         try:
-            return str(self._Options.get(key, default))
+            val = self._Options.get(key, default)
+            if val is None:
+                return None
+            return str(val)
         except Exception as e:
             Sentry.Exception("Failed to get Ha Options key", e)
             return default
