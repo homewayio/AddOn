@@ -264,7 +264,7 @@ class SageHandler(AsyncEventHandler):
 
         def addSagePrefixIfNeeded(s:str) -> str:
             if self.SagePrefix_CanBeNone is None:
-                return input
+                return s
             return f"{self.SagePrefix_CanBeNone} - {s}"
 
         # Parse the response.
