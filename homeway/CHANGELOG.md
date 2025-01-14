@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.0.0
+## 2.1 - 2.0
 
 - 🤖 Introducing [Homeway Sage](https://blog.homeway.io/homeway-sage-free-private-intelligent-chatgpt-for-home-assistant-assist-voice/)! Your free, private, and smart Home Assistant Assist!
     - Homeway's Sage assistant uses the latest AI services to empower your Home Assistant Assist for free.

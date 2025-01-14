@@ -9,6 +9,14 @@ from homeway.websocketimpl import Client
 from .eventhandler import EventHandler
 from .serverinfo import ServerInfo
 
+
+# Holds the raw HA responses for the get_state and area list query.
+class EntityStateAndAreasResponse:
+    def __init__(self):
+        self.States:dict = None
+        self.Areas:dict = None
+
+
 # Connects to Home Assistant and manages the connection.
 class Connection:
 
@@ -35,6 +43,10 @@ class Connection:
         # If set, when the websocket is connected, we should send the HA restart command.
         self.IssueRestartOnConnect = False
 
+        # Allows for blocking message send responses.
+        self.PendingContextsLock = threading.Lock()
+        self.PendingContexts = {}
+
 
     def Start(self) -> None:
         t = threading.Thread(target=self.ConnectionThread)
@@ -51,6 +63,41 @@ class Connection:
         else:
             self.Logger.error(f"{self._getLogTag()} HA restart command deferred, since we aren't connected.")
             self.IssueRestartOnConnect = True
+
+
+    # Gets the current state of all entities and the area list.
+    # This will always return a result object, but the values may be None if the query failed.
+    def GetEntityStateAndAreas(self) -> EntityStateAndAreasResponse:
+        response = EntityStateAndAreasResponse()
+        s = threading.Semaphore(0)
+        def getStates():
+            try:
+                result = self.SendMsg({"type":"get_states"}, waitForResponse=True)
+                # Convert the False failure to a None
+                if result is not False:
+                    response.States = result
+            except Exception as e:
+                Sentry.Exception("GetEntityStateAndAreas get_states exception.", e)
+            finally:
+                s.release()
+        def getAreas():
+            try:
+                result = self.SendMsg({"type":"config/area_registry/list"}, waitForResponse=True)
+                # Convert the False failure to a None
+                if result is not False:
+                    response.Areas = result
+            except Exception as e:
+                Sentry.Exception("GetEntityStateAndAreas area list exception.", e)
+            finally:
+                s.release()
+        # Perform the queries in parallel for speed.
+        threading.Thread(target=getStates).start()
+        threading.Thread(target=getAreas).start()
+        # Use a timeout to prevent a dead thread.
+        #pylint: disable=consider-using-with
+        s.acquire(True, 10.0)
+        s.acquire(True, 10.0)
+        return response
 
 
     # Called when the websocket is up and authed.
@@ -166,12 +213,34 @@ class Connection:
                 self.SendMsg({"type":"auth", "access_token": ServerInfo.GetAccessToken()}, ignoreConnectionState=True)
                 return
 
-            # For now, we check all returned messages for errors and report them.
+            # For now, if there are any errors, we always log them.
             if "success" in jsonObj and jsonObj["success"] is not True:
                 self.Logger.error(f"{self._getLogTag()} HA returned an error. {jsonStr}")
 
+            msgType = jsonObj.get("type", None)
+            if msgType is None:
+                self.Logger.error(f"{self._getLogTag()} message without a type field! {json.dumps(jsonObj, indent=2)}")
+                return
+
+            if msgType == "result":
+                # Check if there's a pending context for this message ID.
+                msgId = jsonObj.get("id", None)
+                if msgId is None:
+                    self.Logger.error(f"{self._getLogTag()} result message without an id field!")
+                else:
+                    # Check if there's a pending context for this message.
+                    # It's ok if there's no pending context, since we might have sent a message that we don't care about the response.
+                    with self.PendingContextsLock:
+                        if msgId in self.PendingContexts:
+                            # If we find a mach, set the response and signal the event.
+                            pendingContext = self.PendingContexts[msgId]
+                            pendingContext.Response = jsonObj
+                            pendingContext.Event.set()
+                            # Return since this message is being handled by the pending context.
+                            return
+
             # Finally, if the message is a event, invoke the handler.
-            if "type" in jsonObj and jsonObj["type"] == "event":
+            elif msgType == "event":
                 try:
                     event = jsonObj["event"]
                     self.EventHandler.OnEvent(event, self.HaVersionString)
@@ -183,7 +252,10 @@ class Connection:
             self.Close()
 
 
-    def SendMsg(self, msg:dict, ignoreConnectionState:bool = False) -> bool:
+    # Sends a message to Home Assistant.
+    # If waitForResponse is True, either the response dict will be returned or False if the message failed or timeout.
+    # If waitForResponse is False, True will be returned if the message was sent, False if it failed.
+    def SendMsg(self, msg:dict, waitForResponse:bool = False, ignoreConnectionState:bool = False) -> bool:
         # Check the connection state.
         if ignoreConnectionState is False:
             if self.IsConnected is False:
@@ -195,12 +267,21 @@ class Connection:
             self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't connected.")
             return False
 
+        msgId = 0
+        pendingContext = None
         try:
             # Add the id field to all messages that are post auth.
             if self.IsConnected:
                 with self.MsgIdLock:
-                    msg["id"] = self.MsgId
+                    msgId = self.MsgId
+                    msg["id"] = msgId
                     self.MsgId += 1
+
+            # Create a pending context
+            if waitForResponse:
+                pendingContext = PendingContexts()
+                with self.PendingContextsLock:
+                    self.PendingContexts[msgId] = pendingContext
 
             # Dump the message
             jsonStr = json.dumps(msg)
@@ -210,9 +291,27 @@ class Connection:
             # Since we must encode the data, which will create a copy, we might as well just send the buffer as normal,
             # without adding the extra space for the header. We can add the header here or in the WS lib, it's the same amount of work.
             ws.Send(jsonStr.encode(), isData=False)
-            return True
+
+            # If we aren't waiting for a response, we are done.
+            if pendingContext is None:
+                return True
+
+            # Wait for the response.
+            if pendingContext.Event.wait(10.0) is False:
+                # Timeout, return false.
+                return False
+
+            # We got the response, return it.
+            return pendingContext.Response
+
+            # Wait for the response.
         except Exception as e:
             Sentry.Exception("SendMsg exception.", e)
+        finally:
+            # If we have a pending context, make sure to remove it.
+            if pendingContext is not None:
+                with self.PendingContextsLock:
+                    del self.PendingContexts[msgId]
         return False
 
 
@@ -225,3 +324,11 @@ class Connection:
 
     def _getLogTag(self) -> str:
         return f"HaCon [{self.ConId}]"
+
+
+# Holds a pending context for an outstanding sent message.
+class PendingContexts:
+
+    def __init__(self):
+        self.Event = threading.Event()
+        self.Response:dict = None

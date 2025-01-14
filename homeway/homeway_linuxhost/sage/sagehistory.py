@@ -35,7 +35,7 @@ class SageHistory:
 
 
     # Returns the history as a json object.
-    def GetHistoryJsonObj(self) -> dict:
+    def GetHistoryMessagesJsonObj(self) -> dict:
         with self.Lock:
             # The format of this json object must be kept in sync with the server.
             self.Logger.debug(f"Homeway Sage - Building chat history of {len(self.History)} messages.")
@@ -45,9 +45,7 @@ class SageHistory:
                     "Type": x.Type,
                     "Text": x.Text
                 })
-            return {
-                "Messages": messages,
-            }
+            return messages
 
 
     # Adds a history item.

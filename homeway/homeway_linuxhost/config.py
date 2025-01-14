@@ -26,6 +26,10 @@ class Config:
     LogFileMaxSizeMbKey = "max_file_size_mb"
     LogFileMaxCountKey = "max_file_count"
 
+    # Sage stuff.
+    SageSection = "sage"
+    SagePrefixStringKey = "sage_prefix"
+
     # This allows us to add comments into our config.
     # The objects must have two parts, first, a string they target. If the string is found, the comment will be inserted above the target string. This can be a section or value.
     # A string, which is the comment to be inserted.
@@ -35,6 +39,7 @@ class Config:
         { "Target": HaUseHttps,  "Comment": "True or false if the ip/port requires https."},
         { "Target": HaAccessTokenKey,  "Comment": "Required for standalone addon installs, not required for addon installs. This is the long lived access token used to connect to Home Assistant."},
         { "Target": LogLevelKey,  "Comment": "The active logging level. Valid values include: DEBUG, INFO, WARNING, or ERROR."},
+        { "Target": SagePrefixStringKey,  "Comment": "If set, this will prefix the Sage services names with the given string, which is helpful if you run multiple instances of Homeway. This should not have spaces!."},
     ]
 
     # The config lib we use doesn't support the % sign, even though it's valid .cfg syntax.

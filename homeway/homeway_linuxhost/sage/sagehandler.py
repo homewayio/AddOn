@@ -18,6 +18,7 @@ from .fabric import Fabric
 from .sagehistory import SageHistory
 from .fibermanager import FiberManager, SpeakDataResponse
 from .sagetranscribehandler import SageTranscribeHandler
+from .homecontext import HomeContext
 
 
 class SageHandler(AsyncEventHandler):
@@ -28,12 +29,14 @@ class SageHandler(AsyncEventHandler):
 
 
     # Note this handler is created for each new request flow, like for a full Listen session.
-    def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, sageHistory:SageHistory, devLocalHomewayServerAddress_CanBeNone:str, *args, **kwargs) -> None:
+    def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, homeContext:HomeContext, sageHistory:SageHistory, sagePrefix_CanBeNone:str, devLocalHomewayServerAddress_CanBeNone:str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.Logger = logger
         self.Fabric = fabric
         self.FiberManager = fiberManger
+        self.HomeContext = homeContext
         self.SageHistory = sageHistory
+        self.SagePrefix_CanBeNone = sagePrefix_CanBeNone
         self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
 
         # This is created when the first audio stream starts and is reset when the stream ends.
@@ -93,12 +96,20 @@ class SageHandler(AsyncEventHandler):
             self.Logger.debug(f"Sage - Transcript Start - {newMsg}")
             self.SageHistory.AddUserText(newMsg)
 
-            # Get the history as a json object.
-            msgJsonStr = json.dumps(self.SageHistory.GetHistoryJsonObj())
+            # Build the request.
+            request = {
+                # These is the history of this conversation.
+                "Messages" : self.SageHistory.GetHistoryMessagesJsonObj(),
+            }
+            requestJsonStr = json.dumps(request)
+
+            # Get the home context, which includes all of the current devices and states.
+            # This can be None if we failed to get it.
+            homeContext = self.HomeContext.GetHomeContext()
 
             # Make the request.
             start = time.time()
-            responseText = await self.FiberManager.Chat(msgJsonStr)
+            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext)
 
             # Check the result
             if responseText is None:
@@ -251,6 +262,11 @@ class SageHandler(AsyncEventHandler):
             a = getOrThrow(d, "Attribution", dict)
             return Attribution(getOrThrow(a, "Name", str), getOrThrow(a, "Url", str))
 
+        def addSagePrefixIfNeeded(s:str) -> str:
+            if self.SagePrefix_CanBeNone is None:
+                return input
+            return f"{self.SagePrefix_CanBeNone} - {s}"
+
         # Parse the response.
         result = getOrThrow(response, "Result", dict)
 
@@ -261,7 +277,7 @@ class SageHandler(AsyncEventHandler):
         info.asr = []
         for p in getOrThrow(result, "SpeechToText", list):
             program = AsrProgram(
-                name=getOrThrow(p, "Name", str),
+                name=addSagePrefixIfNeeded(getOrThrow(p, "Name", str)),
                 description=getOrThrow(p, "Description", str),
                 version=getOrThrow(p, "Version", str),
                 attribution=getAttribution(p),
@@ -271,7 +287,7 @@ class SageHandler(AsyncEventHandler):
             info.asr.append(program)
             for m in getOrThrow(p, "Options", list):
                 model = AsrModel(
-                    name=getOrThrow(m, "Name", str),
+                    name=addSagePrefixIfNeeded(getOrThrow(m, "Name", str)),
                     description=getOrThrow(m, "Description", str),
                     version=getOrThrow(m, "Version", str),
                     languages=getOrThrow(m, "Languages", list, sageLanguages),
@@ -284,7 +300,7 @@ class SageHandler(AsyncEventHandler):
         info.intent = []
         for p in getOrThrow(result, "LlmChat", list):
             program = IntentProgram(
-                name=getOrThrow(p, "Name", str),
+                name=addSagePrefixIfNeeded(getOrThrow(p, "Name", str)),
                 description=getOrThrow(p, "Description", str),
                 version=getOrThrow(p, "Version", str),
                 attribution=getAttribution(p),
@@ -294,7 +310,7 @@ class SageHandler(AsyncEventHandler):
             info.intent.append(program)
             for m in getOrThrow(p, "Options", list):
                 model = IntentModel(
-                    name=getOrThrow(m, "Name", str),
+                    name=addSagePrefixIfNeeded(getOrThrow(m, "Name", str)),
                     description=getOrThrow(m, "Description", str),
                     version=getOrThrow(m, "Version", str),
                     languages=getOrThrow(m, "Languages", list, sageLanguages),
@@ -308,7 +324,7 @@ class SageHandler(AsyncEventHandler):
         voiceCount = 0
         for p in getOrThrow(result, "TextToSpeech", list):
             program = TtsProgram(
-                name=getOrThrow(p, "Name", str),
+                name=addSagePrefixIfNeeded(getOrThrow(p, "Name", str)),
                 description=getOrThrow(p, "Description", str),
                 version=getOrThrow(p, "Version", str),
                 attribution=getAttribution(p),
@@ -318,7 +334,7 @@ class SageHandler(AsyncEventHandler):
             info.tts.append(program)
             for m in getOrThrow(p, "Options", list):
                 voice = TtsVoice(
-                    name=getOrThrow(m, "Name", str),
+                    name=addSagePrefixIfNeeded(getOrThrow(m, "Name", str)),
                     description=getOrThrow(m, "Description", str),
                     version=getOrThrow(m, "Version", str),
                     languages=getOrThrow(m, "Languages", list, sageLanguages),

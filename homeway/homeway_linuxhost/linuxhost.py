@@ -190,7 +190,8 @@ class LinuxHost:
             configManager.UpdateConfigIfNeeded()
 
             # Setup the sage sub system, it won't be started until the primary connection is established.
-            self.Sage = SageHost(self.Logger, pluginVersionStr, devLocalHomewayServerAddress_CanBeNone)
+            sagePrefix_CanBeNone = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)
+            self.Sage = SageHost(self.Logger, pluginVersionStr, haConnection, sagePrefix_CanBeNone, devLocalHomewayServerAddress_CanBeNone)
 
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()

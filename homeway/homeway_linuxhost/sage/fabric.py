@@ -107,8 +107,9 @@ class Fabric:
             self.FiberManager.OnSocketReset()
 
             # Always increment the backoff counter.
+            # We allow the backoff counter to go up to 20 minutes, for websockets that are failing to connect, we don't want to hammer the server.
             self.BackoffCounter += 1
-            self.BackoffCounter = min(self.BackoffCounter, 12)
+            self.BackoffCounter = min(self.BackoffCounter, 400)
 
             isFirstReconnect = False
             if self.ConId == 0:
