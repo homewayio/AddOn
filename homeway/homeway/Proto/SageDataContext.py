@@ -58,8 +58,42 @@ class SageDataContext(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # SageDataContext
+    def HomeContext(self, j: int):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # SageDataContext
+    def HomeContextAsNumpy(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # SageDataContext
+    def HomeContextAsByteArray(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.GetVectorAsByteArray(o)
+        return 0
+
+    # SageDataContext
+    def HomeContextLength(self) -> int:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # SageDataContext
+    def HomeContextIsNone(self) -> bool:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return o == 0
+
 def SageDataContextStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(5)
+    builder.StartObject(6)
 
 def Start(builder: octoflatbuffers.Builder):
     SageDataContextStart(builder)
@@ -93,6 +127,18 @@ def SageDataContextAddLanguageCode(builder: octoflatbuffers.Builder, languageCod
 
 def AddLanguageCode(builder: octoflatbuffers.Builder, languageCode: int):
     SageDataContextAddLanguageCode(builder, languageCode)
+
+def SageDataContextAddHomeContext(builder: octoflatbuffers.Builder, homeContext: int):
+    builder.PrependUOffsetTRelativeSlot(5, octoflatbuffers.number_types.UOffsetTFlags.py_type(homeContext), 0)
+
+def AddHomeContext(builder: octoflatbuffers.Builder, homeContext: int):
+    SageDataContextAddHomeContext(builder, homeContext)
+
+def SageDataContextStartHomeContextVector(builder, numElems: int) -> int:
+    return builder.StartVector(1, numElems, 1)
+
+def StartHomeContextVector(builder, numElems: int) -> int:
+    return SageDataContextStartHomeContextVector(builder, numElems)
 
 def SageDataContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
