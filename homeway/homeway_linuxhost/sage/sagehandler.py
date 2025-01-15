@@ -1,6 +1,7 @@
 import time
 import json
 import logging
+import threading
 import requests
 
 from wyoming.asr import Transcript, Transcribe
@@ -26,6 +27,12 @@ class SageHandler(AsyncEventHandler):
     # This is the max length of any string we will process, be it for transcribing, synthesizing, or anything else.
     # This is more of a sanity check, the server will enforce it's own limits.
     c_MaxStringLength = 500
+
+    # A quick static cache of the info event, since it's gets called in rapid succession sometimes.
+    c_InfoEventMaxCacheTimeSec = 15.0
+    s_InfoEvent:Info = None
+    s_InfoEventTime:float = 0.0
+    s_InfoEventLock = threading.Lock()
 
 
     # Note this handler is created for each new request flow, like for a full Listen session.
@@ -201,6 +208,20 @@ class SageHandler(AsyncEventHandler):
     # Queries the service for the models and details we current have to offer.
     async def _HandleDescribe(self) -> bool:
 
+        # Since the discovery command is called rapidly sometimes, we will cache the info event for a few seconds.
+        try:
+            info:Info = None
+            with SageHandler.s_InfoEventLock:
+                if SageHandler.s_InfoEvent is not None and time.time() - SageHandler.s_InfoEventTime < SageHandler.c_InfoEventMaxCacheTimeSec:
+                    info = SageHandler.s_InfoEvent
+
+            if info is not None:
+                self.Logger.debug("Returning a cached info event for Discovery.")
+                await self._CacheAndWriteInfoEvent(info, False)
+                return True
+        except Exception as e:
+            Sentry.Exception("Sage - _HandleDescribe failed to write the cached info object, we will try for a new info object.", e)
+
         # Note for some reason the name of the AsrProgram is what will show up in the discovery for users.
         # Get the current programs / models / voices from the service.
         try:
@@ -219,7 +240,10 @@ class SageHandler(AsyncEventHandler):
                     self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
                     response = requests.get(url, timeout=5)
                     if response.status_code == 200:
-                        await self._HandleServiceInfoAndWriteEvent(response.json())
+                        info = self._BuildInfoEvent(response.json())
+                        if info is None:
+                            raise Exception("Failed to build info event.")
+                        await self._CacheAndWriteInfoEvent(info)
                         return True
                     self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status_code}")
                 except Exception as e:
@@ -238,9 +262,21 @@ class SageHandler(AsyncEventHandler):
             return False
 
 
+    # Writes the info event back to the client.
+    async def _CacheAndWriteInfoEvent(self, info:Info, cache:bool = True) -> None:
+        # Write it
+        await self.write_event(info.event())
+
+        if cache:
+            # After we successfully write the info event, we will cache it.
+            with SageHandler.s_InfoEventLock:
+                SageHandler.s_InfoEvent = info
+                SageHandler.s_InfoEventTime = time.time()
+
+
     # Handles the service info and writes the event back to the client.
     # This must write the info event or throw, so it will retry the process.
-    async def _HandleServiceInfoAndWriteEvent(self, response:dict) -> None:
+    def _BuildInfoEvent(self, response:dict) -> Info:
 
         # This is a list of languages we support.
         # We keep them here on the client side so they don't have to be sent every time.
@@ -264,7 +300,7 @@ class SageHandler(AsyncEventHandler):
 
         def addSagePrefixIfNeeded(s:str) -> str:
             if self.SagePrefix_CanBeNone is None:
-                return input
+                return s
             return f"{self.SagePrefix_CanBeNone} - {s}"
 
         # Parse the response.
@@ -334,7 +370,7 @@ class SageHandler(AsyncEventHandler):
             info.tts.append(program)
             for m in getOrThrow(p, "Options", list):
                 voice = TtsVoice(
-                    name=addSagePrefixIfNeeded(getOrThrow(m, "Name", str)),
+                    name=getOrThrow(m, "Name", str),
                     description=getOrThrow(m, "Description", str),
                     version=getOrThrow(m, "Version", str),
                     languages=getOrThrow(m, "Languages", list, sageLanguages),
@@ -344,5 +380,5 @@ class SageHandler(AsyncEventHandler):
                 voiceCount += 1
                 program.voices.append(voice)
 
-        self.Logger.info("Returning Sage Info to client. Voices: " + str(voiceCount))
-        await self.write_event(info.event())
+        self.Logger.info("Sage Info built. Voices: " + str(voiceCount))
+        return info

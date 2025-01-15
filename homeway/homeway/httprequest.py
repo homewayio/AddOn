@@ -259,11 +259,6 @@ class HttpRequest:
 
         # Handle special API type targets.
         if httpInitialContext.ApiTarget() == HaApiTarget.Core:
-            # We only allow two API to prevent this from being abused.
-            # Even though only the service can set this flag, isolating what can be called here is a layer of security.
-            if path != "/api/google_assistant" and path != "/api/alexa/smart_home":
-                raise Exception("A HA core api targeted call was made, but the path is not allowed. "+path)
-
             # We need to get the access token and the correct server path, depending on if we are running in the addon container or not.
             serverInfoHandler = Compat.GetServerInfoHandler()
             if serverInfoHandler is None:

@@ -22,7 +22,7 @@ class EventHandler:
 
     # How long we will wait from the first request to send in a period a collapsed batch of events.
     # This allows one off changes to be more responsive.
-    c_RequestCollapseDelayTimeSecFirstSend = 0.1
+    c_RequestCollapseDelayTimeSecFirstSend = 0.5
 
     # How often we will reset the dict keeping track of spammy events.
     c_SpammyEntityResetWindowSec = 60.0 * 30 # 30 minutes
