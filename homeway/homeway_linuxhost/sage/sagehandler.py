@@ -15,11 +15,12 @@ from wyoming.info import Describe, AsrModel, AsrProgram, Attribution, Info, TtsP
 
 from homeway.sentry import Sentry
 
+from ..ha.homecontext import HomeContext
+
 from .fabric import Fabric
 from .sagehistory import SageHistory
 from .fibermanager import FiberManager, SpeakDataResponse
 from .sagetranscribehandler import SageTranscribeHandler
-from .homecontext import HomeContext
 
 
 class SageHandler(AsyncEventHandler):
@@ -110,13 +111,14 @@ class SageHandler(AsyncEventHandler):
             }
             requestJsonStr = json.dumps(request)
 
-            # Get the home context, which includes all of the current devices and states.
-            # This can be None if we failed to get it.
+            # Get the home context, which is all of the entities and their relationships.
+            # Also get the current state of all entities exposed.
             homeContext = self.HomeContext.GetHomeContext()
+            states = self.HomeContext.GetStates()
 
             # Make the request.
             start = time.time()
-            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext)
+            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext, states)
 
             # Check the result
             if responseText is None:

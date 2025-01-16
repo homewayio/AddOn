@@ -26,6 +26,7 @@ from .ha.connection import Connection
 from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
 from .ha.serverdiscovery import ServerDiscovery
+from .ha.homecontext import HomeContext
 from .sage.sagehost import SageHost
 
 
@@ -189,9 +190,13 @@ class LinuxHost:
             configManager.SetHaConnection(haConnection)
             configManager.UpdateConfigIfNeeded()
 
+            # Setup and start the home context
+            homeContext = HomeContext(self.Logger, haConnection, self.HaEventHandler)
+            homeContext.Start()
+
             # Setup the sage sub system, it won't be started until the primary connection is established.
             sagePrefix_CanBeNone = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)
-            self.Sage = SageHost(self.Logger, pluginVersionStr, haConnection, sagePrefix_CanBeNone, devLocalHomewayServerAddress_CanBeNone)
+            self.Sage = SageHost(self.Logger, pluginVersionStr, homeContext, sagePrefix_CanBeNone, devLocalHomewayServerAddress_CanBeNone)
 
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()

@@ -39,6 +39,7 @@
         "homeassistant",
         "homeassistantconfigmanager",
         "homeassistantoptions",
+        "homecontext",
         "Homeway",
         "homewaycore",
         "homewayio",

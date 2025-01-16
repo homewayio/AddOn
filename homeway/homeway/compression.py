@@ -16,10 +16,11 @@ from .Proto.DataCompression import DataCompression
 
 # A return type for the compression operation.
 class CompressionResult:
-    def __init__(self, b: bytes, duration:float, compressionType: DataCompression) -> None:
+    def __init__(self, b: bytes, duration:float, compressionType: DataCompression, ogDataSize:int) -> None:
         self.Bytes = b
         self.CompressionType = compressionType
         self.CompressionTimeSec = duration
+        self.UncompressedSize = ogDataSize
 
 
 # The compression context should match the lifespan of the compression operation for a set of data.
@@ -133,8 +134,9 @@ class CompressionContext:
         # If we are only doing one (big) compress, then there's no big compression gain, so we only take a time hit.
         #
         # Thus, as a good middle ground, if the buffer input is the exact size as we know the full length is, we do a one time compress.
-        if self.CompressionTotalSizeOfDataBytes == len(data):
-            return CompressionResult(self.Compressor.compress(data), time.time() - startSec, DataCompression.ZStandard)
+        inputDataLen = len(data)
+        if self.CompressionTotalSizeOfDataBytes == inputDataLen:
+            return CompressionResult(self.Compressor.compress(data), time.time() - startSec, DataCompression.ZStandard, inputDataLen)
 
         # If the data is size is unknown or this buffer is smaller than it, it's most likely a stream, so the streaming setup works much better.
         # Since we are passing the size if known, we can't call flush(zstd.FLUSH_FRAME), since the size indicates the expected full frame size.
@@ -158,7 +160,7 @@ class CompressionContext:
         self.CompressionByteBuffer = None
 
         # Done
-        return CompressionResult(resultBuffer, time.time() - startSec, DataCompression.ZStandard)
+        return CompressionResult(resultBuffer, time.time() - startSec, DataCompression.ZStandard, inputDataLen)
 
 
     # This is the callback from stream_reader that get called when it needs more data to read.
@@ -315,7 +317,7 @@ class Compression:
         # If we can't use zStandard lib, fallback to zlib
         startSec = time.time()
         compressed = zlib.compress(data, 3)
-        return CompressionResult(compressed, time.time() - startSec, DataCompression.Zlib)
+        return CompressionResult(compressed, time.time() - startSec, DataCompression.Zlib, len(data))
 
 
     # Given a buffer of data and the compression type, decompresses it.

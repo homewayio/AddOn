@@ -7,6 +7,7 @@ from typing import List, Dict
 import octoflatbuffers
 
 from homeway.sentry import Sentry
+from homeway.compression import CompressionResult
 
 from homeway.Proto import SageStreamMessage
 from homeway.Proto import SageFiber
@@ -175,19 +176,11 @@ class FiberManager:
 
     # Takes a chat json object and returns the assistant's response text.
     # Returns None on failure.
-    async def Chat(self, requestJson:str, homeContext_CanBeNone:dict) -> bytearray:
+    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult) -> bytearray:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            # Note about the home context. We made it it's own byte array for a few reasons:
-            #   1) Making it not part of the main data json allows the server to parse the data without it.
-            #   2) Including it as a string in the main json payload requires escaping all of the "
-            #   3) This way the server can handle it as it needs.
-            homeContextBytes = None
-            if homeContext_CanBeNone is not None:
-                # Setting the separators makes the json dumps not have spaces.
-                homeContextBytes = json.dumps(homeContext_CanBeNone, separators=(',', ':')).encode("utf-8")
-            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContextBytes=homeContextBytes)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext_CanBeNone, states=states_CanBeNone)
 
         # We expect the onDataStreamReceived handler to be called once, with the full response.
         class ResponseContext:
@@ -409,13 +402,20 @@ class FiberManager:
 
 
     # Builds the data context.
-    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats, sampleRate:int=None, channels:int=None, bytesPerSample:int=None, languageCode:str=None, homeContextBytes:bytearray=None) -> int:
+    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats,
+                           sampleRate:int=None, channels:int=None, bytesPerSample:int=None, languageCode:str=None,
+                           homeContext:CompressionResult=None, states:CompressionResult=None) -> int:
+        homeContextBytesOffset = None
+        if homeContext is not None:
+            homeContextBytesOffset = builder.CreateByteVector(homeContext.Bytes)
+        satesBytesOffset = None
+        if states is not None:
+            satesBytesOffset = builder.CreateByteVector(states.Bytes)
+
         languageCodeOffset = None
         if languageCode is not None:
             languageCodeOffset = builder.CreateString(languageCode)
-        homeContextBytesOffset = None
-        if homeContextBytes is not None:
-            homeContextBytesOffset = builder.CreateByteVector(homeContextBytes)
+
         SageDataContext.Start(builder)
         SageDataContext.AddDataType(builder, dataFormat)
         if sampleRate is not None:
@@ -428,6 +428,12 @@ class FiberManager:
             SageDataContext.AddLanguageCode(builder, languageCodeOffset)
         if homeContextBytesOffset is not None:
             SageDataContext.AddHomeContext(builder, homeContextBytesOffset)
+            SageDataContext.AddHomeContextCompression(builder, homeContext.CompressionType)
+            SageDataContext.AddHomeContextOriginalDataSize(builder, homeContext.UncompressedSize)
+        if satesBytesOffset is not None:
+            SageDataContext.AddStates(builder, satesBytesOffset)
+            SageDataContext.AddStatesCompression(builder, states.CompressionType)
+            SageDataContext.AddStatesOriginalDataSize(builder, states.UncompressedSize)
         return SageDataContext.End(builder)
 
 

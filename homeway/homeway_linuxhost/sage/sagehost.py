@@ -8,13 +8,12 @@ from wyoming.server import AsyncServer
 from wyoming.zeroconf import register_server
 
 from homeway.sentry import Sentry
-from ..ha.connection import Connection
+from ..ha.homecontext import HomeContext
 
 from .fabric import Fabric
 from .sagehandler import SageHandler
 from .sagehistory import SageHistory
 from .fibermanager import FiberManager
-from .homecontext import HomeContext
 
 # The main root host for Sage
 class SageHost:
@@ -23,10 +22,10 @@ class SageHost:
     # Maybe this should be dynamic to support multiple instances, but it can't change after it's been discovered.
     c_ServerPort = 11027
 
-    def __init__(self, logger:logging.Logger, addonVersion:str, haConnection:Connection, sagePrefix_CanBeNone:str, devLocalHomewayServerAddress_CanBeNone:str):
+    def __init__(self, logger:logging.Logger, addonVersion:str, homeContext:HomeContext, sagePrefix_CanBeNone:str, devLocalHomewayServerAddress_CanBeNone:str):
         self.Logger = logger
         self.AddonVersion = addonVersion
-        self.HaConnection = haConnection
+        self.HomeContext = homeContext
         self.SagePrefix_CanBeNone = sagePrefix_CanBeNone
         self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
         self.PluginId:str = None
@@ -34,7 +33,6 @@ class SageHost:
         self.Fabric:Fabric = None
         self.FiberManager:FiberManager = None
         self.SageHistory:SageHistory = SageHistory(logger)
-        self.HomeContext:HomeContext = HomeContext(logger, haConnection)
 
 
     # Once the api key is known, we can start.
