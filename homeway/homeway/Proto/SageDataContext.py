@@ -100,8 +100,15 @@ class SageDataContext(object):
         return 0
 
     # SageDataContext
-    def HomeState(self, j: int):
+    def HomeContextOriginalDataSize(self):
         o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # SageDataContext
+    def HomeState(self, j: int):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
             a = self._tab.Vector(o)
             return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
@@ -109,39 +116,46 @@ class SageDataContext(object):
 
     # SageDataContext
     def HomeStateAsNumpy(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
             return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
         return 0
 
     # SageDataContext
     def HomeStateAsByteArray(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
             return self._tab.GetVectorAsByteArray(o)
         return 0
 
     # SageDataContext
     def HomeStateLength(self) -> int:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # SageDataContext
     def HomeStateIsNone(self) -> bool:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         return o == 0
 
     # SageDataContext
     def HomeStateCompression(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
+    # SageDataContext
+    def HomeStateOriginalDataSize(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
 def SageDataContextStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(9)
+    builder.StartObject(11)
 
 def Start(builder: octoflatbuffers.Builder):
     SageDataContextStart(builder)
@@ -194,8 +208,14 @@ def SageDataContextAddHomeContextCompression(builder: octoflatbuffers.Builder, h
 def AddHomeContextCompression(builder: octoflatbuffers.Builder, homeContextCompression: int):
     SageDataContextAddHomeContextCompression(builder, homeContextCompression)
 
+def SageDataContextAddHomeContextOriginalDataSize(builder: octoflatbuffers.Builder, homeContextOriginalDataSize: int):
+    builder.PrependUint32Slot(7, homeContextOriginalDataSize, 0)
+
+def AddHomeContextOriginalDataSize(builder: octoflatbuffers.Builder, homeContextOriginalDataSize: int):
+    SageDataContextAddHomeContextOriginalDataSize(builder, homeContextOriginalDataSize)
+
 def SageDataContextAddHomeState(builder: octoflatbuffers.Builder, homeState: int):
-    builder.PrependUOffsetTRelativeSlot(7, octoflatbuffers.number_types.UOffsetTFlags.py_type(homeState), 0)
+    builder.PrependUOffsetTRelativeSlot(8, octoflatbuffers.number_types.UOffsetTFlags.py_type(homeState), 0)
 
 def AddHomeState(builder: octoflatbuffers.Builder, homeState: int):
     SageDataContextAddHomeState(builder, homeState)
@@ -207,10 +227,16 @@ def StartHomeStateVector(builder, numElems: int) -> int:
     return SageDataContextStartHomeStateVector(builder, numElems)
 
 def SageDataContextAddHomeStateCompression(builder: octoflatbuffers.Builder, homeStateCompression: int):
-    builder.PrependInt8Slot(8, homeStateCompression, 0)
+    builder.PrependInt8Slot(9, homeStateCompression, 0)
 
 def AddHomeStateCompression(builder: octoflatbuffers.Builder, homeStateCompression: int):
     SageDataContextAddHomeStateCompression(builder, homeStateCompression)
+
+def SageDataContextAddHomeStateOriginalDataSize(builder: octoflatbuffers.Builder, homeStateOriginalDataSize: int):
+    builder.PrependUint32Slot(10, homeStateOriginalDataSize, 0)
+
+def AddHomeStateOriginalDataSize(builder: octoflatbuffers.Builder, homeStateOriginalDataSize: int):
+    SageDataContextAddHomeStateOriginalDataSize(builder, homeStateOriginalDataSize)
 
 def SageDataContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
