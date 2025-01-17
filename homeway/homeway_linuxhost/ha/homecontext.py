@@ -91,10 +91,13 @@ class HomeContext:
 
             # Filter out what we don't want.
             filterTime = time.time()
-            states = self._FilterStateList(states)
+            (states, activeAssistEntityId) = self._FilterStateList(states)
 
             # Build the result wrapper.
+            # These are part of the server shared model, so we can't change them.
             stateContext = {
+                # Remember this can be None if there's no active device!
+                "ActiveAssistEntityId": activeAssistEntityId,
                 "EntityStates": states
             }
 
@@ -538,7 +541,7 @@ class HomeContext:
 
             # Check for a failure.
             if response is False:
-                self.Logger.warning(f"Home Context failed to get current state.")
+                self.Logger.warning("Home Context failed to get current state.")
                 return None
 
             # Get the results
@@ -552,7 +555,10 @@ class HomeContext:
 
 
     # Handles a full state response from the server.
-    def _FilterStateList(self, states:list) -> list:
+    # This returns two things!
+    #    1) list - The filtered entities
+    #    2) str - The active assist entity id (if there is one, otherwise None)
+    def _FilterStateList(self, states:list):
 
         # No need to take the lock, since this is a read only operation.
         allowedEntityIdMap = self.AllowedEntityIds
@@ -560,11 +566,23 @@ class HomeContext:
             self.Logger.warning("Home Context - AllowedEntityIds is None, skipping state filter.")
 
         result = []
+        assistActiveEntityId = None
         for s in states:
             # Get the entity ID
-            entityId = s.get("entity_id", None)
+            entityId:str = s.get("entity_id", None)
             if entityId is None:
                 continue
+
+            # Do a special check for any assist devices.
+            if entityId.startswith("assist"):
+                # If the assist has an active state, we will report it as the active entity id
+                # States are defined here AssistSatelliteState, but there are other states it can have like "unavailable"
+                # So we use an allow list.
+                state = s.get("state", None)
+                if state is not None:
+                    # The state at this point should be processing, but we will allow listening and responding as well.
+                    if state == "listening" or state == "processing" or state == "responding":
+                        assistActiveEntityId = entityId
 
             # Ensure it's an allowed entity.
             if allowedEntityIdMap is not None and entityId not in allowedEntityIdMap:
@@ -597,7 +615,7 @@ class HomeContext:
             # Add it back to the list.
             result.append(s)
 
-        return result
+        return result, assistActiveEntityId
 
 
 class HomeContextQueryResult:

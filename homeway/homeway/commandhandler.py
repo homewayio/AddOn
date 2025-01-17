@@ -250,6 +250,11 @@ class CommandHandler:
 
         # Run all of the commands in parallel.
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            # Debug helper
+            if self.Logger.isEnabledFor(logging.DEBUG):
+                for request in requestList:
+                    self.Logger.debug(f"HandleBatchApiCallCommand Request: {json.dumps(request)}")
+
             # Submit all tasks
             futureList = {pool.submit(_InvokeApi, request): request for request in requestList}
 
