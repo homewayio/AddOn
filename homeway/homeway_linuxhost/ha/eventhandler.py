@@ -86,7 +86,7 @@ class EventHandler:
 
 
     # Called by the HA connection class when HA sends any event.
-    def OnEvent(self, event:dict, haVersion:str):
+    def OnEvent(self, event:dict, haVersion:str) -> None:
 
         # Check for required fields
         if "event_type" not in event:
@@ -153,7 +153,7 @@ class EventHandler:
                     #    There is a new state and old state
                     #    There's NO friendly name change.
                     # So we ignore it.
-                    return
+                return
 
         # If we get here, this is an status change we want to send.
         # Build the dict we will send and validate that everything we need to send is there.

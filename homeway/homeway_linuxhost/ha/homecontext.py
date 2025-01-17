@@ -202,7 +202,7 @@ class HomeContext:
                         elif count == 1:
                             result.Devices = response
                         elif count == 2:
-                           result.Areas = response
+                            result.Areas = response
                         elif count == 3:
                             result.Floors = response
                         elif count == 4:
@@ -219,6 +219,7 @@ class HomeContext:
 
             # Wait for all the queries to finish.
             for i in range(total):
+                #pylint: disable=consider-using-with
                 s.acquire(True, 10.0)
 
             return result
@@ -227,7 +228,7 @@ class HomeContext:
         return None
 
 
-    # Parses the results, builds the output, and sets it.
+    # Parses the results, builds the output, and sets it.py
     def _HandleAllObjectsResult(self, result:"HomeContextQueryResult"):
         # We want to summarize the data down to a small structure that the model can easily understand, but it still has
         # all of the association context.
@@ -387,12 +388,11 @@ class HomeContext:
                 # Set it
                 labels.append(label)
 
-
         # We can prune any devices that don't have entities.
         # This can happen if there are no entities exposed to the assistant from the device.
         # If there are no entities exposed, there's no way to control it or see the state of it, so we might as well remove it.
-        for f in floors.items():
-            for a in floors[f[0]].get("areas", {}).values():
+        for f in floors.values():
+            for a in f.get("areas", {}).values():
                 idsToRemove = []
                 for d in a.get("devices", {}).items():
                     # If there are no entities, remove the device.
