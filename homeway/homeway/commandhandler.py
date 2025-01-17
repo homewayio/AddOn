@@ -253,7 +253,10 @@ class CommandHandler:
             # Debug helper
             if self.Logger.isEnabledFor(logging.DEBUG):
                 for request in requestList:
-                    self.Logger.debug(f"HandleBatchApiCallCommand Request: {json.dumps(request)}")
+                    data = request.get("Data", None)
+                    if data is not None:
+                        data = base64.b64decode(data)
+                    self.Logger.debug(f"HandleBatchApiCallCommand Request: {json.dumps(request)} - Data: {data}")
 
             # Submit all tasks
             futureList = {pool.submit(_InvokeApi, request): request for request in requestList}
