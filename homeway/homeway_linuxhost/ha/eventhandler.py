@@ -64,6 +64,9 @@ class EventHandler:
         # Must be C or F, default to C
         self.HaTempUnits = "C"
 
+        # A callback to fire if the home context needs to be updated.
+        self.HomeContextCallback = None
+
 
     def SetHomewayApiKey(self, key:str) -> None:
         # When we get the API key, if it's the first time it's being set, request a sync to make sure things are in order.
@@ -77,8 +80,13 @@ class EventHandler:
             self._QueueStateChangeSend(entityId, e)
 
 
+    # Called by the HA connection class when HA sends a new state.
+    def SetHomeContextCallback(self, callback) -> None:
+        self.HomeContextCallback = callback
+
+
     # Called by the HA connection class when HA sends any event.
-    def OnEvent(self, event:dict, haVersion:str):
+    def OnEvent(self, event:dict, haVersion:str) -> None:
 
         # Check for required fields
         if "event_type" not in event:
@@ -112,33 +120,40 @@ class EventHandler:
         #    state_changed is fired with a old_state and a new_state and the "friendly name" changes.
         # When a device state changes, like it's turned on or off...
         #   state_changed is fired with a old_state and a new_state and the "state" changes.
+        isAddRemoveOrNameChange = (
+                   newState_CanBeNone is None # This is a remove
+                or oldState_CanBeNone is None # This is an add
+                or  ("attributes" in oldState_CanBeNone # This is a name change.
+                    and "friendly_name" in oldState_CanBeNone["attributes"]
+                    and "attributes" in newState_CanBeNone
+                    and "friendly_name" in newState_CanBeNone["attributes"]
+                    and  newState_CanBeNone["attributes"]["friendly_name"] != oldState_CanBeNone["attributes"]["friendly_name"]))
 
-        # For state changes, we only care about a subset of devices. Some types are way to verbose to report.
-        # A full list of entity can be found here: https://developers.home-assistant.io/docs/core/entity/
-        if (    entityId.startswith("light.")  is False
-            and entityId.startswith("switch.") is False
-            and entityId.startswith("input_boolean.") is False
-            and entityId.startswith("scene.") is False
-            and entityId.startswith("cover.")  is False
-            and entityId.startswith("fan.")    is False
-            and entityId.startswith("lock.")   is False
-            and entityId.startswith("alarm_control_panel.")   is False
-            and entityId.startswith("climate.")is False):
-            # But, we will send every device add/remove/change to the API.
-            # We will always send if the new or old state are None, meaning an add or remove.
-            if newState_CanBeNone is not None and oldState_CanBeNone is not None:
-                # Finally, we will always send if there's a friendly name change.
-                if (    "attributes" not in oldState_CanBeNone
-                    or "friendly_name" not in oldState_CanBeNone["attributes"]
-                    or "attributes" not in newState_CanBeNone
-                    or "friendly_name" not in newState_CanBeNone["attributes"]
-                    or  newState_CanBeNone["attributes"]["friendly_name"] == oldState_CanBeNone["attributes"]["friendly_name"]):
+        # If there was a item change, we need to refresh the home context.
+        if isAddRemoveOrNameChange:
+            callback = self.HomeContextCallback
+            if callback is not None:
+                callback()
+
+        # If this is just a state change, see if we care about it.
+        if isAddRemoveOrNameChange is False:
+            # For state changes, we only care about a subset of devices. Some types are way to verbose to report.
+            # A full list of entity can be found here: https://developers.home-assistant.io/docs/core/entity/
+            if (    entityId.startswith("light.")  is False
+                and entityId.startswith("switch.") is False
+                and entityId.startswith("input_boolean.") is False
+                and entityId.startswith("scene.") is False
+                and entityId.startswith("cover.")  is False
+                and entityId.startswith("fan.")    is False
+                and entityId.startswith("lock.")   is False
+                and entityId.startswith("alarm_control_panel.")   is False
+                and entityId.startswith("climate.")is False):
                     # If we are here...
                     #    This is not a entity we always sent.
                     #    There is a new state and old state
                     #    There's NO friendly name change.
                     # So we ignore it.
-                    return
+                return
 
         # If we get here, this is an status change we want to send.
         # Build the dict we will send and validate that everything we need to send is there.

@@ -250,31 +250,12 @@ class HttpRequest:
     # The main point of this function is to abstract away the logic around relative paths, absolute URLs, and the fallback logic
     # we use for different ports. See the comments in the function for details.
     @staticmethod
-    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers, data=None):
+    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers, data=None) -> "HttpRequest.Result":
         # Get the vars we need from the stream initial context.
         path = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
         if path is None:
             raise Exception("Http request has no path field in open message.")
         pathType = httpInitialContext.PathType()
-
-        # Handle special API type targets.
-        if httpInitialContext.ApiTarget() == HaApiTarget.Core:
-            # We need to get the access token and the correct server path, depending on if we are running in the addon container or not.
-            serverInfoHandler = Compat.GetServerInfoHandler()
-            if serverInfoHandler is None:
-                raise Exception("A HA core api targeted call was made, but we had no server info handler.")
-
-            # We need to get the access token to talk directly to Home Assistant.
-            accessToken = serverInfoHandler.GetAccessToken()
-            if accessToken is None or len(accessToken) == 0:
-                logger.error("A HA core api targeted call was made, but we don't have an access token.")
-            else:
-                # Add the special auth header with the access token.
-                headers["Authorization"] = "Bearer "+accessToken
-
-                # The path is dependent on if we are running in the addon container or standalone, this function handles that.
-                path = serverInfoHandler.GetServerBaseUrl("http") + path
-                pathType = PathTypes.Absolute
 
         # Make the common call.
         return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data)
@@ -285,8 +266,32 @@ class HttpRequest:
     # The X-Forwarded-Host header will tell the local server the correct place to set the location redirect header.
     # However, for calls that aren't proxy calls, things like local snapshot requests and such, we want to allow redirects to be more robust.
     @staticmethod
-    def MakeHttpCall(logger, pathOrUrl, pathOrUrlType, method, headers, data=None, allowRedirects=False):
-        # First of all, we need to figure out what the URL is. There are two options
+    def MakeHttpCall(logger, pathOrUrl, pathOrUrlType, method, headers:dict=None, data=None, allowRedirects=False, apiTarget:HaApiTarget=None) -> "HttpRequest.Result":
+
+        # Handle special API type targets.
+        if apiTarget is not None and apiTarget == HaApiTarget.Core:
+            # We need to get the access token and the correct server path, depending on if we are running in the addon container or not.
+            serverInfoHandler = Compat.GetServerInfoHandler()
+            if serverInfoHandler is None:
+                raise Exception("A HA core api targeted call was made, but we had no server info handler.")
+
+            # We need to get the access token to talk directly to Home Assistant.
+            accessToken = serverInfoHandler.GetAccessToken()
+            if accessToken is None or len(accessToken) == 0:
+                # Report an error and fall though, the call will be made but with no auth token appended.
+                logger.error("A HA core api targeted call was made, but we don't have an access token.")
+                apiTarget = None
+            else:
+                # Add the special auth header with the access token.
+                if headers is None:
+                    headers = {}
+                headers["Authorization"] = f"Bearer {accessToken}"
+
+                # Rewrite the path, which is dependent on if we are running in the addon container or standalone.
+                pathOrUrl = serverInfoHandler.GetServerBaseUrl("http") + pathOrUrl
+                pathOrUrlType = PathTypes.Absolute
+
+        # Next we need to figure out what the URL is. There are two options
         #
         # 1) Absolute URLs
         # These are the easiest, because we just want to make a request to exactly what the absolute URL is. These are used
@@ -444,7 +449,7 @@ class HttpRequest:
     class AttemptResult():
         def __init__(self, isChainDone, result):
             self.isChainDone = isChainDone
-            self.result = result
+            self.result:HttpRequest.Result = result
 
         @property
         def IsChainDone(self):

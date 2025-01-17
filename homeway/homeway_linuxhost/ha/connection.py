@@ -10,13 +10,6 @@ from .eventhandler import EventHandler
 from .serverinfo import ServerInfo
 
 
-# Holds the raw HA responses for the get_state and area list query.
-class EntityStateAndAreasResponse:
-    def __init__(self):
-        self.States:dict = None
-        self.Areas:dict = None
-
-
 # Connects to Home Assistant and manages the connection.
 class Connection:
 
@@ -47,6 +40,9 @@ class Connection:
         self.PendingContextsLock = threading.Lock()
         self.PendingContexts = {}
 
+        # If set, we call this back when the WS is connected and authed.
+        self.HomeContextOnConnectedCallback = None
+
 
     def Start(self) -> None:
         t = threading.Thread(target=self.ConnectionThread)
@@ -65,39 +61,9 @@ class Connection:
             self.IssueRestartOnConnect = True
 
 
-    # Gets the current state of all entities and the area list.
-    # This will always return a result object, but the values may be None if the query failed.
-    def GetEntityStateAndAreas(self) -> EntityStateAndAreasResponse:
-        response = EntityStateAndAreasResponse()
-        s = threading.Semaphore(0)
-        def getStates():
-            try:
-                result = self.SendMsg({"type":"get_states"}, waitForResponse=True)
-                # Convert the False failure to a None
-                if result is not False:
-                    response.States = result
-            except Exception as e:
-                Sentry.Exception("GetEntityStateAndAreas get_states exception.", e)
-            finally:
-                s.release()
-        def getAreas():
-            try:
-                result = self.SendMsg({"type":"config/area_registry/list"}, waitForResponse=True)
-                # Convert the False failure to a None
-                if result is not False:
-                    response.Areas = result
-            except Exception as e:
-                Sentry.Exception("GetEntityStateAndAreas area list exception.", e)
-            finally:
-                s.release()
-        # Perform the queries in parallel for speed.
-        threading.Thread(target=getStates).start()
-        threading.Thread(target=getAreas).start()
-        # Use a timeout to prevent a dead thread.
-        #pylint: disable=consider-using-with
-        s.acquire(True, 10.0)
-        s.acquire(True, 10.0)
-        return response
+    # Sets the callback to be fired when the WS is connected.
+    def SetHomeContextOnConnectedCallback(self, callback) -> None:
+        self.HomeContextOnConnectedCallback = callback
 
 
     # Called when the websocket is up and authed.
@@ -115,6 +81,11 @@ class Connection:
         # explore in the future.
         if self.SendMsg({"type":"subscribe_events"}) is False:
             self.Logger.error(f"{self._getLogTag()} failed to send event subscribe call.")
+
+        # If we have a callback, call it.
+        callback = self.HomeContextOnConnectedCallback
+        if callback is not None:
+            callback()
 
 
     # Runs the main connection we maintain with Home Assistant.
