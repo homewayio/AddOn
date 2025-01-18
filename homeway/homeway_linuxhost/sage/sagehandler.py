@@ -129,7 +129,7 @@ class SageHandler(AsyncEventHandler):
             responseText = self._EnforceMaxStringLength(responseText)
 
             # Add the assistant text to the history.
-            self.Logger.debug(f"Sage - Transcript End - {newMsg} -> {responseText} - time: {time.time() - start}")
+            self.Logger.debug(f"Sage - Transcript End - Time: {time.time() - start} - {newMsg} -> {responseText} -")
             self.SageHistory.AddAssistantText(responseText)
 
             # Send the response back to the client.

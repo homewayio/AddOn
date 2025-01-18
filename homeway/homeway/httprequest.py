@@ -258,7 +258,7 @@ class HttpRequest:
         pathType = httpInitialContext.PathType()
 
         # Make the common call.
-        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data)
+        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data, apiTarget=httpInitialContext.ApiTarget())
 
 
     # allowRedirects should be false for all proxy calls. If it's true, then the content returned might be from a redirected URL and the actual URL will be incorrect.
@@ -266,7 +266,7 @@ class HttpRequest:
     # The X-Forwarded-Host header will tell the local server the correct place to set the location redirect header.
     # However, for calls that aren't proxy calls, things like local snapshot requests and such, we want to allow redirects to be more robust.
     @staticmethod
-    def MakeHttpCall(logger, pathOrUrl, pathOrUrlType, method, headers:dict=None, data=None, allowRedirects=False, apiTarget:HaApiTarget=None) -> "HttpRequest.Result":
+    def MakeHttpCall(logger:logging.Logger, pathOrUrl:str, pathOrUrlType:PathTypes, method:str, headers:dict=None, data=None, allowRedirects=False, apiTarget:HaApiTarget=None) -> "HttpRequest.Result":
 
         # Handle special API type targets.
         if apiTarget is not None and apiTarget == HaApiTarget.Core:
