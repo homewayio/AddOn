@@ -66,8 +66,11 @@ class FiberManager:
 
     # First, call this with isTransmissionDone set to false to upload stream data. When called like this, this does not block.
     # When the audio is fully streamed, call with isTransmissionDone and the reaming buffer (if any) to get the response. This will block.
-    # No matter how it's called, it returns None on failure. If this fails at anytime during a stream, it should not be called again until ResetListen is called.
-    async def Listen(self, isTransmissionDone:bool, audio:bytes, audioFormat:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int, languageCode_CanBeNone:str) -> str:
+    # This will always return a ListenResult object
+    #    If Error is ever set, the operation failed and the stream should be stopped.
+    #    If Result is set, the final result has been delivered.
+    #    Otherwise, the stream is in a good state and more data can be sent.
+    async def Listen(self, isTransmissionDone:bool, audio:bytes, audioFormat:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int, languageCode_CanBeNone:str) -> "ListenResult":
 
         # This is only called on the first message sent, this sends the audio settings.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
@@ -108,28 +111,27 @@ class FiberManager:
         # Check this before the function result, so we get the status code.
         if response.StatusCode is not None and response.StatusCode != 200:
             # In some special cases, we want to map the status code to a user message.
-            userError = self._MapErrorStatusCodeToUserStr(response.StatusCode)
-            if userError is not None:
-                return userError
-            self.Logger.error(f"Sage Listen failed with status code {response.StatusCode}")
-            return None
+            errorStr = self._MapErrorStatusCodeToUserStr(response.StatusCode)
+            if errorStr is None:
+                errorStr = "Sage Listen failed with status code " + str(response.StatusCode)
+            return ListenResult.Failure(errorStr)
 
         # If we failed, we always return None, for both upload streaming or the final response.
         if result is False:
-            return None
+            return ListenResult.Failure("Sage listen stream failed.")
 
         # If we're still uploading, we return an empty string on success or None on failure.
         if isTransmissionDone is False:
             # If we are still uploading, we return an empty string on to indicate success.
             # to keep the same return types as the final response call.
-            return ""
+            return ListenResult.Success()
 
         # If we are here, this was the blocking request to get the result, so this should always be set.
         # Remember that an empty buffer isn't a failure, it means there were no words in the text!
         if response.Text is None:
             self.Logger.error("Sage Listen didn't fail the status code but has no text?")
-            return None
-        return response.Text
+            return ListenResult.Failure("Sage listen had a successful status code but had no text.")
+        return ListenResult.Success(response.Text)
 
 
     # Called with a text string to synthesize audio.
@@ -644,3 +646,18 @@ class StreamContext:
         # The response data.
         # This will be appended to as more data is received.
         self.Data:List[bytearray] = []
+
+
+# Returned from the listen function, see the function def for more details.
+class ListenResult:
+    @staticmethod
+    def Success(resultText:str=None) -> "ListenResult":
+        return ListenResult(resultText=resultText)
+
+    @staticmethod
+    def Failure(errorStr:str) -> "ListenResult":
+        return ListenResult(errorStr=errorStr)
+
+    def __init__(self, resultText:str = None, errorStr:str = None):
+        self.Result = resultText
+        self.Error = errorStr

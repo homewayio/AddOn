@@ -108,14 +108,16 @@ class SageTranscribeHandler:
             result = await self.FiberManager.Listen(False, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
             deltaSec = time.time() - start
 
-            # In some special error cases, this will return a string error message that's intended to be sent to the user.
-            if isinstance(result, str):
-                await self._WriteEvent(Transcript(text=result).event())
+            # This should never happen.
+            if result is None:
+                await self._WriteError("Homeway Sage Audio Stream Failed - No Result")
                 return True
 
-            # If None is returned, the stream failed.
-            if result is None:
-                await self._WriteError("Homeway Sage Audio Stream Failed")
+            # If the error text is set, we failed to send the audio.
+            # We try to send the error string, since it might help the user.
+            if result.Error is not None:
+                await self._WriteEvent(Transcript(text=result).event())
+                await self._WriteError("Homeway Sage Audio Stream Failed - " + result.Error)
                 return True
 
             # Ensure the operation didn't take too long.
@@ -140,15 +142,27 @@ class SageTranscribeHandler:
             # This will now block and wait for a response.
             # Note that this incoming audio buffer can be empty if we don't have any buffered audio, which is fine.
             start = time.time()
-            text = await self.FiberManager.Listen(True, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
+            result = await self.FiberManager.Listen(True, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
 
-            # Check for a failure.
-            # Remember that an empty buffer isn't a failure, it means there were no words in the text!
-            if text is None:
-                await self._WriteError("Homeway Sage Listen - Audio Transcribe Failed")
+            # This should never happen.
+            if result is None:
+                await self._WriteError("Homeway Sage Listen - No Result Returned.")
+                return True
+
+            # If the error text is set, we failed to send the audio.
+            # We try to send the error string, since it might help the user.
+            if result.Error is not None:
+                await self._WriteEvent(Transcript(text=result).event())
+                await self._WriteError("Homeway Sage Audio Stream Failed - " + result.Error)
+                return True
+
+            # This shouldn't happen.
+            if result.Result is None:
+                await self._WriteError("Homeway Sage Listen - No Result Returned.")
                 return True
 
             # Send the text back to the client.
+            text = result.Result
             self.Logger.debug(f"Sage Listen End - `{text}` - latency: {time.time() - start}s")
             await self._WriteEvent(Transcript(text=text).event())
             return True
