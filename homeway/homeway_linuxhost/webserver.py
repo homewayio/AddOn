@@ -178,7 +178,7 @@ class WebServer:
             </div>
             <div style="display: flex; justify-content: center;" id="linkAccountButton">
                 <div class="pinkButton">
-                    Link To Your Account
+                    Link Your Account Now
                 </div>
             </div>
         </div>

@@ -108,6 +108,11 @@ class SageTranscribeHandler:
             result = await self.FiberManager.Listen(False, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
             deltaSec = time.time() - start
 
+            # In some special error cases, this will return a string error message that's intended to be sent to the user.
+            if isinstance(result, str):
+                await self._WriteEvent(Transcript(text=result).event())
+                return True
+
             # If None is returned, the stream failed.
             if result is None:
                 await self._WriteError("Homeway Sage Audio Stream Failed")

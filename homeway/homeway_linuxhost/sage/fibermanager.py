@@ -76,8 +76,8 @@ class FiberManager:
         # onDataStreamReceived can be called at anytime, streaming or waiting for the response.
         # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
         class ResponseContext:
-            Text = None
-            StatusCode = None
+            Text:str = None
+            StatusCode:int = None
         response:ResponseContext = ResponseContext()
         async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
             # For listen, this should only be called once
@@ -107,6 +107,10 @@ class FiberManager:
         # If the status code is set at any time and not 200, we failed, regardless of the mode.
         # Check this before the function result, so we get the status code.
         if response.StatusCode is not None and response.StatusCode != 200:
+            # In some special cases, we want to map the status code to a user message.
+            userError = self._MapErrorStatusCodeToUserStr(response.StatusCode)
+            if userError is not None:
+                return userError
             self.Logger.error(f"Sage Listen failed with status code {response.StatusCode}")
             return None
 
@@ -217,6 +221,10 @@ class FiberManager:
         # If the status code is set at any time and not 200, we failed.
         # Check this before the function result, so we get the status code.
         if response.StatusCode is not None and response.StatusCode != 200:
+            # In some special cases, we want to map the status code to a user message.
+            userError = self._MapErrorStatusCodeToUserStr(response.StatusCode)
+            if userError is not None:
+                return userError
             self.Logger.error(f"Sage Chat failed with status code {response.StatusCode}")
             return None
 
@@ -584,6 +592,18 @@ class FiberManager:
                 return (struct.unpack('1B', buffer[0 + bufferOffset])[0] << 24) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 8) + struct.unpack('1B', buffer[3 + bufferOffset])[0]
             else:
                 return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
+
+
+    # Some status codes we want to map and then send a message to the user.
+    # Returns None if there's no error to map.
+    def _MapErrorStatusCodeToUserStr(self, statusCode:int) -> str:
+        linkErrorMessage = "You must link your Homeway addon with your Homeway account before using Sage! https://homeway.io/s/link"
+        if statusCode is None:
+            return None
+        if statusCode == 401:
+            self.Logger.warning(linkErrorMessage)
+            return linkErrorMessage
+        return None
 
 
 # Holds the context of the result for the speak function.
