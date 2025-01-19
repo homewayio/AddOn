@@ -189,22 +189,27 @@ class WebServer:
             <div style="margin-bottom:30px">
                 Your secure and private access is ready. You can access your Home Assistant from anywhere via the Homeway dashboard.
             </div>
-            <div style="display: flex; justify-content: center;" id="goToAssistantSetup">
+            <div style="display: flex; justify-content: center;" id="goToSageSetup">
+                <div class="pinkButton" style="width:300px">
+                    Setup Sage - Your Free ChatGPT Assist
+                </div>
+            </div>
+            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAssistantSetup">
                 <div class="pinkButton" style="width:300px">
                     Setup Alexa Or Google Assistant
                 </div>
             </div>
-            <div style="display: flex; justify-content: center;" id="goToAppSetup">
+            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAppSetup">
                 <div class="pinkButton" style="width:300px">
                     Setup Your Home Assistant App
                 </div>
             </div>
-            <div style="display: flex; justify-content: center;" id="goToLocalAccessSetup">
+            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToLocalAccessSetup">
                 <div class="pinkButton" style="width:300px">
                     Node-RED, Unraid, AdGuard &amp; More<br/>Remote Access
                 </div>
             </div>
-            <div style="display: flex; justify-content: center; margin-top:20px" id="goToDashboardButton">
+            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToDashboardButton">
                 <div class="blueButton" style="width:300px">
                     Go To Your Homeway Dashboard
                 </div>
@@ -218,6 +223,7 @@ class WebServer:
         document.getElementById("linkAccountButton").onclick = (event) => { window.open('"""+pluginLinkUrl+"""', '_blank').focus(); };
         document.getElementById("goToDashboardButton").onclick = (event) => { window.open("https://homeway.io/dashboard?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAssistantSetup").onclick = (event) => { window.open("https://homeway.io/assistant?source=addon_control", '_blank').focus(); };
+        document.getElementById("goToSageSetup").onclick = (event) => { window.open("https://homeway.io/sage?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAppSetup").onclick = (event) => { window.open("https://homeway.io/app?source=addon_control", '_blank').focus(); };
         document.getElementById("goToLocalAccessSetup").onclick = (event) => { window.open("https://homeway.io/localaccess?source=addon_control", '_blank').focus(); };
         if("""+connectingTimerBool+""")
