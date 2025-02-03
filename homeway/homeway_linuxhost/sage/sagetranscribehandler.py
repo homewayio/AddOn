@@ -116,7 +116,7 @@ class SageTranscribeHandler:
             # If the error text is set, we failed to send the audio.
             # We try to send the error string, since it might help the user.
             if result.Error is not None:
-                await self._WriteEvent(Transcript(text=result).event())
+                await self._WriteEvent(Transcript(text=result.Error).event())
                 await self._WriteError("Homeway Sage Audio Stream Failed - " + result.Error)
                 return True
 
@@ -152,7 +152,7 @@ class SageTranscribeHandler:
             # If the error text is set, we failed to send the audio.
             # We try to send the error string, since it might help the user.
             if result.Error is not None:
-                await self._WriteEvent(Transcript(text=result).event())
+                await self._WriteEvent(Transcript(text=result.Error).event())
                 await self._WriteError("Homeway Sage Audio Stream Failed - " + result.Error)
                 return True
 

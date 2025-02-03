@@ -331,12 +331,20 @@ class HomeContext:
         entityResults = self._GetResultsFromHaMsg("entity", result.Entities)
         if entityResults is not None:
             for e in entityResults:
-                # Check if the entity is disabled, if so, don't expose it.
-                if self._IsDisabled(e):
-                    continue
-                # Check if it should be exposed to the assistant.
-                if self._IsExposeToAssistant(e) is False:
-                    continue
+                # Important - We always allow assist devices, so the engine has context
+                # on the devices that are active and where it can announce.
+                # So we don't check if they are disabled or exposed.
+                entityId:str = e.get("entity_id", None)
+                if self._IsAssistEntityId(entityId):
+                    self.Logger.debug("Allowing %s because it's an assist.", entityId)
+                else:
+                    # Check if the entity is disabled, if so, don't expose it.
+                    if self._IsDisabled(e):
+                        continue
+                    # Check if it should be exposed to the assistant.
+                    if self._IsExposeToAssistant(e) is False:
+                        continue
+
                 # Create our object and get the important ids
                 entity = { }
                 # We don't copy this id back into the dest object, because it's a random string that
@@ -419,7 +427,7 @@ class HomeContext:
                     a["entities"] = list(a.get("entities", {}).values())
 
         # Finally, package them into the final object.
-        # This is the format that the server expects, so we can't change it
+        # This is the format that the server expects, so we can't change it.
         homeContext = {
             "floors" : floors,
             "labels" : labels,
@@ -529,6 +537,12 @@ class HomeContext:
         return result
 
 
+    # Returns if the given entity ID is an assist
+    def _IsAssistEntityId(self, entityId:str) -> bool:
+        # The full id is 'assist_satellite', but this is good enough.
+        return entityId is not None and entityId.startswith("assist")
+
+
     #
     # State Logic
     #
@@ -574,7 +588,7 @@ class HomeContext:
                 continue
 
             # Do a special check for any assist devices.
-            if entityId.startswith("assist"):
+            if self._IsAssistEntityId(entityId):
                 # If the assist has an active state, we will report it as the active entity id
                 # States are defined here AssistSatelliteState, but there are other states it can have like "unavailable"
                 # So we use an allow list.
