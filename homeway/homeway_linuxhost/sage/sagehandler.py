@@ -240,7 +240,7 @@ class SageHandler(AsyncEventHandler):
                 # Attempt getting a valid response.
                 try:
                     self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
-                    response = requests.get(url, timeout=5)
+                    response = requests.get(url, timeout=10)
                     if response.status_code == 200:
                         info = self._BuildInfoEvent(response.json())
                         if info is None:
