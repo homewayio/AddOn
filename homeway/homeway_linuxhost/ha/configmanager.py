@@ -226,6 +226,7 @@ class ConfigManager:
                 # Home Assistant has an API we can use to try to get the config file path.
                 try:
                     # Ensure we have an API key.
+                    # Note this will also fail if the plugin lost auth to HA.
                     configApiJson = ServerInfo.GetConfigApi(self.Logger)
                     if configApiJson is None:
                         self.Logger.warn("We tried to get the HA config file path from the HA API, but the config api failed.")

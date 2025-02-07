@@ -183,7 +183,7 @@ class WebStreamWsHelper:
 
         # Make the websocket object and start it running.
         self.Logger.debug(self.getLogMsgPrefix()+"opening websocket to "+str(uri) + " attempt "+ str(self.ConnectionAttempt))
-        ws = Client(uri, self.onWsOpened, None, self.onWsData, self.onWsClosed, self.onWsError, headers=self.Headers, subProtocolList=self.SubProtocolList)
+        ws = Client(uri, onWsOpen=self.onWsOpened, onWsData=self.onWsData, onWsClose=self.onWsClosed, onWsError=self.onWsError, headers=self.Headers, subProtocolList=self.SubProtocolList)
         # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
         # This is safe to do, since the connection will be localhost or on the local LAN
         ws.SetDisableCertCheck(True)

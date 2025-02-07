@@ -10,7 +10,7 @@ from .sentry import Sentry
 # This class gives a bit of an abstraction over the normal ws
 class Client:
 
-    def __init__(self, url, onWsOpen = None, onWsMsg = None, onWsData = None, onWsClose = None, onWsError = None, headers:dict = None, subProtocolList:list = None):
+    def __init__(self, url, onWsOpen=None, onWsMsg=None, onWsData=None, onWsClose=None, onWsError=None, headers:dict=None, subProtocolList:list=None):
 
         # Set the default timeout for the socket. There's no other way to do this than this global var, and it will be shared by all websockets.
         # This is used when the system is writing or receiving, but not when it's waiting to receive, as that's a select()
@@ -48,10 +48,6 @@ class Client:
             if onWsOpen:
                 onWsOpen(self)
 
-        def OnMsg(ws, msg):
-            if onWsMsg:
-                onWsMsg(self, msg)
-
         # Note that the API says this only takes one arg, but after looking into the code
         # _get_close_args will try to send 3 args sometimes. There have been client errors showing that
         # sometimes it tried to send 3 when we only accepted 1.
@@ -59,7 +55,23 @@ class Client:
             if onWsClose:
                 onWsClose(self)
 
-        def OnData(ws, buffer, msgType, continueFlag):
+        # Fired when a complete message is received. The buffer here will always be the full ws message buffer.
+        # Note if on_cont_message is set, which we don't set, this will only contain the ending of chunk of data, not the full message.
+        def OnMsg(ws, msg):
+            if onWsMsg:
+                onWsMsg(self, msg)
+
+        # This has a really odd behavior.
+        # When partial frames are received, this will be fired with the frameFin to 0 and include the partial frame data.
+        #     BUT - This only fired if the on_cont_message handler is set. We don't set it, so this should never happen.
+        # When the final frame data is received, this will be fired with the frameFin to 1...
+        #     If on_cont_message is set, the callback will only contain the remaining data.
+        #     If on_cont_message is not set, the callback will contain the full message.
+        def OnData(ws, buffer, msgType, frameFin:int):
+            # We don't set on_cont_message, so frameFin should never be 0.
+            if frameFin != 1:
+                print("octowebsocket - We got a partial frame, but we don't have a handler for it")
+                raise Exception("octowebsocket - We got a partial frame, but we don't have a handler for it.")
             if onWsData:
                 onWsData(self, buffer, msgType)
 
@@ -69,11 +81,11 @@ class Client:
 
         # Create the websocket. Once created, this is never destroyed while this class exists.
         self.Ws = WebSocketApp(url,
-                                  on_open = OnOpen,
-                                  on_message = OnMsg,
-                                  on_close = OnClosed,
+                                  on_open = OnOpen if onWsOpen is not None else None,
+                                  on_message = OnMsg if onWsMsg is not None else None,
+                                  on_close = OnClosed if onWsClose is not None else None,
+                                  on_data = OnData if onWsData is not None else None,
                                   on_error = OnError,
-                                  on_data = OnData,
                                   header = headers,
                                   subprotocols = subProtocolList
         )

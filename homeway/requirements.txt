@@ -22,16 +22,17 @@
 #   zeroconf - Used internally in the wyoming lib for service discovery.
 #
 octowebsocket_client==1.8.3
-requests>=2.24.0
 octoflatbuffers==24.3.27
-certifi>=2023.7.22
+# Keep these as current as possible.
+requests>=2.32.3
+urllib3>=2.2.0
+certifi>=2025.1.31
 rsa>=4.9
-dnspython>=2.3.0
-httpx==0.24.0
-urllib3>=1.26.15,<1.27.0
+dnspython>=2.6.0
+httpx>=0.28.1
 pyyaml
-sentry-sdk>=1.19.1,<2
 configparser
 wyoming==1.6.0
-zeroconf
-#zstandard <version>
+zeroconf>=0.136.2
+#sentry-sdk>=1.19.1,<2 - Not used right now.
+#zstandard <version> - Installed dynamically if the platform supports it.

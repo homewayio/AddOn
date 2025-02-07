@@ -324,7 +324,7 @@ class ServerCon:
                 endpoint = self.GetEndpoint()
 
                 # Connect to the service.
-                self.Ws = Client(endpoint, self.OnOpened, self.OnMsg, None, self.OnClosed, self.OnError)
+                self.Ws = Client(endpoint, onWsOpen=self.OnOpened, onWsMsg=self.OnMsg, onWsClose=self.OnClosed, onWsError=self.OnError)
                 with self.Ws:
                     self.Logger.info("Attempting to talk to Homeway, server con "+self.GetConnectionString() + " wsId:"+self.GetWsId(self.Ws))
                     self.Ws.RunUntilClosed()
