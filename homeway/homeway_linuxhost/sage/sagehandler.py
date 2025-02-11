@@ -29,8 +29,10 @@ class SageHandler(AsyncEventHandler):
     # This is more of a sanity check, the server will enforce it's own limits.
     c_MaxStringLength = 500
 
-    # A quick static cache of the info event, since it's gets called in rapid succession sometimes.
-    c_InfoEventMaxCacheTimeSec = 15.0
+    # Cache the describe info because it doesn't change often and it's sometimes requested many times rapidly.
+    # Sometimes the describe event is called before an action for some reason and is blocking, so the cache helps there as well.
+    # Since this hardly ever changes, there's no reason to update it often. It will update when the addon restarts.
+    c_InfoEventMaxCacheTimeSec = 60 * 60 * 24 * 3
     s_InfoEvent:Info = None
     s_InfoEventTime:float = 0.0
     s_InfoEventLock = threading.Lock()
@@ -238,18 +240,29 @@ class SageHandler(AsyncEventHandler):
                 attempt += 1
 
                 # Attempt getting a valid response.
+                serviceInfo:Info = None
                 try:
                     self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
+                    # Attempt to get and parse the info object.
                     response = requests.get(url, timeout=10)
                     if response.status_code == 200:
-                        info = self._BuildInfoEvent(response.json())
-                        if info is None:
+                        serviceInfo = self._BuildInfoEvent(response.json())
+                        if serviceInfo is None:
                             raise Exception("Failed to build info event.")
-                        await self._CacheAndWriteInfoEvent(info)
-                        return True
-                    self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status_code}")
+                    else:
+                        self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status_code}")
                 except Exception as e:
                     self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {e}")
+
+                # If we got service info, try to write it to the client.
+                if serviceInfo is not None:
+                    self.Logger.debug("Sage - Service request successful, sending to Wyoming protocol.")
+                    try:
+                        await self._CacheAndWriteInfoEvent(serviceInfo)
+                        # Success
+                        return True
+                    except Exception as e:
+                        self.Logger.warning(f"Sage - Failed to send info to wyoming protocol. Attempt: {attempt} - {e}")
 
                 # If we fail, try a few times. Throw when we hit the limit.
                 if attempt > 3:

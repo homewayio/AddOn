@@ -3,7 +3,7 @@ import json
 import struct
 import logging
 import threading
-from typing import List, Dict
+from typing import List, Dict, Optional
 import octoflatbuffers
 
 from homeway.sentry import Sentry
@@ -81,11 +81,15 @@ class FiberManager:
         class ResponseContext:
             Text:str = None
             StatusCode:int = None
+            ErrorMessage:str = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
             # For listen, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Listen onDataStreamReceived called more than once.")
+
+            # Set the error string, to either a string or None
+            response.ErrorMessage = errorMessage
 
             # Check for a failure, which can happen at anytime.
             # If we have anything but a 200, stop processing now.
@@ -107,8 +111,12 @@ class FiberManager:
         # Do the operation, stream or wait for the response.
         result = await self._SendAndReceive(SageOperationTypes.Listen, audio, createDataContextOffset, onDataStreamReceived, isTransmissionDone)
 
-        # If the status code is set at any time and not 200, we failed, regardless of the mode.
-        # Check this before the function result, so we get the status code.
+        # If the error string or status code is set at any time, we failed, regardless of the mode.
+        # Check these before anything else, to ensure they get handled.
+        if response.ErrorMessage is not None:
+            # Return the raw string, since it's intended to send to the user.
+            return ListenResult.Failure(response.ErrorMessage)
+
         if response.StatusCode is not None and response.StatusCode != 200:
             # In some special cases, we want to map the status code to a user message.
             errorStr = self._MapErrorStatusCodeToUserStr(response.StatusCode)
@@ -148,8 +156,11 @@ class FiberManager:
         # to stream back.
         class ResponseContext:
             StatusCode:int = None
+            ErrorMessage:str = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+            # Set the error string, to either a string or None
+            response.ErrorMessage = errorMessage
 
             # Check for a failure, which can happen at anytime.
             # If we have anything but a 200, stop processing now.
@@ -167,8 +178,10 @@ class FiberManager:
         requestBytes = json.dumps(request).encode("utf-8")
         result = await self._SendAndReceive(SageOperationTypes.Speak, requestBytes, createDataContextOffset, onDataStreamReceived)
 
-        # If the status code is set at any time and not 200, we failed, regardless of the mode.
-        # Check this before the function result, so we get the status code.
+        # Check if either of the error systems are set.
+        if response.ErrorMessage is not None:
+            self.Logger.error(f"Sage Speak failed with error msg: {response.ErrorMessage}")
+            return False
         if response.StatusCode is not None and response.StatusCode != 200:
             self.Logger.error(f"Sage Speak failed with status code {response.StatusCode}")
             return False
@@ -182,7 +195,7 @@ class FiberManager:
 
     # Takes a chat json object and returns the assistant's response text.
     # Returns None on failure.
-    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult) -> bytearray:
+    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult) -> str:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
@@ -191,12 +204,16 @@ class FiberManager:
         # We expect the onDataStreamReceived handler to be called once, with the full response.
         class ResponseContext:
             Bytes = None
-            StatusCode = None
+            StatusCode:int = None
+            ErrorMessage:str = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
             # For Chat, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Chat onDataStreamReceived called more than once.")
+
+            # Set the error string, to either a string or None
+            response.ErrorMessage = errorMessage
 
             # Check for a failure, which can happen at anytime.
             # If we have anything but a 200, stop processing now.
@@ -220,13 +237,18 @@ class FiberManager:
         # Do the operation, wait for the result.
         result = await self._SendAndReceive(SageOperationTypes.Chat, data, createDataContextOffset, onDataStreamReceived, True)
 
-        # If the status code is set at any time and not 200, we failed.
-        # Check this before the function result, so we get the status code.
+        # If the error string or status code is set at any time, we failed, regardless of the mode.
+        # Check these before anything else, to ensure they get handled.
+        # Note, the server might also return a valid response but override the response text with the error.
+        if response.ErrorMessage is not None:
+            # Return the raw string, since it's intended to send to the user.
+            return response.ErrorMessage
+
         if response.StatusCode is not None and response.StatusCode != 200:
             # In some special cases, we want to map the status code to a user message.
-            userError = self._MapErrorStatusCodeToUserStr(response.StatusCode)
-            if userError is not None:
-                return userError
+            errorStr = self._MapErrorStatusCodeToUserStr(response.StatusCode)
+            if errorStr is not None:
+                return errorStr
             self.Logger.error(f"Sage Chat failed with status code {response.StatusCode}")
             return None
 
@@ -316,7 +338,8 @@ class FiberManager:
                 # If we are doing the upload stream, check that the stream wasn't aborted from the server side before returning.
                 if context.StatusCode is not None or context.IsAborted:
                     # If the stream was aborted, fire the callback and return False
-                    await onDataStreamReceivedCallbackAsync(context.StatusCode, bytearray(), None, True)
+                    # ErrorMessage is either None or a string to send to the user.
+                    await onDataStreamReceivedCallbackAsync(context.StatusCode, context.ErrorMessage, bytearray(), None, True)
                     return False
 
                 # Otherwise, keep the context around and return success.
@@ -333,6 +356,7 @@ class FiberManager:
                 data:List[bytearray] = None
                 dataContext:SageDataContext = None
                 statusCode:int = None
+                errorMessage:str = None
                 isDataDownloadComplete:bool = True
                 with self.StreamContextLock:
                     # Grab all of the data we currently have and process it.
@@ -341,21 +365,22 @@ class FiberManager:
                     isDataDownloadComplete = context.IsDataDownloadComplete
                     dataContext = context.DataContext
                     statusCode = context.StatusCode
+                    errorMessage = context.ErrorMessage
 
                     # Clear the event under lock to ensure we don't miss a set.
                     context.Event.clear()
 
                 # Check for a stream abort, before we check if there's no data.
                 if context.IsAborted:
-                    self.Logger.error(f"Sage message stream was aborted: {context.StatusCode}")
-                    await onDataStreamReceivedCallbackAsync(context.StatusCode, bytearray(), None, True)
+                    self.Logger.error(f"Sage message stream was aborted: {statusCode}")
+                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, bytearray(), None, True)
                     return False
 
                 # Regardless of the other vars, if we didn't get any data, the response wait timed out.
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
                     context.StatusCode = 608
-                    await onDataStreamReceivedCallbackAsync(context.StatusCode, bytearray(), None, True)
+                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, bytearray(), None, True)
                     return False
 
                 # Process the data
@@ -368,7 +393,7 @@ class FiberManager:
                 for d in data:
                     count += 1
                     isLastChunk = isDataDownloadComplete and count == len(data)
-                    if await onDataStreamReceivedCallbackAsync(statusCode, d, dataContext, isLastChunk) is False:
+                    if await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, d, dataContext, isLastChunk) is False:
                         return False
 
                 # If we processed all the data and the stream is done, we're done.
@@ -530,6 +555,10 @@ class FiberManager:
                 self.Logger.debug(f"Sage got a message for stream [{streamId}] but couldn't find the context.")
                 return
 
+            # If there's an error string, always set or update it.
+            if msg.ErrorMessage() is not None:
+                context.ErrorMessage = msg.ErrorMessage().decode("utf-8")
+
             # The abort message doesn't require the other checks.
             if msg.IsAbortMsg():
                 # The abort message should always have a non-success status code.
@@ -575,7 +604,7 @@ class FiberManager:
                         raise Exception("Sage Fiber message has is missing the data context.")
                     context.DataContext = dataContext
 
-                # Append the data.
+                 # Append the data.
                 context.Data.append(data)
 
             # Set the event so the caller can consume the data.
@@ -636,8 +665,13 @@ class StreamContext:
         # Note this will be set multiple times if the response is being streamed.
         self.Event = threading.Event()
 
-        # Set when the first response is received.
+        # Usually set to 200 for success otherwise it can be an error.
         self.StatusCode:int = None
+
+        # Optional - If set, this is an error message that should be shown to the user.
+        self.ErrorMessage:str = None
+
+        # Set when the first response is received.
         self.DataContext:SageDataContext = None
 
         # When set, the data has been fully downloaded.

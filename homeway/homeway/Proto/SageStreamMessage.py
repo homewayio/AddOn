@@ -110,8 +110,15 @@ class SageStreamMessage(object):
             return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
+    # SageStreamMessage
+    def ErrorMessage(self) -> Optional[str]:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def SageStreamMessageStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(8)
+    builder.StartObject(9)
 
 def Start(builder: octoflatbuffers.Builder):
     SageStreamMessageStart(builder)
@@ -169,6 +176,12 @@ def SageStreamMessageAddStatusCode(builder: octoflatbuffers.Builder, statusCode:
 
 def AddStatusCode(builder: octoflatbuffers.Builder, statusCode: int):
     SageStreamMessageAddStatusCode(builder, statusCode)
+
+def SageStreamMessageAddErrorMessage(builder: octoflatbuffers.Builder, errorMessage: int):
+    builder.PrependUOffsetTRelativeSlot(8, octoflatbuffers.number_types.UOffsetTFlags.py_type(errorMessage), 0)
+
+def AddErrorMessage(builder: octoflatbuffers.Builder, errorMessage: int):
+    SageStreamMessageAddErrorMessage(builder, errorMessage)
 
 def SageStreamMessageEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
