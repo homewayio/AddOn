@@ -1,15 +1,16 @@
 <p align="center"><img src="https://homeway.io/img/logo.svg" alt="Homeway's Logo" style="width:100px" /></p>
 <h1 align="center" style="margin-bottom:20px"><a style="text-decoration:none" href="https://homeway.io/?source=github_readme">Homeway</a></h1>
 
-**Secure. Private. Free.**
+**🎉 [Introducing Sage AI](https://homeway.io/sage-ai?source=github_readme_sage_intro) 🎉** - **Free AI Assist for Home Assistant and Home Assistant Voice Devices.** Powered by OpenAI’s ChatGPT, Anthropic’s Claud, or Google’s Gemini – [Sage](https://homeway.io/sage-ai?source=github_readme_sage_intro) enables lifelike voice and communication with Home Assistant Assist to execute home actions, look up information, check the weather, and more. Sage offers personality customization and over 56 voices.
 
-Free remote access to your Home Assistant from anywhere! Including [Amazon Alexa](https://homeway.io/alexa?source=github_readme), [Google Assistant](https://homeway.io/googleassistant?source=github_readme), and [Official Home Assistant App](https://homeway.io/app?source=github_readme) support. Developed for the Home Assistant community, by the Home Assistant community.
+Homeway is a Home Assistant community project aiming to provide free, private, and secure cloud tools for the entire Home Assistant community.
 
 ## Features
 
 - 🚀 **Free.** Remote access to your full Home Assistant from anywhere.
-- 🤖 **Smart.** [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your Home Assistant.
-- 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme) - including notifications, widgets, triggers, and more.
+- 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=github_readme) enables lifelike interactions with Home Assistant Assist or Home Assistant Voice devices.
+- 🤖 **Helpful.** [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your Home Assistant.
+- 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme)
 - 🔒 **Secure.** We offer advanced security features to ensure only you have access.
 - 🔭 **Private.** We don't store your data in our cloud and will never sell or share your information.
 - ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.
@@ -33,7 +34,7 @@ If you need help, read our [step-by-step setup guide](https://homeway.io/getstar
 
 If your Home Assistant server doesn't support Add-ons, there are two standalone install options:
 
-- [Homeway Standalone CLI](https://homeway.io/getstarted?source=github_readme_cli&standalone=true) - Ideal to install on the same device running Home Assistant.
+- [Homeway Standalone CLI](https://homeway.io/getstarted?source=github_readme_cli&standalone=true) - Ideal for installation on the same device running Home Assistant.
 - [Homeway Standalone Docker](https://homeway.io/getstarted?source=github_readme_docker&standalone=true) - Installs anywhere Docker runs!
 
 ### Feedback & Bugs
