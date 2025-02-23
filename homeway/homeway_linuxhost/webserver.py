@@ -195,17 +195,17 @@ class WebServer:
                 </div>
             </div>
             <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAssistantSetup">
-                <div class="pinkButton" style="width:300px">
+                <div class="blueButton" style="width:300px">
                     Setup Alexa Or Google Assistant
                 </div>
             </div>
             <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAppSetup">
-                <div class="pinkButton" style="width:300px">
+                <div class="blueButton" style="width:300px">
                     Setup Your Home Assistant App
                 </div>
             </div>
             <div style="display: flex; justify-content: center; margin-top:20px;" id="goToLocalAccessSetup">
-                <div class="pinkButton" style="width:300px">
+                <div class="blueButton" style="width:300px">
                     Node-RED, Unraid, AdGuard &amp; More<br/>Remote Access
                 </div>
             </div>

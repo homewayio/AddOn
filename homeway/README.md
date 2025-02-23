@@ -1,6 +1,6 @@
 ## [Homeway.io](https://homeway.io/?source=addon_readme)
 
-**🎉 [Introducing Sage AI](https://homeway.io/sage-ai?source=addon_readme_sage_intro) 🎉** - **Free AI Assist for Home Assistant and Home Assistant Voice Devices.** Powered by OpenAI’s ChatGPT, Anthropic’s Claud, or Google’s Gemini – [Sage](https://homeway.io/sage-ai?source=addon_readme_sage_intro) enables lifelike voice and communication with Home Assistant Assist to execute home actions, look up information, check the weather, and more. Sage offers personality customization and over 56 voices.
+**🎉 [Introducing Sage AI](https://homeway.io/sage-ai?source=addon_readme_sage_intro) 🎉** - **Free AI Assist for Home Assistant and Home Assistant Voice Devices.** Powered by OpenAI’s ChatGPT, Anthropic’s Claud, or Google’s Gemini – Sage enables lifelike voice and communication with Home Assistant Assist to execute home actions, look up information, check the weather, and more. Sage offers personality customization and over 56 voices.
 
 Homeway is a Home Assistant community project aiming to provide free, private, and secure cloud tools for the entire Home Assistant community.
 
