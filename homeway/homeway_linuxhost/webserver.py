@@ -191,7 +191,7 @@ class WebServer:
             </div>
             <div style="display: flex; justify-content: center;" id="goToSageSetup">
                 <div class="pinkButton" style="width:300px">
-                    Setup Sage - Your Free ChatGPT Assist
+                    Sage AI - Free ChatGPT Powered Assistant
                 </div>
             </div>
             <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAssistantSetup">
