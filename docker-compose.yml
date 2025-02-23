@@ -13,12 +13,16 @@ services:
       # See https://github.com/homewayio/AddOn/blob/main/docker-readme.md for instructions.
       - HOME_ASSISTANT_ACCESS_TOKEN=<token>
 
-      # Optional: Your Home Assistnat server port.
+      # Optional: Your Home Assistant server port.
       #- HOME_ASSISTANT_PORT=8123
     volumes:
       # Specify a path mapping for the required persistent storage
-      # This can also be an absolue path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
+      # This can also be an absolute path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
       - ./data:/data
+
+    ports:
+      # Expose the port for the Wyoming protocol for Sage.
+      - 11027:11027
 
 
   # Add as many addons as you want! Just make the name `homeway` name and data path unique!
@@ -32,9 +36,12 @@ services:
   #     # See https://github.com/homewayio/AddOn/blob/main/docker-readme.md for instructions.
   #     - HOME_ASSISTANT_ACCESS_TOKEN=<token>
 
-  #     # Optional: Your Home Assistnat server port.
+  #     # Optional: Your Home Assistant server port.
   #     #- HOME_ASSISTANT_PORT=8123
   #   volumes:
   #     # Specify a path mapping for the required persistent storage
-  #     # This can also be an absolue path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
+  #     # This can also be an absolute path, e.g. /var/homeway/addon/data or /c/users/name/addon/data
   #     - ./data-2:/data
+  #    ports:
+  #    # Expose the port for the Wyoming protocol for Sage.
+  #    - 11027:11027

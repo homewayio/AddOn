@@ -83,7 +83,7 @@ When you first run the docker container, these two values must be set at environ
 
 Run the docker container passing the required information:
 
-`docker run --name homeway -e HOME_ASSISTANT_IP=localhost -e HOME_ASSISTANT_ACCESS_TOKEN=token -v /data:/data -d homewayio/homeway`
+`docker run --name homeway -p 11027:11027 -e HOME_ASSISTANT_IP=localhost -e HOME_ASSISTANT_ACCESS_TOKEN=token -v /data:/data -d homewayio/homeway`
 
 Follow the "Linking Your Homeway Standalone Docker Addon" steps above to link the addon to your account.
 
