@@ -2,7 +2,8 @@ import time
 import json
 import logging
 import threading
-import requests
+import asyncio
+import aiohttp
 
 from wyoming.asr import Transcript, Transcribe
 from wyoming.tts import Synthesize
@@ -236,40 +237,40 @@ class SageHandler(AsyncEventHandler):
 
             # Since this is important, we have some retry logic.
             attempt = 0
-            while True:
-                attempt += 1
-
-                # Attempt getting a valid response.
-                serviceInfo:Info = None
-                try:
-                    self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
-                    # Attempt to get and parse the info object.
-                    response = requests.get(url, timeout=10)
-                    if response.status_code == 200:
-                        serviceInfo = self._BuildInfoEvent(response.json())
-                        if serviceInfo is None:
-                            raise Exception("Failed to build info event.")
-                    else:
-                        self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status_code}")
-                except Exception as e:
-                    self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {e}")
-
-                # If we got service info, try to write it to the client.
-                if serviceInfo is not None:
-                    self.Logger.debug("Sage - Service request successful, sending to Wyoming protocol.")
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    attempt += 1
+                    serviceInfo:Info  = None
                     try:
-                        await self._CacheAndWriteInfoEvent(serviceInfo)
-                        # Success
-                        return True
+                        self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
+                        # Perform the async GET request with a timeout of 10 seconds.
+                        async with session.get(url, timeout=10) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                serviceInfo = self._BuildInfoEvent(data)
+                                if serviceInfo is None:
+                                    raise Exception("Failed to build info event.")
+                            else:
+                                self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {response.status}")
                     except Exception as e:
-                        self.Logger.warning(f"Sage - Failed to send info to wyoming protocol. Attempt: {attempt} - {e}")
+                        self.Logger.warning(f"Sage - Failed to get models from service. Attempt: {attempt} - {e}")
 
-                # If we fail, try a few times. Throw when we hit the limit.
-                if attempt > 3:
-                    raise Exception("Failed to get models from service after 3 attempts.")
+                    # If we got valid serviceInfo, try to process it.
+                    if serviceInfo is not None:
+                        self.Logger.debug("Sage - Service request successful, sending to Wyoming protocol.")
+                        try:
+                            await self._CacheAndWriteInfoEvent(serviceInfo)
+                            # Success, exit the function.
+                            return True
+                        except Exception as e:
+                            self.Logger.warning(f"Sage - Failed to send info to wyoming protocol. Attempt: {attempt} - {e}")
 
-                # Sleep before trying again.
-                time.sleep(5)
+                    # After 3 attempts, raise an exception.
+                    if attempt > 3:
+                        raise Exception("Failed to get models from service after 3 attempts.")
+
+                    # Wait 5 seconds before retrying.
+                    await asyncio.sleep(5)
 
         except Exception as e:
             Sentry.Exception("Sage - Failed get info from service.", e)

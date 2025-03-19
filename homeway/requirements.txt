@@ -26,6 +26,7 @@ octoflatbuffers==24.3.27
 # Keep these as current as possible.
 requests>=2.32.3
 urllib3>=2.2.0
+aiohttp>=3.10.0
 certifi>=2025.1.31
 rsa>=4.9
 dnspython>=2.6.0

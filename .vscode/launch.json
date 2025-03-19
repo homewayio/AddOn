@@ -6,9 +6,10 @@
     "configurations": [
         {
             "name": "Linux Host",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "homeway_linuxhost",
+            "python": "~/.homeway-env/bin/python",
             "cwd": "${fileWorkspaceFolder}/homeway",
             "justMyCode": false,
             "args": [
@@ -19,13 +20,14 @@
                 "eyJWZXJzaW9uRmlsZURpciI6Ii9ob21lL3BpL2hvbWV3YXkvaG9tZXdheSIsICJBZGRvbkRhdGFSb290RGlyIjoiL2hvbWUvcGkvLmhvbWV3YXktYWRkb24iLCAiTG9nc0RpciI6Ii9ob21lL3BpLy5ob21ld2F5LWFkZG9uL2xvZ3MiLCAiU3RvcmFnZURpciI6Ii9ob21lL3BpLy5ob21ld2F5LWFkZG9uL2RhdGEiLCAiSXNSdW5uaW5nSW5IYUFkZG9uRW52IjpmYWxzZSB9",
                 //
                 // We can optionally pass a dev config json object, which has dev specific overwrites we can make.
-                "{\"LocalHomewayServerAddress\":  \"10.0.0.15\"  , \"LogLevel\":\"DEBUG\"}"
+                "{\"LocalHomewayServerAddress\":  \"\"  , \"LogLevel\":\"DEBUG\"}"
             ]
         },
         {
             "name": "Installer Module",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
+            "python": "~/.homeway-env/bin/python",
             "module": "homeway_installer",
             "justMyCode": false,
             "args": [
@@ -37,9 +39,10 @@
         },
         {
             "name": "Linux Host - WSL",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "homeway_linuxhost",
+            "python": "~/.homeway-env/bin/python",
             "cwd": "${fileWorkspaceFolder}/homeway",
             "justMyCode": false,
             "args": [
