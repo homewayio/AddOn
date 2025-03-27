@@ -154,8 +154,56 @@ class SageDataContext(object):
             return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
+    # SageDataContext
+    def LiveContext(self, j: int):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(octoflatbuffers.number_types.Uint8Flags, a + octoflatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # SageDataContext
+    def LiveContextAsNumpy(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(octoflatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # SageDataContext
+    def LiveContextAsByteArray(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.GetVectorAsByteArray(o)
+        return 0
+
+    # SageDataContext
+    def LiveContextLength(self) -> int:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # SageDataContext
+    def LiveContextIsNone(self) -> bool:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        return o == 0
+
+    # SageDataContext
+    def LiveContextCompression(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # SageDataContext
+    def LiveContextOriginalDataSize(self):
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        if o != 0:
+            return self._tab.Get(octoflatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
 def SageDataContextStart(builder: octoflatbuffers.Builder):
-    builder.StartObject(11)
+    builder.StartObject(14)
 
 def Start(builder: octoflatbuffers.Builder):
     SageDataContextStart(builder)
@@ -237,6 +285,30 @@ def SageDataContextAddStatesOriginalDataSize(builder: octoflatbuffers.Builder, s
 
 def AddStatesOriginalDataSize(builder: octoflatbuffers.Builder, statesOriginalDataSize: int):
     SageDataContextAddStatesOriginalDataSize(builder, statesOriginalDataSize)
+
+def SageDataContextAddLiveContext(builder: octoflatbuffers.Builder, liveContext: int):
+    builder.PrependUOffsetTRelativeSlot(11, octoflatbuffers.number_types.UOffsetTFlags.py_type(liveContext), 0)
+
+def AddLiveContext(builder: octoflatbuffers.Builder, liveContext: int):
+    SageDataContextAddLiveContext(builder, liveContext)
+
+def SageDataContextStartLiveContextVector(builder, numElems: int) -> int:
+    return builder.StartVector(1, numElems, 1)
+
+def StartLiveContextVector(builder, numElems: int) -> int:
+    return SageDataContextStartLiveContextVector(builder, numElems)
+
+def SageDataContextAddLiveContextCompression(builder: octoflatbuffers.Builder, liveContextCompression: int):
+    builder.PrependInt8Slot(12, liveContextCompression, 0)
+
+def AddLiveContextCompression(builder: octoflatbuffers.Builder, liveContextCompression: int):
+    SageDataContextAddLiveContextCompression(builder, liveContextCompression)
+
+def SageDataContextAddLiveContextOriginalDataSize(builder: octoflatbuffers.Builder, liveContextOriginalDataSize: int):
+    builder.PrependUint32Slot(13, liveContextOriginalDataSize, 0)
+
+def AddLiveContextOriginalDataSize(builder: octoflatbuffers.Builder, liveContextOriginalDataSize: int):
+    SageDataContextAddLiveContextOriginalDataSize(builder, liveContextOriginalDataSize)
 
 def SageDataContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()

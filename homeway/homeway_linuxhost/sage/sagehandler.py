@@ -117,11 +117,11 @@ class SageHandler(AsyncEventHandler):
             # Get the home context, which is all of the entities and their relationships.
             # Also get the current state of all entities exposed.
             homeContext = self.HomeContext.GetHomeContext()
-            states = self.HomeContext.GetStates()
+            states, liveContext = self.HomeContext.GetStatesAndLiveContext()
 
             # Make the request.
             start = time.time()
-            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext, states)
+            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext, states, liveContext)
 
             # Check the result
             if responseText is None:

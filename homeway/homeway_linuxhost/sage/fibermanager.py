@@ -195,11 +195,11 @@ class FiberManager:
 
     # Takes a chat json object and returns the assistant's response text.
     # Returns None on failure.
-    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult) -> str:
+    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult, liveContext_CanBeNone:CompressionResult) -> str:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext_CanBeNone, states=states_CanBeNone)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext_CanBeNone, states=states_CanBeNone, liveContext=liveContext_CanBeNone)
 
         # We expect the onDataStreamReceived handler to be called once, with the full response.
         class ResponseContext:
@@ -439,13 +439,16 @@ class FiberManager:
     # Builds the data context.
     def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats,
                            sampleRate:int=None, channels:int=None, bytesPerSample:int=None, languageCode:str=None,
-                           homeContext:CompressionResult=None, states:CompressionResult=None) -> int:
+                           homeContext:CompressionResult=None, states:CompressionResult=None, liveContext:CompressionResult=None) -> int:
         homeContextBytesOffset = None
         if homeContext is not None:
             homeContextBytesOffset = builder.CreateByteVector(homeContext.Bytes)
         satesBytesOffset = None
         if states is not None:
             satesBytesOffset = builder.CreateByteVector(states.Bytes)
+        liveContextBytesOffset = None
+        if liveContext is not None:
+            liveContextBytesOffset = builder.CreateByteVector(liveContext.Bytes)
 
         languageCodeOffset = None
         if languageCode is not None:
@@ -469,6 +472,10 @@ class FiberManager:
             SageDataContext.AddStates(builder, satesBytesOffset)
             SageDataContext.AddStatesCompression(builder, states.CompressionType)
             SageDataContext.AddStatesOriginalDataSize(builder, states.UncompressedSize)
+        if liveContextBytesOffset is not None:
+            SageDataContext.AddLiveContext(builder, liveContextBytesOffset)
+            SageDataContext.AddLiveContextCompression(builder, liveContext.CompressionType)
+            SageDataContext.AddLiveContextOriginalDataSize(builder, liveContext.UncompressedSize)
         return SageDataContext.End(builder)
 
 

@@ -1,6 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.2.8
+
+- 🤖 Update to Sage, with more advanced model logic and better location awareness.
+- 🐛 Bug fixes to prevent an issue where Sage fails to setup using the Wyoming protocol.
+
 ## 2.2 - 2.0
 
 - 🤖 Introducing [Homeway Sage](https://blog.homeway.io/homeway-sage-free-private-intelligent-chatgpt-for-home-assistant-assist-voice/)! Your free, private, and smart Home Assistant Assist!

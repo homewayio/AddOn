@@ -2,12 +2,22 @@ import json
 import time
 import logging
 import threading
+from typing import List
 
 from homeway.sentry import Sentry
 from homeway.compression import Compression, CompressionContext, CompressionResult
 
 from .connection import Connection
 from .eventhandler import EventHandler
+
+
+# Used to keep track of context for the assistant devices.
+class AssistantDeviceContext:
+    def __init__(self, entityId:str, deviceId:str, areaId:str, floorId:str):
+        self.EntityId:str = entityId
+        self.DeviceId:str = deviceId
+        self.AreaId:str = areaId
+        self.FloorId:str = floorId
 
 
 # Captures the current context and state of the home in a way that can be sent to the server.
@@ -49,6 +59,7 @@ class HomeContext:
         self.CacheUpdatedEvent = threading.Event()
         self.HomeContextResult:CompressionResult = None
         self.AllowedEntityIds:dict = None
+        self.AssistantDeviceContexts:List[AssistantDeviceContext] = []
 
 
 
@@ -79,8 +90,8 @@ class HomeContext:
         return self.HomeContextResult
 
 
-    # Does a live query for the current states and returns them as a compression result.
-    def GetStates(self) -> CompressionResult:
+    # Does a live query for the current states and returns them as and a the live context as compression results.
+    def GetStatesAndLiveContext(self) -> CompressionResult:
         start = time.time()
         filterTime = 0.0
         try:
@@ -96,25 +107,39 @@ class HomeContext:
             # Build the result wrapper.
             # These are part of the server shared model, so we can't change them.
             stateContext = {
-                # Remember this can be None if there's no active device!
-                "ActiveAssistEntityId": activeAssistEntityId,
                 "EntityStates": states
             }
 
+            # Build the live context, even if the active assist entity id is None.
+            liveContext = self._BuildLiveContext(activeAssistEntityId)
+
             # Use separators to reduce size.
             stateContextStr = json.dumps(stateContext, separators=(',', ':'))
+            liveContextStr = None
+            if liveContext is not None:
+                liveContextStr = json.dumps(liveContext, separators=(',', ':'))
 
-            # Now compress it and return!
+            # Now compress what we have.
+            stateCompressionResult = None
+            liveContextCompressionResult = None
             with CompressionContext(self.Logger) as context:
                 b = stateContextStr.encode("utf-8")
                 context.SetTotalCompressedSizeOfData(len(b))
-                return Compression.Get().Compress(context, b)
+                stateCompressionResult = Compression.Get().Compress(context, b)
+            if liveContextStr is not None:
+                with CompressionContext(self.Logger) as context:
+                    b = liveContextStr.encode("utf-8")
+                    context.SetTotalCompressedSizeOfData(len(b))
+                    liveContextCompressionResult = Compression.Get().Compress(context, b)
+
+            # Return the result!
+            return stateCompressionResult, liveContextCompressionResult
 
         except Exception as e:
             Sentry.Exception("Home Context GetStates error", e)
         finally:
             self.Logger.debug(f"Home Context GetStates - Total: {time.time() - start}s - Filter: {time.time() - filterTime}s")
-        return None
+        return None, None
 
 
     # Fired when a new connection is made to HA.
@@ -301,10 +326,8 @@ class HomeContext:
                     continue
                 # Create our object and get the important ids
                 device = { }
-                # We don't copy this id back into the dest object, because it's a random string that
-                # isn't used for anything beyond associate this device with the entity.
-                # Since the model doesn't need it to call any apis or add any context, we remove it for size.
-                deviceId = self._CopyAndGetId("id", d, device, copyIntoDst=False)
+                # Keep the device ID since it can be used for association or for some API calls.
+                deviceId = self._CopyAndGetId("id", d, device)
                 # Some devices don't have areas, that's fine, we also don't need to copy it into the dest object.
                 areaId = self._CopyAndGetId("area_id", d, device, copyIntoDst=False, warnIfMissing=False)
                 # Add the rest of the data.
@@ -426,6 +449,26 @@ class HomeContext:
                 if "entities" in a:
                     a["entities"] = list(a.get("entities", {}).values())
 
+
+        # To build the live context object, we need to keep track of the context of the assist devices
+        assistDeviceContexts = []
+        for f in floors:
+            areas = f.get("areas", [])
+            for a in areas:
+                devices = a.get("devices", [])
+                for d in devices:
+                    foundAssistDevice = False
+                    entities = d.get("entities", [])
+                    for e in entities:
+                        entityId = e.get("entity_id", None)
+                        if entityId is not None:
+                            if self._IsAssistEntityId(entityId):
+                                assistDeviceContexts.append(AssistantDeviceContext(entityId, d.get("id", None), a.get("area_id", None), f.get("floor_id", None)))
+                                foundAssistDevice = True
+                        if foundAssistDevice:
+                            # Break to ensure we only list each device once.
+                            break
+
         # Finally, package them into the final object.
         # This is the format that the server expects, so we can't change it.
         homeContext = {
@@ -446,6 +489,7 @@ class HomeContext:
         with self.CacheLock:
             self.HomeContextResult = compressionResult
             self.AllowedEntityIds = allowedEntityLookupMap
+            self.AssistantDeviceContexts = assistDeviceContexts
             self.CacheUpdatedEvent.set()
 
 
@@ -630,6 +674,30 @@ class HomeContext:
             result.append(s)
 
         return result, assistActiveEntityId
+
+
+    # Builds the live context.
+    def _BuildLiveContext(self, activeAssistEntityId:str) -> dict:
+        # activeAssistEntityId can be None if there is no active assist.
+        assistantDeviceContext:AssistantDeviceContext = None
+        if activeAssistEntityId is not None:
+            # Find the device context for the active assist entity.
+            with self.CacheLock:
+                for c in self.AssistantDeviceContexts:
+                    if c.EntityId == activeAssistEntityId:
+                        assistantDeviceContext = c
+                        break
+
+        # Always return the context, even if it's None, so that the model can always expect it.
+        # Use a naming format that matches the names in the home context and states list.
+        return {
+            "RequestLocationContext" : {
+                "entity_id" : assistantDeviceContext.EntityId if assistantDeviceContext is not None else "None",
+                "device_id" : assistantDeviceContext.EntityId if assistantDeviceContext is not None else "None",
+                "area_id" : assistantDeviceContext.AreaId if assistantDeviceContext is not None else "None",
+                "floor_id" : assistantDeviceContext.FloorId if assistantDeviceContext is not None else "None",
+            }
+        }
 
 
 class HomeContextQueryResult:
