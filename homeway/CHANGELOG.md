@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.2.8
+## 2.2.9
 
 - 🤖 Update to Sage, with more advanced model logic and better location awareness.
 - 🐛 Bug fixes to prevent an issue where Sage fails to setup using the Wyoming protocol.
