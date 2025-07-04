@@ -185,7 +185,7 @@ class HttpRequest:
             # Ensure we have a stream to read.
             if self._requestLibResponseObj is None:
                 raise Exception("ReadAllContentFromStreamResponse was called on a result with no request lib Response object.")
-            buffer = None
+            bufferPartials = []
 
             # In the past, we used iter_content, but it has a lot of overhead and also doesn't read all available data, it will only read a chunk if the transfer encoding is chunked.
             # This isn't great because it's slow and also we don't need to reach each chunk, process it, just to dump it in a buffer and read another.
@@ -208,18 +208,18 @@ class HttpRequest:
                         # This is weird, but there can be lingering data in response.content, so add that if there is any.
                         # See doBodyRead for more details.
                         if len(self._requestLibResponseObj.content) > 0:
-                            buffer += self._requestLibResponseObj.content
+                            bufferPartials.append(self._requestLibResponseObj.content)
                         # Break out when we are done.
                         break
 
-                    # If we aren't done, append the buffer.
-                    if buffer is None:
-                        buffer = data
-                    else:
-                        buffer += data
+                    # If we aren't done, append the data chunk.
+                    bufferPartials.append(data)
             except Exception as e:
-                lengthStr =  "[buffer is None]" if buffer is None else str(len(buffer))
-                logger.warn(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
+                buffer_length = sum(len(p) for p in bufferPartials)
+                lengthStr = "[buffer is None]" if buffer_length == 0 else str(buffer_length)
+                logger.warning(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
+            # This holds more contents in memory, but it's the most efficient way to concat them.
+            buffer = b''.join(bufferPartials) if len(bufferPartials) > 0 else None
             self.SetFullBodyBuffer(buffer)
 
         @property
