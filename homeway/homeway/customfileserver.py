@@ -116,7 +116,7 @@ class CustomFileServer:
         if path.endswith(CustomFileServer._HomewayCustomIndexJsFileName):
             returnBuffer = self.HomewayJsFileContentsBytes
             headers["Content-Type"] = "application/javascript"
-        elif path.find(CustomFileServer._HomewayCustomIndexCssFileName):
+        elif path.find(CustomFileServer._HomewayCustomIndexCssFileName) != -1:
             returnBuffer = self.HomewayCssFileContentsBytes
             headers["Content-Type"] = "text/css"
         else:
