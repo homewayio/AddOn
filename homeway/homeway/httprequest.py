@@ -185,7 +185,7 @@ class HttpRequest:
             # Ensure we have a stream to read.
             if self._requestLibResponseObj is None:
                 raise Exception("ReadAllContentFromStreamResponse was called on a result with no request lib Response object.")
-            bufferPartials:list[bytes | bytearray] = []
+            bufferPartials = []
 
             # In the past, we used iter_content, but it has a lot of overhead and also doesn't read all available data, it will only read a chunk if the transfer encoding is chunked.
             # This isn't great because it's slow and also we don't need to reach each chunk, process it, just to dump it in a buffer and read another.
@@ -218,6 +218,7 @@ class HttpRequest:
                 buffer_length = sum(len(p) for p in bufferPartials)
                 lengthStr = "[buffer is None]" if buffer_length == 0 else str(buffer_length)
                 logger.warning(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
+            # This holds more contents in memory, but it's the most efficient way to concat them.
             buffer = b''.join(bufferPartials) if len(bufferPartials) > 0 else None
             self.SetFullBodyBuffer(buffer)
 
