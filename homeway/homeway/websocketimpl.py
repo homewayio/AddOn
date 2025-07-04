@@ -230,7 +230,7 @@ class Client:
         try:
             # Make sure we have a buffer, this is invalid and it will also shutdown our send thread.
             if buffer is None:
-                raise Exception("We tired to send a message to the websocket with a None buffer.")
+                raise Exception("We tried to send a message to the websocket with a None buffer.")
             self.SendQueue.put(SendQueueContext(buffer, msgStartOffsetBytes, msgSize, optCode))
         except Exception as e:
             # If any exception happens during sending, we want to report the error

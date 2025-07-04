@@ -301,7 +301,7 @@ class Compression:
 
         # If we can't use zstandard, we assume it's not installed since it doesn't install as a required dependency.
         # In that case, we will use this function to try to install it async, and it will be used on the next restart.
-        # But, if the system has two or less cores, dont try to install, because it's probably not powerful enough to use it.
+        # But, if the system has two or less cores, don't try to install, because it's probably not powerful enough to use it.
         if self.CanUseZStandardLib is False and cpuCores >= Compression.ZStandardMinCoreCountForInstall:
             self._TryInstallZStandardIfNeededAsync()
 

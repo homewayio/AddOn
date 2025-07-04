@@ -765,7 +765,7 @@ class WebStreamHttpHelper:
 
         # If we are going to compress this read, use a much higher number. Since most of what we compress is text,
         # and that text usually compresses down to 25% of the og size, we will use a x4 multiplier.
-        # We do want to make sure this value isn't too big, because we dont want to allocate a huge buffer on low memory systems.
+        # We do want to make sure this value isn't too big, because we don't want to allocate a huge buffer on low memory systems.
         if shouldCompress:
             defaultBodyReadSizeBytes = defaultBodyReadSizeBytes * 4
 

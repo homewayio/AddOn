@@ -61,7 +61,7 @@ class Fabric:
         ws = self.Ws
         # If there's an active websocket.
         if ws is not None:
-            # And it's connected (dont interrupt the connection process)
+            # And it's connected (don't interrupt the connection process)
             if self.IsConnected is True:
                 ws.Close()
 
@@ -72,11 +72,11 @@ class Fabric:
         # Capture and check the websocket.
         ws = self.Ws
         if ws is None:
-            self.Logger.error(f"{self._getLogTag()} message tired to be sent while we have no active socket.")
+            self.Logger.error(f"{self._getLogTag()} message tried to be sent while we have no active socket.")
             return False
         # Check the connection state.
         if self.IsConnected is False:
-            self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't connected.")
+            self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't connected.")
             return False
 
         try:

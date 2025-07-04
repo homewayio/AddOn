@@ -2,7 +2,7 @@
 
 # Since we are running in a docker container, there's no need for dynamic configs.
 # The repo root is /app, as we define in our Dockerfile
-# The storage root it the Home Assistant docker mapped dir, /data/
+# The storage root is the Home Assistant docker mapped dir, /data/
 #   Note that all of the data is stored in this flat dir, the config, storage data, and logs.
 
 # This is the json config, that's base64 encoded and sent as an argument.
