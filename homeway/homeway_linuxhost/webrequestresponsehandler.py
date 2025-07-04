@@ -67,7 +67,7 @@ class WebRequestResponseHandler:
         try:
             if contextObject.Type == ResponseHandlerContext.HomeAssistantHtmlPage:
                 return self._HandleHomeAssistantHtmlPage(bodyBuffer)
-            self.Logger.error(f"WebRequestResponseHandler tired to handle a context with an unknown Type? {contextObject.Type}")
+            self.Logger.error(f"WebRequestResponseHandler tried to handle a context with an unknown Type? {contextObject.Type}")
         except Exception as e:
             Sentry.Exception("WebRequestResponseHandler exception while handling mainsail config.", e)
         return bodyBuffer

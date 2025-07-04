@@ -3,9 +3,9 @@
 # Custom disables
 disable=
     C0114, # missing-module-docstring
-    C0103, # Disable bad attritube names
-    W0511, # Ingore TODOs
-    W0231, # Disable warns about init funciton calls
+    C0103, # Disable bad attribute names
+    W0511, # Ignore TODOs
+    W0231, # Disable warns about init function calls
     R0901, # Too many ancestors
     R0904, # too-many-public-methods
     R0903, # too-few-public-methods
@@ -20,7 +20,7 @@ disable=
     R0915, # Too many statements
     R1702, # Too many nested blocks
     R0801, # duplicate-code
-    R0916, # Too many booleans in one if statment.
+    R0916, # Too many booleans in one if statement.
     R1730, # consider-using-min-builtin
     R1731, # consider-using-max-builtin
 
@@ -45,7 +45,7 @@ fail-on=
 fail-under=10.0
 
 # Files or directories to be skipped. They should be base names, not paths.
-# Ingore the Proto folder since it's all generated
+# Ignore the Proto folder since it's all generated
 ignore=CVS,Proto
 
 # Add files or directories matching the regex patterns to the ignore-list. The

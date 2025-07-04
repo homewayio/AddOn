@@ -230,12 +230,12 @@ class Connection:
         # Check the connection state.
         if ignoreConnectionState is False:
             if self.IsConnected is False:
-                self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't authed.")
+                self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't authed.")
                 return False
         # Capture and check the websocket.
         ws = self.Ws
         if ws is None:
-            self.Logger.error(f"{self._getLogTag()} message tired to be sent while we weren't connected.")
+            self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't connected.")
             return False
 
         msgId = 0

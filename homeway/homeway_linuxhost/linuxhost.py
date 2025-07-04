@@ -87,7 +87,7 @@ class LinuxHost:
             self.Logger.info("Plugin Type: %s", addonTypeStr)
             Sentry.Setup(pluginVersionStr, addonTypeStr, devConfig_CanBeNone is not None)
 
-            # We don't store any sensitive things in teh config file, since all config files are sometimes backed up publicly.
+            # We don't store any sensitive things in the config file, since all config files are sometimes backed up publicly.
             self.Secrets = Secrets(self.Logger, storageDir, self.Config)
 
             # Now, detect if this is a new instance and we need to init our global vars. If so, the setup script will be waiting on this.
