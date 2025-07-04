@@ -97,7 +97,7 @@ class Homeway:
                     del self.SecondaryServerCons[summonConnectUrl]
                 else:
                     self.Logger.error("Secondary ended but there's not an ref of it in the map?")
-            except Exception as _:
+            except Exception as e:
                 Sentry.Exception("Exception when removing secondary connection from map.", e)
 
         self.Logger.info("Secondary connection to "+str(summonConnectUrl)+" has ended")

@@ -42,7 +42,7 @@ class Fabric:
         # Due to timing differences between the random back off on the main WS and this WS, it can be possible that both WS disconnect from the server
         # and then auto re-connect. This sage socket might reconnect first, but then the main WS will call refresh on this socket.
         # To prevent us from reconnecting twice, we need to check the last successful connect time. If it's been within a minute, we don't need to refresh.
-        if self.LastSuccessfulConnectSec - time.time() < 60.0:
+        if time.time() - self.LastSuccessfulConnectSec < 60.0:
             self.Logger.info(f"{self._getLogTag()} Not refreshing the connection because we recently connected.")
             return
         self.Logger.info(f"{self._getLogTag()} Refreshing the connection due to new main WS connection.")
@@ -117,7 +117,7 @@ class Fabric:
                 isFirstReconnect = True
             else:
                 # If this is the first reconnect attempt, allow the use of the lowest latency server.
-                if self.BackoffCounter == 0:
+                if self.BackoffCounter == 1:
                     isFirstReconnect = True
                 # Sleep for the backoff time.
                 sleepTimeSec = 3 * self.BackoffCounter + random.randint(5, 10)

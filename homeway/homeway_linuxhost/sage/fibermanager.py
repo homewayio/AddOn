@@ -295,10 +295,10 @@ class FiberManager:
         else:
             # If we found a context, the only valid state is that the stream is open and we're uploading data.
             if context.HasSentOpenMessage is False:
-                self.Logger.error(f"Sage failed to send message, stream [{streamId}] hans't sent the open message but was called again.")
+                self.Logger.error(f"Sage failed to send message, stream [{context.StreamId}] hans't sent the open message but was called again.")
                 return False
             if context.IsDataTransmissionDone:
-                self.Logger.error(f"Sage failed to send message, stream [{streamId}] is already done transmitting data but was called again.")
+                self.Logger.error(f"Sage failed to send message, stream [{context.StreamId}] is already done transmitting data but was called again.")
                 return False
 
         # Now that we have the context and might have created it, we might need to clean up the context when we exit success or failed.
