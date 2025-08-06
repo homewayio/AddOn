@@ -32,6 +32,11 @@ class Fabric:
         self.LastSuccessfulConnectSec:float = 0
 
 
+    # Returns if the socket is currently connected.
+    def GetIsConnected(self) -> bool:
+        return self.IsConnected
+
+
     # Updates the API key if we get a new one from the server.
     # This will also refresh the connection if the key changed or it hasn't been refreshed recently.
     def UpdateApiKeyAndRefreshIfNeeded(self, apiKey:str) -> None:

@@ -275,6 +275,11 @@ class FiberManager:
                         isTransmissionDone:bool=True,
                         timeoutSec:float = 20.0) -> bool:
 
+        # Before we try anything and increment the stream id, make sure we are connected.
+        if self.Fabric is None or self.Fabric.GetIsConnected() is False:
+            self.Logger.warning("Sage Fabric is not connected, cannot send message.")
+            return False
+
         # First, get or create the stream.
         # This might be a new stream, or it might be a stream we have already started and are uploading data to.
         context:StreamContext = None
@@ -379,7 +384,7 @@ class FiberManager:
                 # Regardless of the other vars, if we didn't get any data, the response wait timed out.
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
-                    context.StatusCode = 608
+                    statusCode = 608
                     await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, bytearray(), None, True)
                     return False
 
