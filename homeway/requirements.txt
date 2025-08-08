@@ -33,7 +33,7 @@ dnspython>=2.6.0
 httpx>=0.28.1
 pyyaml
 configparser
-wyoming==1.6.0
+wyoming>=1.7.2,<1.8
 zeroconf>=0.136.2
 #sentry-sdk>=1.19.1,<2 - Not used right now.
 #zstandard <version> - Installed dynamically if the platform supports it.
