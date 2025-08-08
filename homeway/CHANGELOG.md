@@ -1,6 +1,12 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.2.10
+
+- 💬 Added support for ElevenLabs voices, which sound amazing!
+- 🧠 Major updates to Sage's AI engine - making is way smarter and more powerful!
+- 🐛 Fixed a few Sage protocol bugs and worked around a new bug in the latest version of Home Assistant when using text-to-speech.
+
 ## 2.2.9
 
 - 🤖 Update to Sage, with more advanced model logic and better location awareness.
