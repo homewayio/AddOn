@@ -2,6 +2,9 @@
 # yamllint disable rule:comments-indentation
 name: Publish Standalone Docker image
 
+permissions:
+  contents: read
+
 # Triggers on our test branch for building docker.
 on:
   push:
