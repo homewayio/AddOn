@@ -5,6 +5,8 @@
 # To use this workflow, you need to create a branch called docker-test, and push to that branch.
 
 name: Deploy (No Push)
+permissions:
+  contents: read
 
 # Deploy will run on each GitHub release.
 # yamllint disable-line rule:truthy
@@ -64,6 +66,9 @@ jobs:
     name: 👷 Build & Deploy ${{ matrix.architecture }}
     needs: information
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     strategy:
       matrix:
         architecture: ${{ fromJson(needs.information.outputs.architectures) }}

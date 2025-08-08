@@ -2,6 +2,9 @@
 # yamllint disable rule:comments-indentation
 name: Publish Standalone Docker image
 
+permissions:
+  contents: read
+
 # Only make and deploy new docker images on tagged releases.
 on:
   release:

@@ -2,6 +2,8 @@
 # yamllint disable rule:line-length
 
 name: Deploy
+permissions:
+  contents: read
 
 # Deploy will run on each GitHub release.
 # yamllint disable-line rule:truthy
@@ -66,6 +68,9 @@ jobs:
     name: 👷 Build & Deploy ${{ matrix.architecture }}
     needs: information
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         architecture: ${{ fromJson(needs.information.outputs.architectures) }}
