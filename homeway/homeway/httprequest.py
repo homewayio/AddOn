@@ -176,6 +176,7 @@ class HttpRequest:
             self._bodyCompressionType = DataCompression.None_
             self._fullBodyBufferPreCompressedSize = 0
 
+
         # Since most things use request Stream=True, this is a helpful util that will read the entire
         # content of a request and return it. Note if the request has no defined length, this will read
         # as long as the stream will go.
@@ -185,7 +186,8 @@ class HttpRequest:
             # Ensure we have a stream to read.
             if self._requestLibResponseObj is None:
                 raise Exception("ReadAllContentFromStreamResponse was called on a result with no request lib Response object.")
-            buffer = None
+            # It's more efficient to gather the data in a single buffer, and append together at the end.
+            buffers:list[bytes | bytearray] = []
 
             # In the past, we used iter_content, but it has a lot of overhead and also doesn't read all available data, it will only read a chunk if the transfer encoding is chunked.
             # This isn't great because it's slow and also we don't need to reach each chunk, process it, just to dump it in a buffer and read another.
@@ -208,19 +210,27 @@ class HttpRequest:
                         # This is weird, but there can be lingering data in response.content, so add that if there is any.
                         # See doBodyRead for more details.
                         if len(self._requestLibResponseObj.content) > 0:
-                            buffer += self._requestLibResponseObj.content
+                            buffers.append(self._requestLibResponseObj.content)
                         # Break out when we are done.
                         break
 
                     # If we aren't done, append the buffer.
-                    if buffer is None:
-                        buffer = data
-                    else:
-                        buffer += data
+                    buffers.append(data)
             except Exception as e:
-                lengthStr =  "[buffer is None]" if buffer is None else str(len(buffer))
-                logger.warn(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
+                bufferLength = sum(len(p) for p in buffers)
+                lengthStr = "[buffer is None]" if bufferLength == 0 else str(bufferLength)
+                logger.warning(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
+
+            # Ensure we got something, as after this callers will expect an object to be there.
+            buffer = None
+            if len(buffers) == 1:
+                buffer = buffers[0]
+            elif len(buffers) > 0:
+                buffer = b''.join(buffers)
+            else:
+                buffer = bytearray()
             self.SetFullBodyBuffer(buffer)
+
 
         @property
         def GetCustomBodyStreamCallback(self):
