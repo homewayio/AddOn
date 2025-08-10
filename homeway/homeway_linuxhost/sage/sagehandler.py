@@ -168,29 +168,36 @@ class SageHandler(AsyncEventHandler):
                     # Return true to keep going or indicate we ended successfully.
                     return True
 
-                # In the past we only sent one start, the chunks, and then the end. But the system doesn't seem to start playback until the entire thing is streamed.
-                # So instead, we send a start, chunk, end, for each chunk, which allows playback to start when the first chunks are sent.
+                # If this is the first chunk, we need to send the audio start event.
+                # But, even though we stream the audio, HA won't process it until the AudioEnd event is sent.
+                # In version 2025.8 of HA they updated the logic to allow us to send a AudioStart -> AudioChunk -> AudioEnd for each streamed response, which then let the audio play instantly.
+                # But that breaks older version of HA, and we can't version check right now, so we don't do it.
+                # TODO - Add logic to version check HA and do the better logic if possible.
                 # We can confirm this by looking at the code: https://github.com/home-assistant/core/blob/dev/homeassistant/components/wyoming/tts.py
-                await self.write_event(AudioStart(rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
+                if synthContext.IsFirstChunk:
+                    synthContext.IsFirstChunk = False
+                    await self.write_event(AudioStart(rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
 
                 # Now write the audio chunk.
                 await self.write_event(AudioChunk(audio=response.Bytes, rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
                 synthContext.ChunkCount += 1
                 synthContext.TotalBytes += len(response.Bytes)
 
-                # Always write the audio stop, to ensure playback can start now.
-                await self.write_event(AudioStop().event())
-
                 # Return true to keep going.
                 return True
-
-            # This shouldn't be required, since we aren't supporting streaming, but HA's impl seems to be broken and needs this to end the audio stream.
-            await self.write_event(SynthesizeStopped().event())
 
             self.Logger.debug(f"Sage - Synthesize Start - {text}")
             start = time.time()
             result = await self.FiberManager.Speak(text, voiceName, streamingDataReceivedCallback)
             self.Logger.debug(f"Sage Synthesize End - {text} - voice: {voiceName} - time: {time.time() - start} - chunks: {synthContext.ChunkCount} - bytes: {synthContext.TotalBytes}")
+
+            # If we wrote anything, we need to send the audio stop event.
+            if synthContext.IsFirstChunk is False:
+                await self.write_event(AudioStop().event())
+
+            # This shouldn't be required, since we aren't supporting streaming, but HA's impl seems to be broken and needs this to end the audio stream.
+            # This bug was added in HA 2025.8
+            await self.write_event(SynthesizeStopped().event())
 
             # If the result is false, we failed to synthesize the text.
             if result is False:
