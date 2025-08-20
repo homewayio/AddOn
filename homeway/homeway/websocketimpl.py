@@ -1,6 +1,6 @@
 import queue
-import ssl
 import threading
+from typing import Optional
 import certifi
 import octowebsocket
 from octowebsocket import WebSocketApp
@@ -98,12 +98,7 @@ class Client:
 
 
     # Runs the websocket blocking until it closes.
-    def RunUntilClosed(self):
-        # Start the send queue thread if it hasn't been started.
-        if self.SendThread is None:
-            self.SendThread = threading.Thread(target=self._SendQueueThread, daemon=True)
-            self.SendThread.start()
-
+    def RunUntilClosed(self, pingIntervalSec:Optional[int]=None, pingTimeoutSec:Optional[int]=None):
         #
         # The client is responsible for sending keep alive pings the server will then pong respond to.
         # If that's not done, the connection will timeout. We will send a ping every 10 minutes.
@@ -113,27 +108,38 @@ class Client:
         # Important note! This websocket lib won't use certify which a Root CA store that mirrors what firefox uses.
         # Since let's encrypt updated their CA root, we need to use certify's root or the connection will likely fail.
         # The requests lib already does this, so we only need to worry about it for websockets.
-        #
         # Another important note!
+        #
         # The ping_timeout is used to timeout the select() call when the websocket is waiting for data. There's a bug in the WebSocketApp
         # where it will call select() after the socket is closed, which makes select() hang until the time expires.
         # Thus we need to keep the ping_timeout low, so when this happens, it doesn't hang forever.
-        #
-        # ping_interval we set to a lower value so the plugin will detect dropped connections faster and we will recover faster.
-        # This is also important to ensure NAT routers and such are able to keep the connection alive.
+        if pingTimeoutSec is None or pingTimeoutSec <= 0 or pingTimeoutSec > 60:
+            pingTimeoutSec = 20
+        # Ensure that the ping timeout is set, otherwise the websocket will hang forever if the connection is lost.
+        # This is also important to ensure that NAT routers and load balancers keep the connection alive.
+        if pingIntervalSec is None or pingIntervalSec <= 0:
+            pingIntervalSec = 30
+
         try:
+            # Start the send queue thread if it hasn't been started.
+            # Do this in the try block, so if we fail to start the thread the error is handled.
+            if self.SendThread is None:
+                self.SendThread = threading.Thread(target=self._SendQueueThread, daemon=True)
+                self.SendThread.start()
+
+            # Do validation on the ping interval and timeout.
+            # The API requires the timeout be less than the interval.
+            if pingTimeoutSec >= pingIntervalSec:
+                pingTimeoutSec = pingIntervalSec - 1
+            if pingIntervalSec > 0 and pingTimeoutSec <= 0:
+                raise Exception("The ping timeout must be greater than 0.")
+
             # Since some clients use RunAsync, check that we didn't close before the async action started.
             with self.isClosedLock:
                 if self.isClosed:
                     return
 
-            # Only if the client explicated called the function to disable this will we turn off cert verification.
-            sslopt={"ca_certs":certifi.where()}
-            if self.disableCertCheck:
-                sslopt = {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
-
-            # Run the connection!
-            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=30, ping_timeout=25, sslopt=sslopt)
+            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=pingIntervalSec, ping_timeout=pingTimeoutSec, sslopt={"ca_certs":certifi.where()})  #pyright: ignore[reportUnknownMemberType]
         except Exception as e:
             # There's a compat issue where  run_forever will try to access "isAlive" when the socket is closing
             # "isAlive" apparently doesn't exist in some PY versions of thread, so this throws. We will ignore that error,
