@@ -118,6 +118,9 @@ class Client:
         # The ping_timeout is used to timeout the select() call when the websocket is waiting for data. There's a bug in the WebSocketApp
         # where it will call select() after the socket is closed, which makes select() hang until the time expires.
         # Thus we need to keep the ping_timeout low, so when this happens, it doesn't hang forever.
+        #
+        # ping_interval we set to a lower value so the plugin will detect dropped connections faster and we will recover faster.
+        # 2 minutes is the recommend value.
         try:
             # Since some clients use RunAsync, check that we didn't close before the async action started.
             with self.isClosedLock:
@@ -130,7 +133,7 @@ class Client:
                 sslopt = {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
 
             # Run the connection!
-            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=600, ping_timeout=20, sslopt=sslopt)
+            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=120, ping_timeout=20, sslopt=sslopt)
         except Exception as e:
             # There's a compat issue where  run_forever will try to access "isAlive" when the socket is closing
             # "isAlive" apparently doesn't exist in some PY versions of thread, so this throws. We will ignore that error,
