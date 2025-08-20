@@ -16,6 +16,7 @@ from wyoming.info import Describe, AsrModel, AsrProgram, Attribution, Info, TtsP
 
 from homeway.sentry import Sentry
 
+from ..util import Util
 from ..ha.homecontext import HomeContext
 
 from .fabric import Fabric
@@ -105,6 +106,14 @@ class SageHandler(AsyncEventHandler):
             # Add the user text to the history, making it the most recent message.
             newMsg = self._EnforceMaxStringLength(transcript.text)
             self.Logger.debug(f"Sage - Transcript Start - {newMsg}")
+
+            # Ensure the message exists and isn't just white space.
+            if Util.IsStrNullOrWhitespace(newMsg):
+                self.Logger.info("Sage - Transcript Start - Empty message, ignoring.")
+                await self.write_event(Handled("").event())
+                return True
+
+            # Add the user message to the transcript.
             self.SageHistory.AddUserText(newMsg)
 
             # Build the request.

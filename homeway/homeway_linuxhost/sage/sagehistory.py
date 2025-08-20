@@ -53,6 +53,7 @@ class SageHistory:
         # Validate the value.
         if msgType != "User" and msgType != "Assistant":
             self.Logger.error(f"Homeway Sage - Unknown message type - {msgType}")
+            return
         if len(text) == 0:
             self.Logger.debug("Homeway Sage - Empty message text - ignoring")
             return
