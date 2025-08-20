@@ -120,7 +120,7 @@ class Client:
         # Thus we need to keep the ping_timeout low, so when this happens, it doesn't hang forever.
         #
         # ping_interval we set to a lower value so the plugin will detect dropped connections faster and we will recover faster.
-        # 2 minutes is the recommend value.
+        # This is also important to ensure NAT routers and such are able to keep the connection alive.
         try:
             # Since some clients use RunAsync, check that we didn't close before the async action started.
             with self.isClosedLock:
@@ -133,7 +133,7 @@ class Client:
                 sslopt = {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
 
             # Run the connection!
-            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=120, ping_timeout=20, sslopt=sslopt)
+            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=30, ping_timeout=25, sslopt=sslopt)
         except Exception as e:
             # There's a compat issue where  run_forever will try to access "isAlive" when the socket is closing
             # "isAlive" apparently doesn't exist in some PY versions of thread, so this throws. We will ignore that error,
