@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.2.12
+
+- 🐞 Bug fixes that should make connectivity better!
+
 ## 2.2.10
 
 - 💬 Added support for ElevenLabs voices, which sound amazing!
