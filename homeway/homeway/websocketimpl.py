@@ -1,4 +1,5 @@
 import queue
+import ssl
 import threading
 from typing import Optional
 import certifi
@@ -134,12 +135,17 @@ class Client:
             if pingIntervalSec > 0 and pingTimeoutSec <= 0:
                 raise Exception("The ping timeout must be greater than 0.")
 
+            # Only if the client explicated called the function to disable this will we turn off cert verification.
+            sslopt={"ca_certs":certifi.where()}
+            if self.disableCertCheck:
+                sslopt = {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+
             # Since some clients use RunAsync, check that we didn't close before the async action started.
             with self.isClosedLock:
                 if self.isClosed:
                     return
 
-            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=pingIntervalSec, ping_timeout=pingTimeoutSec, sslopt={"ca_certs":certifi.where()})  #pyright: ignore[reportUnknownMemberType]
+            self.Ws.run_forever(skip_utf8_validation=True, ping_interval=pingIntervalSec, ping_timeout=pingTimeoutSec, sslopt=sslopt)  #pyright: ignore[reportUnknownMemberType]
         except Exception as e:
             # There's a compat issue where  run_forever will try to access "isAlive" when the socket is closing
             # "isAlive" apparently doesn't exist in some PY versions of thread, so this throws. We will ignore that error,
