@@ -96,7 +96,7 @@ class ConfigManager:
                         return None
                     # Search for the http section.
                     if lineLower.startswith("http:"):
-                        self.Logger.debug("ConfigManager.ReadHttpPort Found the http section.")
+                        self.Logger.debug("ConfigManager.ReadHttpPort Found the http section. "+lineLower)
                         foundHttpSection = True
                     # Search for the line with the port number.
                     if foundHttpSection and lineLower.find("server_port") != -1:

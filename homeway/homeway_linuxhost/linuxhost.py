@@ -151,6 +151,10 @@ class LinuxHost:
                 if discoveryAccessToken is None:
                     # This shouldn't really happen.
                     self.Logger.warning("No access token was found in the config or env.")
+                else:
+                    self.Logger.info("Using HA access token from container env.")
+            else:
+                self.Logger.info("Using HA access token from config.")
 
             # Use the discovery class to find the correct port for Home Assistant.
             # For standalone plugin installs, the installer will get the port set correctly with the user's help.

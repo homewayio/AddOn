@@ -95,17 +95,19 @@ class ServerDiscovery:
                     "Authorization" : f"Bearer {accessCode}",
                     "Content-Type" : "application/json",
                 }
-                self.Logger.debug(f"Searching for the Home Assistant API at {url}")
+                self.Logger.debug(f"Searching for the Home Assistant API at {url}...")
                 try:
                     # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
                     # This is safe to do, because the connection is either going be over localhost or on the local LAN
                     response = requests.get(url, headers=headers, timeout=timeoutSec, verify=False)
                     # If we know we failed, report false.
                     # On success, we want to try the HTML check next.
+                    self.Logger.debug(f"Query result for Home Assistant API at {url}, status code {response.status_code}")
                     if response.status_code != 200:
                         return False
-                except Exception:
+                except Exception as e:
                     # Assume the exception is because there's no server on the port.
+                    self.Logger.debug(f"Query result for Home Assistant API at {url}, exception {str(e)}")
                     return False
 
             # If we get here, the API either was successful or there was no access code.
@@ -113,15 +115,17 @@ class ServerDiscovery:
             headers = {
                 "Content-Type" : "text/html",
             }
-            self.Logger.debug(f"Searching for Home Assistant HTTP at {baseUrl}")
+            self.Logger.debug(f"Searching for Home Assistant HTTP at {baseUrl}...")
             try:
                 # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
                 # This is safe to do, because the connection is either going be over localhost or on the local LAN
                 response = requests.get(baseUrl, headers=headers, timeout=timeoutSec, verify=False)
+                self.Logger.debug(f"Query result for Home Assistant HTTP at {baseUrl}, status code {response.status_code}")
                 # On success, we found a good candidate!
                 if response.status_code == 200:
                     return True
-            except Exception:
+            except Exception as e:
+                self.Logger.debug(f"Query result for Home Assistant HTTP at {baseUrl}, exception {str(e)}")
                 # Assume the exception is because there's no server on the port.
                 return False
 
