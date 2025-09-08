@@ -165,7 +165,7 @@ class HeaderHelper:
                     host = host[:knownPortIndex]
             return host
         except Exception as e:
-            Sentry.Exception("GatherRequestHeaders failed to parse absolute path.", e)
+            Sentry.OnException("GatherRequestHeaders failed to parse absolute path.", e)
         return hostAddress
 
 
@@ -280,5 +280,5 @@ class HeaderHelper:
             return correctedUrl
 
         except Exception as e:
-            Sentry.Exception("CorrectLocationResponseHeaderIfNeeded failed to parse location url "+locationValue, e)
+            Sentry.OnException("CorrectLocationResponseHeaderIfNeeded failed to parse location url "+locationValue, e)
             return locationValue

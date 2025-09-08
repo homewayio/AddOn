@@ -178,7 +178,7 @@ class ConfigManager:
             self.RestartRequired = True
             self.RestartHomeAssistant(ConfigManager.c_TimeToIdleSec)
         except Exception as e:
-            Sentry.Exception("HomeAssistantConfigManager exception.", e)
+            Sentry.OnException("HomeAssistantConfigManager exception.", e)
 
 
     def RestartHomeAssistant(self, restartInSec:float):
@@ -205,7 +205,7 @@ class ConfigManager:
             self.Logger.info("Trying to restart Home Assistant to apply the config change.")
             self.HaConnection.RestartHa()
         except Exception as e:
-            Sentry.Exception("TryToRestartHomeAssistant exception.", e)
+            Sentry.OnException("TryToRestartHomeAssistant exception.", e)
 
 
     # Returns the config file path for the Home Assistant config.
@@ -246,7 +246,7 @@ class ConfigManager:
                     self.Logger.warn(f"We got a config file path from the HA config API [{configFilePath}] but it doesn't exist on this device.")
 
                 except Exception as e:
-                    Sentry.Exception("ConfigManager._GetConfigFilePath failed.", e)
+                    Sentry.OnException("ConfigManager._GetConfigFilePath failed.", e)
 
         # Finally, see if the default config path exists on disk default Home Assistant Core installs.
         # We do this last, because it could be wrong, there could be a standalone addon running on a device with HA, but connected to a different device.

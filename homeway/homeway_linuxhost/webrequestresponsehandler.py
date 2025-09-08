@@ -55,7 +55,7 @@ class WebRequestResponseHandler:
             if path == "/" or path.startswith(("/lovelace", "/auth/authorize", "/map", "/energy", "/logbook", "/config", "/profile", "/todo", "/history")):
                 return ResponseHandlerContext(ResponseHandlerContext.HomeAssistantHtmlPage)
         except Exception as e:
-            Sentry.Exception(f"CheckIfResponseNeedsToBeHandled failed to parse path from uri: {uri}", e)
+            Sentry.OnException(f"CheckIfResponseNeedsToBeHandled failed to parse path from uri: {uri}", e)
         return None
 
 
@@ -69,7 +69,7 @@ class WebRequestResponseHandler:
                 return self._HandleHomeAssistantHtmlPage(bodyBuffer)
             self.Logger.error(f"WebRequestResponseHandler tried to handle a context with an unknown Type? {contextObject.Type}")
         except Exception as e:
-            Sentry.Exception("WebRequestResponseHandler exception while handling mainsail config.", e)
+            Sentry.OnException("WebRequestResponseHandler exception while handling mainsail config.", e)
         return bodyBuffer
 
 

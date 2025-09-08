@@ -72,7 +72,7 @@ class WebServer:
                 if webServer is not None:
                     webServer.server_close()
             except Exception as e:
-                Sentry.Exception("Failed to close the addon webserver.", e)
+                Sentry.OnException("Failed to close the addon webserver.", e)
 
             # Try again after some time.
             backoff = min(backoff + 1, 20)

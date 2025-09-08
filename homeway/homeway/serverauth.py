@@ -38,7 +38,7 @@ class ServerAuthHelper:
             publicKey = rsa.PublicKey.load_pkcs1(ServerAuthHelper.c_ServerPublicKey)
             return rsa.encrypt(self.Challenge.encode('utf8'), publicKey)
         except Exception as e:
-            Sentry.Exception("GetEncryptedChallenge failed.", e)
+            Sentry.OnException("GetEncryptedChallenge failed.", e)
         return None
 
     # Validates the decrypted challenge the server returned is correct.

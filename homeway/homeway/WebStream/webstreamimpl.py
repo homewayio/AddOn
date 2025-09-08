@@ -115,7 +115,7 @@ class WebStreamImpl(threading.Thread):
             if localWsHelper is not None:
                 localWsHelper.Close()
         except Exception as e:
-            Sentry.Exception("Web stream "+str(self.Id)+" helper threw an exception during close", e)
+            Sentry.OnException("Web stream "+str(self.Id)+" helper threw an exception during close", e)
 
 
     def SetClosedDueToFailedRequestConnection(self):
@@ -127,7 +127,7 @@ class WebStreamImpl(threading.Thread):
         try:
             self.mainThread()
         except Exception as e:
-            Sentry.Exception("Exception in web stream ["+str(self.Id)+"] connect loop.", e)
+            Sentry.OnException("Exception in web stream ["+str(self.Id)+"] connect loop.", e)
             traceback.print_exc()
             self.Session.OnSessionError(0)
 
@@ -263,7 +263,7 @@ class WebStreamImpl(threading.Thread):
         try:
             self.Session.Send(buffer, msgStartOffsetBytes, msgSize)
         except Exception as e:
-            Sentry.Exception("Web stream "+str(self.Id)+ " failed to send a message to the Stream.", e)
+            Sentry.OnException("Web stream "+str(self.Id)+ " failed to send a message to the Stream.", e)
 
             # If this was the close message, set the has set flag back to false so we send again.
             # (this mostly won't matter, since the entire connection will go down anyways)
@@ -295,7 +295,7 @@ class WebStreamImpl(threading.Thread):
             self.SendToStream(buffer, msgStartOffsetBytes, msgSizeBytes, True, True)
         except Exception as e:
             # This is bad, log it and kill the stream.
-            Sentry.Exception("Exception thrown while trying to send close message for web stream "+str(self.Id), e)
+            Sentry.OnException("Exception thrown while trying to send close message for web stream "+str(self.Id), e)
             self.Session.OnSessionError(0)
 
 

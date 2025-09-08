@@ -186,14 +186,14 @@ class Client:
                 # We don't have a logger, sooooooo
                 print("Websocket closed due to: 'NoneType' object has no attribute 'close'")
             else:
-                Sentry.Exception("Websocket fireWsErrorCallbackThread close exception", e)
+                Sentry.OnException("Websocket fireWsErrorCallbackThread close exception", e)
 
         # Always ensure we close the send queue.
         try:
             # Push an empty buffer to the send queue, which will close it.
             self.SendQueue.put(SendQueueContext(None))
         except Exception as e:
-            Sentry.Exception("Exception while trying to close the send queue.", e)
+            Sentry.OnException("Exception while trying to close the send queue.", e)
 
 
     # This can be called from our logic internally in this class or from
@@ -225,7 +225,7 @@ class Client:
             if self.clientWsErrorCallback:
                 self.clientWsErrorCallback(self, exception)
         except Exception as e :
-            Sentry.Exception("Websocket client exception in fireWsErrorCallbackThread", e)
+            Sentry.OnException("Websocket client exception in fireWsErrorCallbackThread", e)
 
         # Be sure we always close the WS
         self._Close()
@@ -271,7 +271,7 @@ class Client:
             self.handleWsError(e)
         finally:
             # When the send queue closes, make sure the websocket is closed.
-            # This is a safety, incase for some reason the websocket was open and we were told to close.
+            # This is a safety, in case for some reason the websocket was open and we were told to close.
             self._Close()
 
 

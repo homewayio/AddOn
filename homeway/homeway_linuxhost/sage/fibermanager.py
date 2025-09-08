@@ -406,7 +406,7 @@ class FiberManager:
                     return True
 
         except Exception as e:
-            Sentry.Exception("Sage message pipeline exception", e)
+            Sentry.OnException("Sage message pipeline exception", e)
         finally:
             # If we don't want to keep the context around, clean it up now.
             if cleanUpContextOnExit:
@@ -535,7 +535,7 @@ class FiberManager:
 
         except Exception as e:
             # If we fail, reset the socket.
-            Sentry.Exception("Sage _CleanUpStreamContext exception", e)
+            Sentry.OnException("Sage _CleanUpStreamContext exception", e)
             self.Fabric.Close()
 
 

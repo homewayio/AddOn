@@ -978,7 +978,7 @@ class WebStreamHttpHelper:
                             break
 
         except Exception as e:
-            Sentry.Exception(self.getLogMsgPrefix()+ " exception thrown in http stream chunk reader", e)
+            Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in http stream chunk reader", e)
             return 0
 
         # Check if we found a content length header
@@ -1097,7 +1097,7 @@ class WebStreamHttpHelper:
                 # Don't do the entire sentry exception print, since it's too long.
                 self.Logger.warn("doBodyRead failed with an IncompleteRead, so the stream is done.")
                 return None
-            Sentry.Exception(self.getLogMsgPrefix()+ " exception thrown in doBodyRead. Ending body read.", e)
+            Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doBodyRead. Ending body read.", e)
             return None
 
 
@@ -1132,7 +1132,7 @@ class WebStreamHttpHelper:
             # These exceptions happen for use cases as above, where stream() doesn't close in time and such.
             # Note the exception can be a timeout, but it can also be a "doesn't have a read" function error bc if the socket gets data the lib will try to call read on a fp that's closed and set to None. :/
             if self.IsClosed is False:
-                Sentry.Exception(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodyChunkReadThread", e)
+                Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodyChunkReadThread", e)
         finally:
             # Ensure we always set this flag, so the web stream will know the body read is done.
             self.UnknownBodyChunkReadContext.ReadComplete = True
@@ -1257,7 +1257,7 @@ class WebStreamHttpHelper:
             return finalBuffer
 
         except Exception as e:
-            Sentry.Exception(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodySizeRead. Ending body read.", e)
+            Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodySizeRead. Ending body read.", e)
             return None
 
 

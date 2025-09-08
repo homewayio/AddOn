@@ -67,7 +67,7 @@ class CustomFileServer:
             # Build the script tag
             self.HomewayCustomHtmlHeaderIncludeBytes = f'<script src="{CustomFileServer._HomewayCustomPath}{CustomFileServer._HomewayCustomIndexJsFileName}?v={jsFileHash}" defer></script><link rel="stylesheet" href="{CustomFileServer._HomewayCustomPath}{CustomFileServer._HomewayCustomIndexCssFileName}?v={cssFileHash}">'.encode()
         except Exception as e:
-            Sentry.Exception("CustomFileServer.UpdateAddonConfig failed.", e)
+            Sentry.OnException("CustomFileServer.UpdateAddonConfig failed.", e)
 
 
     # This will return the tag or None if the script isn't ready to be sent yet.
@@ -95,7 +95,7 @@ class CustomFileServer:
             # See if the path starts with our special prefix, if it does, we handle it.
             return path.startswith(CustomFileServer._HomewayCustomPath)
         except Exception as e:
-            Sentry.Exception("CustomFileServer.IsCustomFileRequest failed.", e)
+            Sentry.OnException("CustomFileServer.IsCustomFileRequest failed.", e)
         return False
 
 
