@@ -58,7 +58,7 @@ class CompressionContext:
         try:
             self.__exit__(None, None, None)
         except Exception as e:
-            Sentry.Exception("CompressionContext had an exception on object delete", e)
+            Sentry.OnException("CompressionContext had an exception on object delete", e)
 
 
     def __enter__(self):

@@ -98,7 +98,7 @@ class LinuxHost:
             privateKey = self.GetPrivateKey()
 
             # Set the plugin id when we know it.
-            Sentry.SetPluginId(pluginId)
+            Sentry.SetAddonId(pluginId)
 
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.
@@ -209,7 +209,7 @@ class LinuxHost:
             oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr, self.AddonType)
             oe.RunBlocking()
         except Exception as e:
-            Sentry.Exception("!! Exception thrown out of main host run function.", e)
+            Sentry.OnException("!! Exception thrown out of main host run function.", e)
 
         # Allow the loggers to flush before we exit
         try:

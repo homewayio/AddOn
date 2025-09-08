@@ -67,7 +67,7 @@ class SageHost:
             try:
                 asyncio.run(self._ServerThread())
             except Exception as e:
-                Sentry.Exception("SageHost Asyncio Error", e)
+                Sentry.OnException("SageHost Asyncio Error", e)
             self.Logger.error("Sage exited the asyncio loop. Restarting in 30 seconds.")
             time.sleep(30)
 
@@ -93,7 +93,7 @@ class SageHost:
                 port=server.port,
             )
         except Exception as e:
-            Sentry.Exception("Zeroconf Error", e)
+            Sentry.OnException("Zeroconf Error", e)
 
         # Run!
         await server.run(

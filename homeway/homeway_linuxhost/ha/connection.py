@@ -142,7 +142,10 @@ class Connection:
                 self.Logger.info(f"{self._getLogTag()} Loop restarting.")
 
             except Exception as e:
-                Sentry.Exception("ConnectionThread exception.", e)
+                if Sentry.IsCommonConnectionException(e):
+                    self.Logger.warning(f"{self._getLogTag()} ConnectionThread common exception: {e}")
+                else:
+                    Sentry.OnException("ConnectionThread exception.", e)
 
 
     def _OnData(self, ws:Client, buffer:bytes, msgType):
@@ -216,10 +219,10 @@ class Connection:
                     event = jsonObj["event"]
                     self.EventHandler.OnEvent(event, self.HaVersionString)
                 except Exception as e:
-                    Sentry.Exception("HA Event Handler threw an exception.", e)
+                    Sentry.OnException("HA Event Handler threw an exception.", e)
 
         except Exception as e:
-            Sentry.Exception("ConnectionThread exception.", e)
+            Sentry.OnException("ConnectionThread exception.", e)
             self.Close()
 
 
@@ -277,7 +280,7 @@ class Connection:
 
             # Wait for the response.
         except Exception as e:
-            Sentry.Exception("SendMsg exception.", e)
+            Sentry.OnException("SendMsg exception.", e)
         finally:
             # If we have a pending context, make sure to remove it.
             if pendingContext is not None:

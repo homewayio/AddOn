@@ -65,7 +65,7 @@ class Session:
             # Process it!
             self.Stream.OnSummonRequest(self.SessionId, serverConnectUrl, summonMethod)
         except Exception as e:
-            Sentry.Exception("Failed to handle summon request ", e)
+            Sentry.OnException("Failed to handle summon request ", e)
 
 
     def HandleHandshakeAck(self, msg):
@@ -191,9 +191,9 @@ class Session:
                 try:
                     webStream.Close()
                 except Exception as e:
-                    Sentry.Exception("Exception thrown while closing web streamId", e)
+                    Sentry.OnException("Exception thrown while closing web streamId", e)
         except Exception as ex:
-            Sentry.Exception("Exception thrown while closing all web streams.", ex)
+            Sentry.OnException("Exception thrown while closing all web streams.", ex)
 
 
     def StartHandshake(self, summonMethod, addonType:AddonTypes):
@@ -219,7 +219,7 @@ class Session:
             # Send!
             self.Stream.SendMsg(buffer, msgStartOffsetBytes, msgSizeBytes)
         except Exception as e:
-            Sentry.Exception("Failed to send handshake syn.", e)
+            Sentry.OnException("Failed to send handshake syn.", e)
             self.OnSessionError(0)
 
 
@@ -233,7 +233,7 @@ class Session:
         try:
             msg = self.DecodeStreamMessage(msgBytes)
         except Exception as e:
-            Sentry.Exception("Failed to decode message local request.", e)
+            Sentry.OnException("Failed to decode message local request.", e)
             self.OnSessionError(0)
             return
 
@@ -261,7 +261,7 @@ class Session:
         except Exception as e:
             # If anything throws, we consider it a protocol failure.
             traceback.print_exc()
-            Sentry.Exception("Failed to handle message.", e)
+            Sentry.OnException("Failed to handle message.", e)
             self.OnSessionError(0)
             return
 

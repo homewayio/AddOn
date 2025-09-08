@@ -88,7 +88,7 @@ class Fabric:
             ws.Send(data, dataStartOffsetBytes, dataLength)
             return True
         except Exception as e:
-            Sentry.Exception("Sage Fabric SendMsg exception.", e)
+            Sentry.OnException("Sage Fabric SendMsg exception.", e)
         return False
 
 
@@ -165,7 +165,7 @@ class Fabric:
                 self.Logger.info(f"{self._getLogTag()} Loop restarting.")
 
             except Exception as e:
-                Sentry.Exception("Sage Fabric ConnectionThread exception.", e)
+                Sentry.OnException("Sage Fabric ConnectionThread exception.", e)
 
 
     def _OnData(self, ws:Client, buffer:bytes, msgType):
@@ -178,7 +178,7 @@ class Fabric:
             self.FiberManager.OnIncomingMessage(buffer)
 
         except Exception as e:
-            Sentry.Exception("Sage Fiber _OnData exception.", e)
+            Sentry.OnException("Sage Fiber _OnData exception.", e)
             self.Close()
 
 

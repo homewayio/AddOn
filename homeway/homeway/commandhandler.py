@@ -152,7 +152,7 @@ class CommandHandler:
             if postBody_CanBeNone is not None:
                 jsonObj_CanBeNone = json.loads(postBody_CanBeNone)
         except Exception as e:
-            Sentry.Exception("CommandHandler error while parsing command args.", e)
+            Sentry.OnException("CommandHandler error while parsing command args.", e)
             responseObj = CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, str(e))
 
         # Handle the command
@@ -160,7 +160,7 @@ class CommandHandler:
         try:
             responseObj = self.ProcessCommand(commandPath, jsonObj_CanBeNone)
         except Exception as e:
-            Sentry.Exception("CommandHandler error while handling command.", e)
+            Sentry.OnException("CommandHandler error while handling command.", e)
             responseObj = CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, str(e))
 
 
@@ -180,7 +180,7 @@ class CommandHandler:
             resultBytes = json.dumps(jsonResponse).encode(encoding="utf-8")
 
         except Exception as e:
-            Sentry.Exception("CommandHandler failed to serialize response.", e)
+            Sentry.OnException("CommandHandler failed to serialize response.", e)
             # Use a known good json object for this error.
             resultBytes = json.dumps(
                 {

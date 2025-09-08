@@ -39,7 +39,7 @@ class Options:
                 return None
             return str(val)
         except Exception as e:
-            Sentry.Exception("Failed to get Ha Options key", e)
+            Sentry.OnException("Failed to get Ha Options key", e)
             return default
 
 
@@ -50,4 +50,4 @@ class Options:
             with open(Options.c_HomeAssistantOptionsConfigFilepath, "r", encoding="utf-8") as f:
                 self._Options = json.load(f)
         except Exception as e:
-            Sentry.Exception("Failed to load the options file", e)
+            Sentry.OnException("Failed to load the options file", e)

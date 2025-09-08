@@ -136,7 +136,7 @@ class HomeContext:
             return stateCompressionResult, liveContextCompressionResult
 
         except Exception as e:
-            Sentry.Exception("Home Context GetStates error", e)
+            Sentry.OnException("Home Context GetStates error", e)
         finally:
             self.Logger.debug(f"Home Context GetStates - Total: {time.time() - start}s - Filter: {time.time() - filterTime}s")
         return None, None
@@ -188,7 +188,7 @@ class HomeContext:
                 self.MostRecentUpdateSuccess = True
 
             except Exception as e:
-                Sentry.Exception("HomeContext worker error", e)
+                Sentry.OnException("HomeContext worker error", e)
                 # Always sleep on error.
                 time.sleep(60)
 
@@ -233,7 +233,7 @@ class HomeContext:
                         elif count == 4:
                             result.Labels = response
                 except Exception as e:
-                    Sentry.Exception(f"Home Context query all {type} exception.", e)
+                    Sentry.OnException(f"Home Context query all {type} exception.", e)
                 finally:
                     s.release()
 
@@ -249,7 +249,7 @@ class HomeContext:
 
             return result
         except Exception as e:
-            Sentry.Exception("Home Context _QueryAllObjects error", e)
+            Sentry.OnException("Home Context _QueryAllObjects error", e)
         return None
 
 
@@ -293,7 +293,7 @@ class HomeContext:
             floors[HomeContext.NoneString] = floor
 
         # Build the areas.
-        # We build these sub dicts so we can easily associate them with the floors and incase something like areas fails, we can still send the floors.
+        # We build these sub dicts so we can easily associate them with the floors and in case something like areas fails, we can still send the floors.
         areas = {}
         areaResults = self._GetResultsFromHaMsg("areas", result.Areas)
         if areaResults is not None:
@@ -608,7 +608,7 @@ class HomeContext:
                 return None
             return result
         except Exception as e:
-            Sentry.Exception("Home Context _QueryCurrentState error", e)
+            Sentry.OnException("Home Context _QueryCurrentState error", e)
         return None
 
 

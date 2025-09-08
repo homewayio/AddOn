@@ -311,7 +311,7 @@ class EventHandler:
                 if (e is ConnectionError or e is ssl.SSLError) and "Max retries exceeded with url" in str(e):
                     self.Logger.error("Homeway server is not reachable. Will try again later.", e)
                 else:
-                    Sentry.Exception("_StateChangeSender exception", e)
+                    Sentry.OnException("_StateChangeSender exception", e)
 
 
     def _TempUnitsDetector(self):
@@ -346,4 +346,4 @@ class EventHandler:
                 else:
                     self.Logger.warn(f"Get config API unknown temperature unit [{configApiJson['unit_system']['temperature']}]")
             except Exception as e:
-                Sentry.Exception("_StateChangeSender exception", e)
+                Sentry.OnException("_StateChangeSender exception", e)

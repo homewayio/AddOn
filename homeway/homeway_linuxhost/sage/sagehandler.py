@@ -243,7 +243,7 @@ class SageHandler(AsyncEventHandler):
                 await self._CacheAndWriteInfoEvent(info, False)
                 return True
         except Exception as e:
-            Sentry.Exception("Sage - _HandleDescribe failed to write the cached info object, we will try for a new info object.", e)
+            Sentry.OnException("Sage - _HandleDescribe failed to write the cached info object, we will try for a new info object.", e)
 
         # Note for some reason the name of the AsrProgram is what will show up in the discovery for users.
         # Get the current programs / models / voices from the service.
@@ -291,7 +291,7 @@ class SageHandler(AsyncEventHandler):
                     await asyncio.sleep(5)
 
         except Exception as e:
-            Sentry.Exception("Sage - Failed get info from service.", e)
+            Sentry.OnException("Sage - Failed get info from service.", e)
             await self.WriteError("Homeway Sage failed to get the models info from the service.")
             return False
 

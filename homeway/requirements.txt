@@ -20,6 +20,7 @@
 #   urllib3 - There is a bug with parsing headers in versions older than 1.26.? (https://github.com/diyan/pywinrm/issues/269). At least 1.26.6 fixes it, ubt we decide to just stick with a newer version.
 #   wyoming - For sage and the local assist APIs. We have built or logic on 1.6 and since this isn't a huge lib we will lock to that.
 #   zeroconf - Used internally in the wyoming lib for service discovery.
+#   sentry-sdk - For error reporting. We want to keep this as current as possible to get the latest fixes and features.
 #
 octowebsocket_client==1.8.3
 octoflatbuffers==24.3.27
@@ -35,5 +36,6 @@ pyyaml
 configparser
 wyoming>=1.7.2,<1.8
 zeroconf>=0.136.2,<0.148.0
+sentry-sdk>=2.20.0,<3
 #sentry-sdk>=1.19.1,<2 - Not used right now.
 #zstandard <version> - Installed dynamically if the platform supports it.

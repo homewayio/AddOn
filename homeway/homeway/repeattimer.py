@@ -23,7 +23,7 @@ class RepeatTimer(threading.Thread):
                     return
                 self.callback()
             except Exception as e:
-                Sentry.Exception("Exception in RepeatTimer thread.", e)
+                Sentry.OnException("Exception in RepeatTimer thread.", e)
         self.logger.info("RepeatTimer thread exit")
 
 

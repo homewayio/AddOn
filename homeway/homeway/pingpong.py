@@ -54,7 +54,7 @@ class PingPong:
             th.setDaemon(True)
             th.start()
         except Exception as e:
-            Sentry.Exception("Failed to start PingPong Thread.", e)
+            Sentry.OnException("Failed to start PingPong Thread.", e)
 
 
     # Used for local debugging.
@@ -80,7 +80,7 @@ class PingPong:
                 return None
             return lowestLatencyServerSub
         except Exception as e:
-            Sentry.Exception("Exception in PingPong GetLowestLatencyServerSub.", e)
+            Sentry.OnException("Exception in PingPong GetLowestLatencyServerSub.", e)
         return None
 
 
@@ -137,7 +137,7 @@ class PingPong:
                         self.PluginFirstRunLatencyCompleteCallback()
 
             except Exception as e:
-                Sentry.Exception("Exception in PingPong thread.", e)
+                Sentry.OnException("Exception in PingPong thread.", e)
 
 
     def _UpdateStats(self):

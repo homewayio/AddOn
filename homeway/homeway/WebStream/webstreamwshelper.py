@@ -239,7 +239,7 @@ class WebStreamWsHelper:
         try:
             self.CompressionContext.__exit__(None, None, None)
         except Exception as e:
-            Sentry.Exception("Websocket stream helper failed to clean up the compression context.", e)
+            Sentry.OnException("Websocket stream helper failed to clean up the compression context.", e)
 
 
     # Called when a new message has arrived for this stream from the server.
@@ -361,7 +361,7 @@ class WebStreamWsHelper:
             # Send it!
             self.WebStream.SendToStream(buffer, msgStartOffsetBytes, msgSizeBytes)
         except Exception as e:
-            Sentry.Exception(self.getLogMsgPrefix()+ " got an error while trying to forward websocket data to the service.", e)
+            Sentry.OnException(self.getLogMsgPrefix()+ " got an error while trying to forward websocket data to the service.", e)
             self.WebStream.Close()
 
 

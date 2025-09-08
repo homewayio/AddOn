@@ -54,11 +54,11 @@ class Homeway:
                 #msg = str(e)
                 #if "can't start new thread" in msg:
                 ThreadDebug.DoThreadDumpLogout(self.Logger)
-                Sentry.Exception("RuntimeError in Homeway's main RunBlocking function.", e)
+                Sentry.OnException("RuntimeError in Homeway's main RunBlocking function.", e)
                 # Sleep for a long time, since this can't be recovered from easily.
                 time.sleep(60 * 60 * 2)
             except Exception as e:
-                Sentry.Exception("Exception in Homeway's main RunBlocking function.", e)
+                Sentry.OnException("Exception in Homeway's main RunBlocking function.", e)
                 # Sleep for just a bit and try again.
                 time.sleep(5)
 
@@ -87,7 +87,7 @@ class Homeway:
             serverCon = self.createServerCon(summonConnectUrl, False, False, None, self.SecondaryConnectionRunForTimeSec, summonMethod, self.AddonType)
             serverCon.RunBlocking()
         except Exception as e:
-            Sentry.Exception("Exception in HandleSecondaryServerCon function.", e)
+            Sentry.OnException("Exception in HandleSecondaryServerCon function.", e)
 
         # Since this is a secondary connection, when RunBlocking() returns we want to be done.
         with self.SecondaryServerConsLock:
@@ -98,7 +98,7 @@ class Homeway:
                 else:
                     self.Logger.error("Secondary ended but there's not an ref of it in the map?")
             except Exception as e:
-                Sentry.Exception("Exception when removing secondary connection from map.", e)
+                Sentry.OnException("Exception when removing secondary connection from map.", e)
 
         self.Logger.info("Secondary connection to "+str(summonConnectUrl)+" has ended")
 
