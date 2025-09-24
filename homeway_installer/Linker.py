@@ -1,6 +1,7 @@
 import os
 import time
 import configparser
+from typing import Optional, Tuple
 import requests
 
 from homeway.homeway_linuxhost.secrets import Secrets
@@ -14,10 +15,10 @@ from .Context import Context
 # and if not helping the user link their addon to Homeway.
 class Linker:
 
-    def Run(self, context:Context):
+    def Run(self, context:Context) -> None:
 
         # First, wait for the config file to be created and the addon ID to show up.
-        addonId = None
+        addonId:Optional[str] = None
         startTimeSec = time.time()
         Logger.Info("Waiting for the Homeway add-on to produce an add-on id... (this can take a few seconds)")
         while addonId is None:
@@ -136,7 +137,7 @@ class Linker:
             time.sleep(1.0)
 
 
-    def _PrintShortCodeStyleOrFullUrl(self, addonId):
+    def _PrintShortCodeStyleOrFullUrl(self, addonId:str) -> None:
         # To make the setup easier, we will present the user with a short code if we can get one.
         # If not, fallback to the full URL.
         try:
@@ -162,7 +163,7 @@ class Linker:
 
     # Get's the addon id from the instances secrets config file, if the config exists.
     @staticmethod
-    def GetAddonIdFromServiceSecretsConfigFile(context:Context) -> str:
+    def GetAddonIdFromServiceSecretsConfigFile(context:Context) -> Optional[str]:
         # This path and name must stay in sync with where the addon will write the file.
         addonServiceConfigFilePath = os.path.join(context.LocalDataFolder, Secrets.FileName)
 
@@ -208,7 +209,7 @@ class Linker:
     # Returns a tuple of two values
     #   1 - bool - Is the addon connected to the service
     #   2 - string - If the addon is setup on an account, the addon name.
-    def _IsAddonConnectedToAnAccount(self, addonId):
+    def _IsAddonConnectedToAnAccount(self, addonId:str) -> Tuple[bool, Optional[str]]:
         # Adding retry logic, since one call can fail if the server is updating or whatever.
         attempt = 0
         while True:
@@ -245,5 +246,5 @@ class Linker:
                 time.sleep(2.0 * attempt)
 
 
-    def _GetAddAddonUrl(self, addonId):
+    def _GetAddAddonUrl(self, addonId:str) -> str:
         return "https://homeway.io/getstarted?id="+addonId

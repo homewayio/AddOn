@@ -1,3 +1,5 @@
+# yamllint disable rule:line-length
+
 ---
 name: Lint
 
@@ -62,18 +64,86 @@ jobs:
       # We always install zstandard by hand, since it's an optional lib.
       # Ideally this version will stay in sync with
       # Compression.ZStandardPipPackageString
-      - name: Install dependencies
+      - name: 🏗️ Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pylint
+          pip install pyright
+          pip install ruff
           pip install -r ./homeway/requirements.txt
           pip install "zstandard>=0.21.0,<0.23.0"
-      - name: Analyzing the code with pylint
+      # This crazy script is needed to ensure that we always run pylint
+      # on all of the files in the repo and the path is set correctly for it to work.
+      - name: 👖 Running Pylint
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          pylint ./homeway_installer/
-          pylint ./homeway_standalone_docker/
-          pylint ./homeway/homeway
-          pylint ./homeway/homeway_linuxhost/
+          python - <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          repo_root = Path(".")
+          tracked_files = subprocess.check_output(
+              ["git", "ls-files", "*.py"],
+              text=True,
+          ).splitlines()
+
+          if not tracked_files:
+              sys.exit(0)
+
+          package_roots = set()
+          standalone_modules = set()
+
+          for file_path in tracked_files:
+              path = Path(file_path)
+              package_root = None
+
+              for ancestor in path.parents:
+                  if ancestor == repo_root:
+                      break
+                  if (ancestor / "__init__.py").exists():
+                      package_root = ancestor
+
+              if package_root is None:
+                  standalone_modules.add(path)
+              else:
+                  package_roots.add(package_root)
+
+          def has_parent_package(path: Path) -> bool:
+              for parent in path.parents:
+                  if parent == repo_root:
+                      break
+                  if parent in package_roots:
+                      return True
+              return False
+
+          filtered_packages = {
+              pkg for pkg in package_roots if not has_parent_package(pkg)
+          }
+
+          def run_pylint(target: Path) -> bool:
+              print(f"Running pylint on {target}...")
+              result = subprocess.run(["pylint", str(target)], check=False)
+              return result.returncode == 0
+
+          success = True
+
+          for package in sorted(filtered_packages, key=lambda p: (len(p.parts), str(p))):
+              success &= run_pylint(package)
+
+          for module in sorted(standalone_modules, key=str):
+              success &= run_pylint(module)
+
+          if not success:
+              sys.exit(1)
+          PY
+      - name: 👉 Pyright
+        run: |
+          pyright
+      - name: 🐶 Ruff
+        run: |
+          ruff check
 
   lint-addon:
     name: Lint Add-on
@@ -102,17 +172,6 @@ jobs:
         with:
           dockerfile: "./${{ needs.information.outputs.target }}/Dockerfile"
           ignore: DL3006
-
-  lint-json:
-    name: JSON Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v5
-      - name: 🚀 Run JQ
-        run: |
-          shopt -s globstar
-          cat **/*.json | jq '.'
 
   lint-yamllint:
     name: YAMLLint

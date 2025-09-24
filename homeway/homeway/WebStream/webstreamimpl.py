@@ -1,37 +1,41 @@
-# namespace: WebStream
-
 import threading
-import traceback
 import time
 import queue
 import logging
+from typing import Any, Optional
 
+from ..buffer import Buffer
 from ..sentry import Sentry
 from ..streammsgbuilder import StreamMsgBuilder
-from .webstreamhttphelper import WebStreamHttpHelper
-from .webstreamwshelper import WebStreamWsHelper
+from ..interfaces import ISession, IWebStream
+from ..debugprofiler import DebugProfiler, DebugProfilerFeatures
+
 from ..Proto import WebStreamMsg
 from ..Proto import MessageContext
 from ..Proto import MessagePriority
 
+from .webstreamhttphelper import WebStreamHttpHelper
+from .webstreamwshelper import WebStreamWsHelper
+
+
 #
 # Represents a web stream, which is how we send http request and web socket messages.
 #
-class WebStreamImpl(threading.Thread):
+class WebStreamImpl(threading.Thread, IWebStream):
 
     # Created when an open message is sent for a new web stream from the server.
-    def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
+    def __init__(self, group:Any=None, target:Any=None, name:Any=None, args:Any=(), kwargs:Any=None, verbose:Any=None):
         threading.Thread.__init__(self, group=group, target=target, name=name)
         self.Logger:logging.Logger = args[0]
-        self.Id = args[1]
-        self.Session = args[2]
-        self.OpenWebStreamMsg:WebStreamMsg.WebStreamMsg = None
+        self.Id:int = args[1]
+        self.Session:ISession = args[2]
+        self.OpenWebStreamMsg:Optional[WebStreamMsg.WebStreamMsg] = None
         self.IsClosed = False
         self.HasSentCloseMessage = False
         self.StateLock = threading.Lock()
-        self.MsgQueue = queue.Queue()
-        self.HttpHelper = None
-        self.WsHelper = None
+        self.MsgQueue:queue.Queue[Optional[WebStreamMsg.WebStreamMsg]] = queue.Queue()
+        self.HttpHelper:Optional[WebStreamHttpHelper] = None
+        self.WsHelper:Optional[WebStreamWsHelper] = None
         self.IsHelperClosed = False
         self.OpenedTime = time.time()
         self.ClosedDueToRequestConnectionError = False
@@ -58,7 +62,7 @@ class WebStreamImpl(threading.Thread):
         if webStreamMsg.IsCloseMsg():
             # Note right now we don't support getting close messages with data.
             if webStreamMsg.IsControlFlagsOnly is False:
-                self.Logger.warn("Web stream "+str(self.Id)+" got a close message with data. The data will be ignored.")
+                self.Logger.warning("Web stream "+str(self.Id)+" got a close message with data. The data will be ignored.")
             # Set this flag, because we don't need to send a close message if the server already did.
             self.HasSentCloseMessage = True
             # Call close.
@@ -74,8 +78,8 @@ class WebStreamImpl(threading.Thread):
     def Close(self):
         # Check the state and set the flag. Only allow this code to run
         # once.
-        localHttpHelper = None
-        localWsHelper = None
+        localHttpHelper:Optional[WebStreamHttpHelper] = None
+        localWsHelper:Optional[WebStreamWsHelper] = None
 
         with self.StateLock:
             # If we are already closed, there's nothing to do.
@@ -124,12 +128,13 @@ class WebStreamImpl(threading.Thread):
 
     # This is our main thread, where we will process all incoming messages.
     def run(self):
-        try:
-            self.mainThread()
-        except Exception as e:
-            Sentry.OnException("Exception in web stream ["+str(self.Id)+"] connect loop.", e)
-            traceback.print_exc()
-            self.Session.OnSessionError(0)
+      # Enable the profiler if needed- it will do nothing if not enabled.
+        with DebugProfiler(self.Logger, DebugProfilerFeatures.WebStream):
+            try:
+                self.mainThread()
+            except Exception as e:
+                Sentry.OnException("Exception in web stream ["+str(self.Id)+"] connect loop.", e)
+                self.Session.OnSessionError(0)
 
 
     def mainThread(self):
@@ -140,7 +145,7 @@ class WebStreamImpl(threading.Thread):
             # Timeout after 60 seconds just to check that we aren't closed.
             # It's important to set this value to None, otherwise on loops it will hold it's old value
             # which can accidentally re-process old messages.
-            webStreamMsg:WebStreamMsg.WebStreamMsg = None
+            webStreamMsg:Optional[WebStreamMsg.WebStreamMsg] = None
             try:
                 webStreamMsg = self.MsgQueue.get(timeout=60)
             except Exception as _:
@@ -186,7 +191,7 @@ class WebStreamImpl(threading.Thread):
             # returning the correct returnValue, so if we see that we will call close to make sure things
             # are going down. Since Close() is guarded against multiple entries, this is totally fine.
             if self.HasSentCloseMessage is True and self.IsClosed is False:
-                self.Logger.warn("Web stream "+str(self.Id)+" processed a message and has sent a close message, but didn't call close on the web stream. Closing now.")
+                self.Logger.warning("Web stream "+str(self.Id)+" processed a message and has sent a close message, but didn't call close on the web stream. Closing now.")
                 self.Close()
                 return
 
@@ -239,7 +244,7 @@ class WebStreamImpl(threading.Thread):
 
 
     # Called by the helpers to send messages to the server.
-    def SendToStream(self, buffer:bytearray, msgStartOffsetBytes:int, msgSize:int, isCloseFlagSet = False, silentlyFail = False):
+    def SendToStream(self, buffer:Buffer, msgStartOffsetBytes:int, msgSize:int, isCloseFlagSet=False, silentlyFail=False) -> None:
         # Make sure we aren't closed. If we are, don't allow the message to be sent.
         with self.StateLock:
             if self.IsClosed is True:
@@ -252,7 +257,7 @@ class WebStreamImpl(threading.Thread):
                     # We can only send one close flag, so only allow this to send if we haven't sent yet.
                     if self.HasSentCloseMessage:
                         if silentlyFail is False:
-                            self.Logger.warn("Web Stream "+str(self.Id)+" tried to send a close message after a close message was already sent")
+                            self.Logger.warning("Web Stream "+str(self.Id)+" tried to send a close message after a close message was already sent")
                         return
 
             # No matter what, if the close flag is set, set the has sent now.

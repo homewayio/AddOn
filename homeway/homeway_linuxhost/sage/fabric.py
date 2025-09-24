@@ -2,11 +2,15 @@ import time
 import random
 import logging
 import threading
-import octowebsocket
+from typing import Dict, Optional
 
+from homeway.buffer import Buffer
+from homeway.interfaces import IWebSocketClient, WebSocketOpCode
 from homeway.sentry import Sentry
 from homeway.websocketimpl import Client
 from homeway.pingpong import PingPong
+
+from .interfaces import IFiberManager
 
 # Manages the Sage Fabric connection with the Homeway service.
 class Fabric:
@@ -14,22 +18,22 @@ class Fabric:
     # For debugging, it's too chatty to enable always.
     c_LogWsMessages = False
 
-    def __init__(self, logger:logging.Logger, fiberManager, pluginId:str, apiKey:str, addonVersion:str, devLocalHomewayServerAddress_CanBeNone:str) -> None:
+    def __init__(self, logger:logging.Logger, fiberManager:IFiberManager, pluginId:str, apiKey:str, addonVersion:str, devLocalHomewayServerAddress:Optional[str]) -> None:
         self.Logger = logger
         self.FiberManager = fiberManager
         self.PrinterId = pluginId
         self.ApiKey = apiKey
         self.AddonVersion = addonVersion
-        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
+        self.DevLocalHomewayServerAddress = devLocalHomewayServerAddress
 
         # The current websocket connection and Id
-        self.ConId = 0
-        self.BackoffCounter = 0
-        self.Ws = None
+        self.ConId:int = 0
+        self.BackoffCounter:int = 0
+        self.Ws:Optional[Client] = None
 
         # Indicates if the connection is connection and authed.
         self.IsConnected = False
-        self.LastSuccessfulConnectSec:float = 0
+        self.LastSuccessfulConnectSec:float = 0.0
 
 
     # Returns if the socket is currently connected.
@@ -73,7 +77,7 @@ class Fabric:
 
     # Sends a message using fabric.
     # Returns True on success.
-    def SendMsg(self, data:bytearray, dataStartOffsetBytes:int, dataLength:int) -> bool:
+    def SendMsg(self, data:Buffer, dataStartOffsetBytes:int, dataLength:int) -> bool:
         # Capture and check the websocket.
         ws = self.Ws
         if ws is None:
@@ -93,7 +97,7 @@ class Fabric:
 
 
     # Called when the websocket is up and authed.
-    def _OnConnected(self, ws:Client) -> None:
+    def _OnConnected(self, _:IWebSocketClient) -> None:
         self.Logger.info(f"{self._getLogTag()} Successfully authed and connected!")
 
         # Set connected, mark the time, and clear the backoff counter.
@@ -132,7 +136,7 @@ class Fabric:
 
             try:
                 # Called when the websocket is closed.
-                def Closed(ws:Client):
+                def Closed(ws:IWebSocketClient):
                     self.Logger.info(f"{self._getLogTag()} Websocket closed")
 
                 # Get the subdomain to use. If possible, we want to use the low latency server.
@@ -145,12 +149,12 @@ class Fabric:
 
                 # Build the full URL, allow the dev config to override it.
                 uri = f"wss://{subdomain}.homeway.io/sage-fabric-websocket"
-                if self.DevLocalHomewayServerAddress_CanBeNone is not None and len(self.DevLocalHomewayServerAddress_CanBeNone) > 0:
-                    self.Logger.info(f"{self._getLogTag()} Using dev local server address [{self.DevLocalHomewayServerAddress_CanBeNone}]")
-                    uri = f"ws://{self.DevLocalHomewayServerAddress_CanBeNone}/sage-fabric-websocket"
+                if self.DevLocalHomewayServerAddress is not None and len(self.DevLocalHomewayServerAddress) > 0:
+                    self.Logger.info(f"{self._getLogTag()} Using dev local server address [{self.DevLocalHomewayServerAddress}]")
+                    uri = f"ws://{self.DevLocalHomewayServerAddress}/sage-fabric-websocket"
 
                 # Setup the headers.
-                headers = {}
+                headers:Dict[str, str] = {}
                 headers["X-Plugin-Id"] = self.PrinterId
                 headers["X-Api-Key"] = self.ApiKey
                 headers["x-Addon-Version"] = self.AddonVersion
@@ -168,10 +172,10 @@ class Fabric:
                 Sentry.OnException("Sage Fabric ConnectionThread exception.", e)
 
 
-    def _OnData(self, ws:Client, buffer:bytes, msgType):
+    def _OnData(self, _:IWebSocketClient, buffer:Buffer, msgType:WebSocketOpCode) -> None:
         try:
             # This should always be a binary message.
-            if msgType is not octowebsocket.ABNF.OPCODE_BINARY:
+            if msgType is not WebSocketOpCode.BINARY:
                 raise Exception(f"{self._getLogTag()} Received non-binary websocket message received.")
 
             # Let the fiber manager handle the incoming message.

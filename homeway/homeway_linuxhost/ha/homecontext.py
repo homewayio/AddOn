@@ -2,8 +2,9 @@ import json
 import time
 import logging
 import threading
-from typing import List
+from typing import Any, Dict, List, Optional, Tuple
 
+from homeway.buffer import Buffer
 from homeway.sentry import Sentry
 from homeway.compression import Compression, CompressionContext, CompressionResult
 
@@ -13,11 +14,11 @@ from .eventhandler import EventHandler
 
 # Used to keep track of context for the assistant devices.
 class AssistantDeviceContext:
-    def __init__(self, entityId:str, deviceId:str, areaId:str, floorId:str):
+    def __init__(self, entityId:str, deviceId:Optional[str], areaId:Optional[str], floorId:Optional[str]):
         self.EntityId:str = entityId
-        self.DeviceId:str = deviceId
-        self.AreaId:str = areaId
-        self.FloorId:str = floorId
+        self.DeviceId:Optional[str] = deviceId
+        self.AreaId:Optional[str] = areaId
+        self.FloorId:Optional[str] = floorId
 
 
 # Captures the current context and state of the home in a way that can be sent to the server.
@@ -57,8 +58,8 @@ class HomeContext:
         # Setup the cached data
         self.CacheLock = threading.Lock()
         self.CacheUpdatedEvent = threading.Event()
-        self.HomeContextResult:CompressionResult = None
-        self.AllowedEntityIds:dict = None
+        self.HomeContextResult:Optional[CompressionResult] = None
+        self.AllowedEntityIds:Optional[Dict[str, str]] = None
         self.AssistantDeviceContexts:List[AssistantDeviceContext] = []
 
 
@@ -70,7 +71,7 @@ class HomeContext:
 
     # Returns the home context, as compressed bytes.
     # Returns None on failure.
-    def GetHomeContext(self) -> CompressionResult:
+    def GetHomeContext(self) -> Optional[CompressionResult]:
         with self.CacheLock:
             # If we have a cached version, we are good to go.
             if self.HomeContextResult is not None:
@@ -91,14 +92,14 @@ class HomeContext:
 
 
     # Does a live query for the current states and returns them as and a the live context as compression results.
-    def GetStatesAndLiveContext(self) -> CompressionResult:
+    def GetStatesAndLiveContext(self) -> Tuple[Optional[CompressionResult], Optional[CompressionResult]]:
         start = time.time()
         filterTime = 0.0
         try:
             # Query for the states
             states = self._QueryCurrentState()
             if states is None:
-                return None
+                return None, None
 
             # Filter out what we don't want.
             filterTime = time.time()
@@ -120,17 +121,17 @@ class HomeContext:
                 liveContextStr = json.dumps(liveContext, separators=(',', ':'))
 
             # Now compress what we have.
-            stateCompressionResult = None
-            liveContextCompressionResult = None
+            stateCompressionResult:Optional[CompressionResult] = None
+            liveContextCompressionResult:Optional[CompressionResult] = None
             with CompressionContext(self.Logger) as context:
                 b = stateContextStr.encode("utf-8")
                 context.SetTotalCompressedSizeOfData(len(b))
-                stateCompressionResult = Compression.Get().Compress(context, b)
+                stateCompressionResult = Compression.Get().Compress(context, Buffer(b))
             if liveContextStr is not None:
                 with CompressionContext(self.Logger) as context:
                     b = liveContextStr.encode("utf-8")
                     context.SetTotalCompressedSizeOfData(len(b))
-                    liveContextCompressionResult = Compression.Get().Compress(context, b)
+                    liveContextCompressionResult = Compression.Get().Compress(context, Buffer(b))
 
             # Return the result!
             return stateCompressionResult, liveContextCompressionResult
@@ -194,7 +195,7 @@ class HomeContext:
 
 
     # This does a query for all things, basically everything beyond state.
-    def _QueryAllObjects(self) -> "HomeContextQueryResult":
+    def _QueryAllObjects(self) -> Optional["HomeContextQueryResult"]:
         try:
             s = threading.Semaphore(0)
             result = HomeContextQueryResult()
@@ -221,7 +222,7 @@ class HomeContext:
                     response = self.HaConnection.SendMsg({"type" : msgType}, waitForResponse=True)
 
                     # Convert the False failure to a None
-                    if response is not False:
+                    if response is not None:
                         if count == 0:
                             result.Entities = response
                         elif count == 1:
@@ -274,12 +275,12 @@ class HomeContext:
         #
 
         # Build the floors.
-        floors = {}
+        floors:Dict[str, Any] = {}
         floorResults = self._GetResultsFromHaMsg("floors", result.Floors)
         if floorResults is not None:
             for f in floorResults:
                 # Create our object and get the important ids.
-                floor = {}
+                floor:Dict[str, Any] = {}
                 floorId = self._CopyAndGetId("floor_id", f, floor)
                 # Add the rest of the data.
                 self._CopyPropertyIfExists("aliases", f, floor)
@@ -294,12 +295,12 @@ class HomeContext:
 
         # Build the areas.
         # We build these sub dicts so we can easily associate them with the floors and in case something like areas fails, we can still send the floors.
-        areas = {}
+        areas:Dict[str, Any] = {}
         areaResults = self._GetResultsFromHaMsg("areas", result.Areas)
         if areaResults is not None:
             for a in areaResults:
                 # Create our object and get the important ids
-                area = { }
+                area:Dict[str, Any] = { }
                 areaId = self._CopyAndGetId("area_id", a, area)
                 floorId = self._CopyAndGetId("floor_id", a, area, warnIfMissing=False)
                 # Add the rest of the data.
@@ -317,15 +318,15 @@ class HomeContext:
             areas[areaId] = area
 
         # Build the devices
-        devices = {}
+        devices:Dict[str, Any] = {}
         deviceResults = self._GetResultsFromHaMsg("devices", result.Devices)
-        if areaResults is not None:
+        if deviceResults is not None:
             for d in deviceResults:
                 # Check if the device is disabled, if so, don't expose it.
                 if self._IsDisabled(d):
                     continue
                 # Create our object and get the important ids
-                device = { }
+                device:Dict[str, Any] = { }
                 # Keep the device ID since it can be used for association or for some API calls.
                 deviceId = self._CopyAndGetId("id", d, device)
                 # Some devices don't have areas, that's fine, we also don't need to copy it into the dest object.
@@ -350,7 +351,7 @@ class HomeContext:
 
 
         # Build the entities
-        entities = {}
+        entities:Dict[str, Any] = {}
         entityResults = self._GetResultsFromHaMsg("entity", result.Entities)
         if entityResults is not None:
             for e in entityResults:
@@ -369,7 +370,7 @@ class HomeContext:
                         continue
 
                 # Create our object and get the important ids
-                entity = { }
+                entity:Dict[str, Any] = { }
                 # We don't copy this id back into the dest object, because it's a random string that
                 # isn't used for anything beyond associate this device with the entity.
                 # Since the model doesn't need it to call any apis or add any context, we remove it for size.
@@ -399,7 +400,7 @@ class HomeContext:
             entities[eId] = entity
 
         # Summarize down the allowed entity ids into a map, we can use for fast lookups with state.
-        allowedEntityLookupMap = {}
+        allowedEntityLookupMap:Dict[str, Any] = {}
         for e in entities.values():
             eId = e.get("entity_id", None)
             if eId is not None:
@@ -407,24 +408,24 @@ class HomeContext:
 
         # Build the labels - Do this as a list directly.
         # For these, they hang out on their own. The areas, devices, and entities will reference them by id, so this just adding context to the id.
-        labels = []
+        labelsList:List[Dict[str, Any]] = []
         labelResults = self._GetResultsFromHaMsg("labels", result.Labels)
         if labelResults is not None:
-            for l in labelResults:
+            for labelResult in labelResults:
                 # Create our object and get the important ids
-                label = { }
-                self._CopyPropertyIfExists("label_id", l, label)
-                self._CopyPropertyIfExists("name", l, label)
-                self._CopyPropertyIfExists("description", l, label)
+                label:Dict[str, Any] = {}
+                self._CopyPropertyIfExists("label_id", labelResult, label)
+                self._CopyPropertyIfExists("name", labelResult, label)
+                self._CopyPropertyIfExists("description", labelResult, label)
                 # Set it
-                labels.append(label)
+                labelsList.append(label)
 
         # We can prune any devices that don't have entities.
         # This can happen if there are no entities exposed to the assistant from the device.
         # If there are no entities exposed, there's no way to control it or see the state of it, so we might as well remove it.
         for f in floors.values():
             for a in f.get("areas", {}).values():
-                idsToRemove = []
+                idsToRemove:List[str] = []
                 for d in a.get("devices", {}).items():
                     # If there are no entities, remove the device.
                     if len(d[1].get("entities", {})) == 0:
@@ -433,8 +434,8 @@ class HomeContext:
                     del a["devices"][i]
 
         # To reduce size, we can convert the maps to lists, since in the map each object is indexed by it's id and then also self contains it's id.
-        floors = list(floors.values())
-        for f in floors:
+        floorsList = list(floors.values())
+        for f in floorsList:
             # Convert the areas to a list.
             f["areas"] = list(f.get("areas", {}).values())
             for a in f["areas"]:
@@ -451,19 +452,19 @@ class HomeContext:
 
 
         # To build the live context object, we need to keep track of the context of the assist devices
-        assistDeviceContexts = []
-        for f in floors:
-            areas = f.get("areas", [])
-            for a in areas:
-                devices = a.get("devices", [])
-                for d in devices:
+        assistDeviceContexts:List[AssistantDeviceContext] = []
+        for f in floorsList:
+            areasList:List[Dict[str, Any]] = f.get("areas", [])
+            for a in areasList:
+                devicesList:List[Dict[str, Any]] = a.get("devices", [])
+                for d in devicesList:
                     foundAssistDevice = False
-                    entities = d.get("entities", [])
-                    for e in entities:
-                        entityId = e.get("entity_id", None)
-                        if entityId is not None:
-                            if self._IsAssistEntityId(entityId):
-                                assistDeviceContexts.append(AssistantDeviceContext(entityId, d.get("id", None), a.get("area_id", None), f.get("floor_id", None)))
+                    entitiesList:List[Dict[str, Any]] = d.get("entities", [])
+                    for e in entitiesList:
+                        entityIdLoop:Optional[str] = e.get("entity_id", None)
+                        if entityIdLoop is not None:
+                            if self._IsAssistEntityId(entityIdLoop):
+                                assistDeviceContexts.append(AssistantDeviceContext(entityIdLoop, d.get("id", None), a.get("area_id", None), f.get("floor_id", None)))
                                 foundAssistDevice = True
                         if foundAssistDevice:
                             # Break to ensure we only list each device once.
@@ -472,8 +473,8 @@ class HomeContext:
         # Finally, package them into the final object.
         # This is the format that the server expects, so we can't change it.
         homeContext = {
-            "floors" : floors,
-            "labels" : labels,
+            "floors" : floorsList,
+            "labels" : labelsList,
         }
         # Dump it to a string, so there's less work for the request to do.
         # Use separators to reduce size.
@@ -483,7 +484,7 @@ class HomeContext:
         with CompressionContext(self.Logger) as context:
             b = homeContextStr.encode("utf-8")
             context.SetTotalCompressedSizeOfData(len(b))
-            compressionResult = Compression.Get().Compress(context, b)
+            compressionResult = Compression.Get().Compress(context, Buffer(b))
 
         # Lock and swap
         with self.CacheLock:
@@ -494,7 +495,7 @@ class HomeContext:
 
 
     # Important ID helper
-    def _CopyAndGetId(self, key:str, source:dict, dest:dict, copyIntoDst:bool = True, warnIfMissing:bool = True) -> str:
+    def _CopyAndGetId(self, key:str, source:Dict[str, Any], dest:Dict[str, Any], copyIntoDst:bool=True, warnIfMissing:bool=True) -> str:
         value = source.get(key, None)
         if value is None:
             if warnIfMissing:
@@ -506,7 +507,7 @@ class HomeContext:
 
 
     # Add to base map helper
-    def _AddToBaseMap(self, base:dict, baseId:str, baseKey:str, valueKey:str, value:dict) -> None:
+    def _AddToBaseMap(self, base:Dict[str, Any], baseId:str, baseKey:str, valueKey:str, value:Dict[str, Any]) -> None:
         # Ensure the base id exists in the base. (ex, if the floor id exists in floors)
         if baseId not in base:
             # This can happen for all of the cases, areas can not have a floor, devices can not have an area, and entities can not have devices.
@@ -520,7 +521,7 @@ class HomeContext:
 
 
     # Returns true if the object is disabled.
-    def _IsDisabled(self, obj:dict) -> bool:
+    def _IsDisabled(self, obj:Dict[str, Any]) -> bool:
         if "disabled_by" in obj and obj["disabled_by"] is not None:
             #name = obj.get("name", "Unknown")
             #self.Logger.debug(f"Home Context - Skipping {name} is disabled by {obj['disabled_by']}.")
@@ -529,7 +530,7 @@ class HomeContext:
 
 
     # Is exposed to assistant
-    def _IsExposeToAssistant(self, obj:dict) -> bool:
+    def _IsExposeToAssistant(self, obj:Dict[str, Any]) -> bool:
         options = obj.get("options", None)
         if options is None:
             return True
@@ -540,7 +541,7 @@ class HomeContext:
 
 
     # Copies a property from a source to a destination if it exists.
-    def _CopyPropertyIfExists(self, key:str, source:dict, dest:dict, defaultValue=None, copyIfEmpty=False, destKey:str=None):
+    def _CopyPropertyIfExists(self, key:str, source:Dict[str, Any], dest:Dict[str, Any], defaultValue:Optional[Any]=None, copyIfEmpty=False, destKey:Optional[str]=None):
         if destKey is None:
             destKey = key
         value = source.get(key, None)
@@ -569,7 +570,10 @@ class HomeContext:
 
 
     # Attempts to return the results from a HA message.
-    def _GetResultsFromHaMsg(self, name:str, root:dict) -> list:
+    def _GetResultsFromHaMsg(self, name:str, root:Optional[Dict[str, Any]]) -> Optional[Any]:
+        if root is None:
+            self.Logger.warning(f"GetHomeContext - {name} request had no root object.")
+            return None
         success = root.get("success", False)
         if not success:
             self.Logger.warning(f"GetHomeContext - {name} request returned success false.")
@@ -592,13 +596,13 @@ class HomeContext:
     #
 
     # Does a query only for the current states.
-    def _QueryCurrentState(self) -> list:
+    def _QueryCurrentState(self) -> Optional[List[Dict[str, Any]]]:
         try:
             # Query for the state
             response = self.HaConnection.SendMsg({"type" : "get_states"}, waitForResponse=True)
 
             # Check for a failure.
-            if response is False:
+            if response is None:
                 self.Logger.warning("Home Context failed to get current state.")
                 return None
 
@@ -616,18 +620,18 @@ class HomeContext:
     # This returns two things!
     #    1) list - The filtered entities
     #    2) str - The active assist entity id (if there is one, otherwise None)
-    def _FilterStateList(self, states:list):
+    def _FilterStateList(self, states:List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
         # No need to take the lock, since this is a read only operation.
         allowedEntityIdMap = self.AllowedEntityIds
         if allowedEntityIdMap is None:
             self.Logger.warning("Home Context - AllowedEntityIds is None, skipping state filter.")
 
-        result = []
-        assistActiveEntityId = None
+        result:List[Dict[str, Any]] = []
+        assistActiveEntityId:Optional[str] = None
         for s in states:
             # Get the entity ID
-            entityId:str = s.get("entity_id", None)
+            entityId:Optional[str] = s.get("entity_id", None)
             if entityId is None:
                 continue
 
@@ -636,7 +640,7 @@ class HomeContext:
                 # If the assist has an active state, we will report it as the active entity id
                 # States are defined here AssistSatelliteState, but there are other states it can have like "unavailable"
                 # So we use an allow list.
-                state = s.get("state", None)
+                state:Optional[str] = s.get("state", None)
                 if state is not None:
                     # The state at this point should be processing, but we will allow listening and responding as well.
                     if state == "listening" or state == "processing" or state == "responding":
@@ -677,9 +681,9 @@ class HomeContext:
 
 
     # Builds the live context.
-    def _BuildLiveContext(self, activeAssistEntityId:str) -> dict:
+    def _BuildLiveContext(self, activeAssistEntityId:Optional[str]) -> Dict[str, Any]:
         # activeAssistEntityId can be None if there is no active assist.
-        assistantDeviceContext:AssistantDeviceContext = None
+        assistantDeviceContext:Optional[AssistantDeviceContext] = None
         if activeAssistEntityId is not None:
             # Find the device context for the active assist entity.
             with self.CacheLock:
@@ -702,8 +706,8 @@ class HomeContext:
 
 class HomeContextQueryResult:
     def __init__(self):
-        self.Entities:dict = None
-        self.Devices:dict = None
-        self.Areas:dict = None
-        self.Floors:dict = None
-        self.Labels:dict = None
+        self.Entities:Optional[Dict[str,Any]] = None
+        self.Devices:Optional[Dict[str,Any]] = None
+        self.Areas:Optional[Dict[str,Any]] = None
+        self.Floors:Optional[Dict[str,Any]] = None
+        self.Labels:Optional[Dict[str,Any]] = None

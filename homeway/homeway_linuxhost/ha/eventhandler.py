@@ -3,6 +3,7 @@ import time
 import json
 import logging
 import threading
+from typing import Any, Callable, Dict, List, Optional
 
 from homeway.sentry import Sentry
 from homeway.httpsessions import HttpSessions
@@ -36,17 +37,18 @@ class EventHandler:
     # Useful for debugging.
     c_LogEvents = False
 
-    def __init__(self, logger:logging.Logger, pluginId:str, devLocalHomewayServerAddress_CanBeNone:str) -> None:
+
+    def __init__(self, logger:logging.Logger, pluginId:str, devLocalHomewayServerAddress:Optional[str]) -> None:
         self.Logger = logger
         self.PluginId = pluginId
-        self.HomewayApiKey = ""
-        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
+        self.HomewayApiKey:Optional[str] = None
+        self.DevLocalHomewayServerAddress:Optional[str] = devLocalHomewayServerAddress
 
         # Request collapse logic.
         self.ThreadEvent = threading.Event()
         self.Lock = threading.Lock()
-        self.SendEvents = []
-        self.SpammyEntityDict = {}
+        self.SendEvents:List[Dict[Any, Any]] = []
+        self.SpammyEntityDict:Dict[str, int] = {}
         self.SendPeriodStartSec = 0.0
         self.SentCountThisPeriod = 0
         self.SpammyEntityWindowStartSec = 0.0
@@ -65,7 +67,7 @@ class EventHandler:
         self.HaTempUnits = "C"
 
         # A callback to fire if the home context needs to be updated.
-        self.HomeContextCallback = None
+        self.HomeContextCallback:Optional[Callable[[], None]] = None
 
 
     def SetHomewayApiKey(self, key:str) -> None:
@@ -77,22 +79,23 @@ class EventHandler:
             e = self._GetStateChangeSendEventAndValidate(entityId)
             if e is None:
                 self.Logger.error("startup_sync event failed to generate a send payload.")
+                return
             self._QueueStateChangeSend(entityId, e)
 
 
     # Called by the HA connection class when HA sends a new state.
-    def SetHomeContextCallback(self, callback) -> None:
+    def SetHomeContextCallback(self, callback:Callable[[], None]) -> None:
         self.HomeContextCallback = callback
 
 
     # Called by the HA connection class when HA sends any event.
-    def OnEvent(self, event:dict, haVersion:str) -> None:
+    def OnEvent(self, eventRoot:Dict[str, Any], haVersion:Optional[str]) -> None:
 
         # Check for required fields
-        if "event_type" not in event:
-            self.Logger.warn("Event Handler got an event that was missing the event_type.")
+        eventType = eventRoot.get("event_type", None)
+        if eventType is None:
+            self.Logger.warning("Event Handler got an event that was missing the event_type.")
             return
-        eventType = event["event_type"]
 
         # Right now, we only need to look at state changed events.
         if eventType != "state_changed":
@@ -100,17 +103,24 @@ class EventHandler:
 
         # Log if needed.
         if EventHandler.c_LogEvents and self.Logger.isEnabledFor(logging.DEBUG):
-            self.Logger.info(f"Incoming HA State Changed Event:\r\n{json.dumps(event, indent=2)}")
+            self.Logger.info(f"Incoming HA State Changed Event:\r\n{json.dumps(eventRoot, indent=2)}")
 
         # Get the common data.
         # Note that these will still be in data, but can be set to null.
-        if "data" not in event or "old_state" not in event["data"] or "new_state" not in event["data"] or "entity_id" not in event["data"]:
-            self.Logger.warn("Event Handler got an event that was missing the data/old_state/new_state/entity_id fields.")
+        eventData = eventRoot.get("data", None)
+        if eventData is None:
+            self.Logger.warning("Event Handler got an event that was missing the data field.")
+            return
+        entityId = eventData.get("entity_id", None)
+        if entityId is None:
+            self.Logger.warning("Event Handler got an event that was missing the entity_id field.")
+            return
+        newState_CanBeNone = eventData.get("new_state", None)
+        oldState_CanBeNone = eventData.get("old_state", None)
+        if newState_CanBeNone is None and oldState_CanBeNone is None:
+            self.Logger.debug("Event Handler got an event that was missing both the new_state and old_state fields.")
             return
 
-        entityId = event["data"]["entity_id"]
-        newState_CanBeNone = event["data"]["new_state"]
-        oldState_CanBeNone = event["data"]["old_state"]
         # We can combine report state and request sync for assistants into a single API.
         # When a device is added...
         #    state_changed is fired with a null old_state and a new_state with the device info.
@@ -164,25 +174,25 @@ class EventHandler:
 
 
     # Converts the HA events to our send event format.
-    def _GetStateChangeSendEventAndValidate(self, entityId:str, haVersion_CanBeNone:str = None, newState_CanBeNone:dict = None, oldState_CanBeNone:dict = None) -> dict:
-        sendEvent = {
+    def _GetStateChangeSendEventAndValidate(self, entityId:str, haVersion:Optional[str]=None, newState:Optional[Dict[str, Any]]=None, oldState:Optional[Dict[str, Any]]=None) -> Optional[Dict[str, Any]]:
+        sendEvent:Dict[str, Any] = {
             "EntityId": entityId
         }
-        if haVersion_CanBeNone is not None:
-            sendEvent["HaVersion"] = haVersion_CanBeNone
+        if haVersion is not None:
+            sendEvent["HaVersion"] = haVersion
 
         # Helpers
-        def _removeIfInDict(d:dict, key:str):
+        def _removeIfInDict(d:Dict[str, Any], key:str):
             # Removes a key from the dict if it's there.
             if key in d:
                 del d[key]
-        def _trimState(state:dict):
+        def _trimState(state:Dict[str, Any] ):
             # Remove any bloat we don't need, to keep the size down.
             _removeIfInDict(state, "entity_id")
             _removeIfInDict(state, "context")
             _removeIfInDict(state, "last_changed")
             _removeIfInDict(state, "last_updated")
-        def _validateHasRequiredFields(d:dict) -> bool:
+        def _validateHasRequiredFields(d:Dict[str, Any]) -> bool:
             # Sometimes during startup we get messages without friendly names.
             # We need the friendly names to talk with both Alexa and Google, so we just ignore them.
             # The updates are usually for offline devices anyways, maybe that's why they don't have names?
@@ -194,23 +204,23 @@ class EventHandler:
                 return False
             return True
         # If there's a new state, add it.
-        if newState_CanBeNone is not None:
-            if _validateHasRequiredFields(newState_CanBeNone) is False:
+        if newState is not None:
+            if _validateHasRequiredFields(newState) is False:
                 return None
-            _trimState(newState_CanBeNone)
+            _trimState(newState)
             # We add the temp units we detect, so our servers know.
-            newState_CanBeNone["HwTempUnits"] = self.HaTempUnits
-            sendEvent["NewState"] = newState_CanBeNone
+            newState["HwTempUnits"] = self.HaTempUnits
+            sendEvent["NewState"] = newState
         # If there's a old state, add it.
-        if oldState_CanBeNone is not None:
-            if _validateHasRequiredFields(oldState_CanBeNone) is False:
+        if oldState is not None:
+            if _validateHasRequiredFields(oldState) is False:
                 return None
-            _trimState(oldState_CanBeNone)
-            sendEvent["OldState"] = oldState_CanBeNone
+            _trimState(oldState)
+            sendEvent["OldState"] = oldState
         return sendEvent
 
 
-    def _QueueStateChangeSend(self, entityId:str, sendEvent:dict):
+    def _QueueStateChangeSend(self, entityId:str, sendEvent:Dict[str, Any]) -> None:
         # We collapse individual calls in to a single batch call based on a time threshold.
         self.Logger.debug(f"_QueueStateChangeSend called `{entityId}`")
         with self.Lock:
@@ -285,12 +295,12 @@ class EventHandler:
 
                 # Ensure we have an API key.
                 if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
-                    self.Logger.warn("We wanted to do a send state change events, but don't have an API key.")
+                    self.Logger.warning("We wanted to do a send state change events, but don't have an API key.")
                     time.sleep(10.0)
                     continue
 
                 # Now we collect what exists and send them.
-                sendEvents = []
+                sendEvents:List[Dict[str, Any]] = []
                 with self.Lock:
                     sendEvents = self.SendEvents
                     self.SendEvents = []
@@ -299,13 +309,13 @@ class EventHandler:
 
                 # Make the call.
                 url = "https://homeway.io/api/plugin-api/statechangeevents"
-                if self.DevLocalHomewayServerAddress_CanBeNone is not None:
-                    url = f"http://{self.DevLocalHomewayServerAddress_CanBeNone}/api/plugin-api/statechangeevents"
+                if self.DevLocalHomewayServerAddress is not None:
+                    url = f"http://{self.DevLocalHomewayServerAddress}/api/plugin-api/statechangeevents"
                 result = HttpSessions.GetSession(url).post(url, json={"PluginId": self.PluginId, "ApiKey": self.HomewayApiKey, "Events": sendEvents }, timeout=30)
 
                 # Validate the response.
                 if result.status_code != 200:
-                    self.Logger.warn(f"Send Change Events failed, the API returned {result.status_code}")
+                    self.Logger.warning(f"Send Change Events failed, the API returned {result.status_code}")
 
             except Exception as e:
                 if (e is ConnectionError or e is ssl.SSLError) and "Max retries exceeded with url" in str(e):
@@ -328,15 +338,15 @@ class EventHandler:
                 # Try to get the config API
                 configApiJson = ServerInfo.GetConfigApi(self.Logger, 30.0)
                 if configApiJson is None:
-                    self.Logger.warn("Get config API failed.")
+                    self.Logger.warning("Get config API failed.")
                     continue
 
                 # Parse the result.
                 if "unit_system" not in configApiJson:
-                    self.Logger.warn("Get config API missing unit_system")
+                    self.Logger.warning("Get config API missing unit_system")
                     continue
                 if "temperature" not in configApiJson["unit_system"]:
-                    self.Logger.warn("Get config API missing temperature")
+                    self.Logger.warning("Get config API missing temperature")
                     continue
 
                 if configApiJson["unit_system"]["temperature"] == "°F":
@@ -344,6 +354,6 @@ class EventHandler:
                 elif configApiJson["unit_system"]["temperature"] == "°C":
                     self.HaTempUnits = "C"
                 else:
-                    self.Logger.warn(f"Get config API unknown temperature unit [{configApiJson['unit_system']['temperature']}]")
+                    self.Logger.warning(f"Get config API unknown temperature unit [{configApiJson['unit_system']['temperature']}]")
             except Exception as e:
                 Sentry.OnException("_StateChangeSender exception", e)

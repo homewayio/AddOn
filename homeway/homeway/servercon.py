@@ -2,16 +2,16 @@ import time
 import random
 import logging
 from datetime import datetime
+from typing import List, Optional
 
-from .Proto.AddonTypes import AddonTypes
-
+from .buffer import Buffer
 from .sentry import Sentry
 from .websocketimpl import Client
 from .session import Session
 from .repeattimer import RepeatTimer
 from .pingpong import PingPong
 from .hostcommon import HostCommon
-from .threaddebug import ThreadDebug
+from .interfaces import IHost, IStateChangeHandler, IWebSocketClient, WebSocketOpCode, IStream
 
 #
 # This class is responsible for connecting and maintaining a connection to a server.
@@ -19,16 +19,16 @@ from .threaddebug import ThreadDebug
 # Handling disconnects, errors, backoff, and retry logic.
 # Handling RunFor logic which limits how long a server connection stays active.
 #
-class ServerCon:
+class ServerCon(IStream):
 
     # The RunFor system allows the host to specify how long this server connection should be active.
     # This time includes all valid connections and disconnects. Simply put, after x amount of time, the class
     # should be cleaned up and RunBlocking will return.
     #
-    # This functionally is used to occasionally make the plugin refresh it's primary server, because over time the
-    # best server connection might change. When the server reconnects it will resolve plugin connect hostname again
+    # This functionally is used to occasionally make the printer refresh it's primary server, because over time the
+    # best server connection might change. When the server reconnects it will resolve printer connect hostname again
     # which will route it to the best server.
-    # This feature is also used for secondary connections, which allows the plugin to connect ot multiple servers at once.
+    # This feature is also used for secondary connections, which allows the printer to connect ot multiple servers at once.
     # Secondary server connections are used when a shared connection url resolves to a different server than we are currently connected.
     #
     # The run for system accounts for user activity, and will allow extra time after the run for time if the user is still using the
@@ -45,7 +45,7 @@ class ServerCon:
 
 
     # Must be > 0 or the increment logic will fail (since it's value X 2)
-    # We want to keep this low though, so incase the connection closes due to a Stream error,
+    # We want to keep this low though, so in case the connection closes due to a OctoStream error,
     # we will reconnect quickly again. Remember we always add the random reconnect time as well.
     WsConnectBackOffSec_Default = 1
     # We always add a random second count to the reconnect sleep to add variance. This is the min value.
@@ -55,14 +55,27 @@ class ServerCon:
     # Having a wider window allows the client to reconnect at different times, which is good for the server.
     WsConnectRandomMaxSec = 30
 
-    def __init__(self, host, endpoint:str, isPrimaryConnection:bool, shouldUseLowestLatencyServer:bool, pluginId:str, privateKey:str,
-                  logger:logging.Logger, statusChangeHandler, pluginVersion:str, runForSeconds, summonMethod, addonType:AddonTypes):
+    def __init__(
+            self,
+            host:IHost,
+            endpoint:str,
+            isPrimaryConnection:bool,
+            shouldUseLowestLatencyServer:bool,
+            pluginId:str,
+            privateKey:str,
+            logger:logging.Logger,
+            statusChangeHandler:Optional[IStateChangeHandler],
+            pluginVersion:str,
+            runForSeconds:int,
+            summonMethod:int,
+            addonType:int
+            ):
         self.ProtocolVersion = 1
-        self.Session = None
+        self.Session:Optional[Session] = None
         self.IsDisconnecting = False
         self.IsWsConnecting = False
         self.ActiveSessionId = 0
-        self.Ws = None
+        self.Ws:Optional[IWebSocketClient] = None
         self.WsConnectBackOffSec = self.WsConnectBackOffSec_Default
         self.NoWaitReconnect = False
 
@@ -82,7 +95,7 @@ class ServerCon:
 
         # Check that the settings are valid..
         if self.ShouldUseLowestLatencyServer and self.IsPrimaryConnection is False:
-            self.Logger.Error("Non primary ServerCon cannot use ShouldUseLowestLatencyServer, since it might not connect to where it was requested.")
+            self.Logger.error("Non primary ServerCon cannot use ShouldUseLowestLatencyServer, since it might not connect to where it was requested.")
 
         # If this is the primary connection, register for the latency data complete callback.
         # This callback wil only fire on the very first time the plugin is ran.
@@ -92,30 +105,23 @@ class ServerCon:
         # Note! Will be None for secondary connections!
         self.StatusChangeHandler = statusChangeHandler
 
+        # Note! Will be None for secondary connections!
+        self.StatusChangeHandler = statusChangeHandler
+
         # Setup RunFor
         self.RunForSeconds = runForSeconds
         self.CreationTime = datetime.now()
         self.LastUserActivityTime = self.CreationTime
 
-        # Start the RunFor time checker.
-        self.RunForTimeChecker = RepeatTimer(self.Logger, self.RunForTimeCheckerIntervalSec, self.OnRunForTimerCallback)
-        self.RunForTimeChecker.start()
-
-
-    def Cleanup(self):
-        # Stop the RunFor time checker if we have one.
-        if self.RunForTimeChecker is not None:
-            self.RunForTimeChecker.Stop()
-
 
     # Returns a printable string that says the endpoint and the active session id.
-    def GetConnectionString(self):
+    def GetConnectionString(self) -> str:
         # Use the currently in use endpoint.
         return str(self.CurrentEndpoint)+"["+str(self.ActiveSessionId)+"]"
 
 
     # Returns the endpoint to use, be it the default or the lowest latency.
-    def GetEndpoint(self):
+    def GetEndpoint(self) -> str:
         newEndpoint = None
 
         # Check if we can use the lowest latency server.
@@ -137,7 +143,7 @@ class ServerCon:
         return self.CurrentEndpoint
 
 
-    def OnOpened(self, ws):
+    def OnOpened(self, ws:IWebSocketClient) -> None:
         self.Logger.info("Connected To Homeway, server con "+self.GetConnectionString()+". Starting handshake...")
 
         # On success make the lowest latency endpoint possible again, since we successfully connected to it or the primary.
@@ -155,11 +161,11 @@ class ServerCon:
         self.Session.StartHandshake(self.SummonMethod, self.AddonType)
 
 
-    def OnClosed(self, ws):
+    def OnClosed(self, ws:IWebSocketClient) -> None:
         self.Logger.info("Service websocket closed.")
 
 
-    def OnError(self, ws, err):
+    def OnError(self, ws:IWebSocketClient, err:Exception) -> None:
         # If this error happened while we were connecting, set the TempDisableLowestLatencyEndpoint to true to block the lowest latency endpoint.
         # This is because the host might not be available temporally, so we will use the default.
         if self.IsWsConnecting:
@@ -168,7 +174,7 @@ class ServerCon:
         self.Logger.error("Homeway Ws error: " +str(err))
 
 
-    def OnMsg(self, ws, msg):
+    def OnData(self, ws:IWebSocketClient, msg:Buffer, opCode:WebSocketOpCode) -> None:
         # When we get any message, consider it user activity.
         self.LastUserActivityTime = datetime.now()
 
@@ -183,7 +189,7 @@ class ServerCon:
                 self.OnSessionError(localSessionId, 0)
 
 
-    def OnHandshakeComplete(self, sessionId, apiKey, connectedAccounts):
+    def OnHandshakeComplete(self, sessionId:int, apiKey:str, connectedAccounts:List[str]) -> None:
         if sessionId != self.ActiveSessionId:
             self.Logger.info("Got a handshake complete for an old session, "+str(sessionId)+", ignoring.")
             return
@@ -199,7 +205,7 @@ class ServerCon:
 
 
     # Called by the session if we should kill this socket.
-    def OnSessionError(self, sessionId, backoffModifierSec):
+    def OnSessionError(self, sessionId:int, backoffModifierSec:int) -> None:
         if sessionId != self.ActiveSessionId:
             self.Logger.info("Got a session error callback for an old session, "+str(sessionId)+", ignoring.")
             return
@@ -217,7 +223,7 @@ class ServerCon:
 
     # Called by the server con if the plugin needs to be updated. The backoff time will be set very high
     # and this notification will be handled by the UI to show the user a message.
-    def OnPluginUpdateRequired(self):
+    def OnPluginUpdateRequired(self) -> None:
         # This will be null for secondary connections
         if self.StatusChangeHandler is not None:
             self.StatusChangeHandler.OnPluginUpdateRequired()
@@ -226,11 +232,11 @@ class ServerCon:
     # A summon request can be sent by the services if the user is connected to a different
     # server than we are connected to. In such a case we will multi connect a temp non-primary connection
     # to the request server as well, that will be to service the user.
-    def OnSummonRequest(self, sessionId, summonConnectUrl, summonMethod):
+    def OnSummonRequest(self, sessionId:int, summonConnectUrl:str, summonMethod:int) -> None:
         self.Host.OnSummonRequest(summonConnectUrl, summonMethod)
 
 
-    def Disconnect(self):
+    def Disconnect(self) -> None:
         # Only close the Stream once, even though we might get multiple calls.
         # This can happen because disconnecting might case proxy socket errors, for example
         # if we closed all of the sockets locally and then the server tries to close one.
@@ -259,7 +265,7 @@ class ServerCon:
 
 
     # Returns if the RunFor time has expired, including considering user activity.
-    def IsRunForTimeComplete(self):
+    def IsRunForTimeComplete(self) -> bool:
         # Check if we are past our RunFor time.
         hasRanFor = datetime.now() - self.CreationTime
         if hasRanFor.total_seconds() > self.RunForSeconds:
@@ -280,12 +286,11 @@ class ServerCon:
 
 
     # Fires at a regular interval to see if we should disconnect this server connection.
-    def OnRunForTimerCallback(self):
+    def OnRunForTimerCallback(self) -> None:
         if self.IsRunForTimeComplete():
             try:
                 self.Logger.info("Server con "+self.GetConnectionString()+" RunFor is complete and will be disconnected.")
                 self.Disconnect()
-                ThreadDebug.DoThreadDumpLogout(self.Logger)
             except Exception as e:
                 Sentry.OnException("Exception in OnRunForTimerCallback during disconnect. "+self.GetConnectionString()+".", e)
 
@@ -293,7 +298,7 @@ class ServerCon:
     # A callback fired only for the primary connection and only when the first latency data is ready after the plugin's first run.
     # Since our first Stream connection won't have latency data to choose the best server, it will always default. This function makes it
     # possible for us to switch to the best latency server in that once special case.
-    def OnFirstRunLatencyDataComplete(self):
+    def OnFirstRunLatencyDataComplete(self) -> None:
         try:
             self.Logger.info("First run latency callback fired, disconnecting primary Stream to reconnect to most ideal latency server. Current: "+self.GetConnectionString()+".")
             self.NoWaitReconnect = True
@@ -302,82 +307,85 @@ class ServerCon:
             Sentry.OnException("Exception in OnFirstRunLatencyDataComplete during disconnect. "+self.GetConnectionString()+".", e)
 
 
-    def RunBlocking(self):
-        while 1:
-            # Since we want to run forever, we want to make sure any exceptions get caught but then we try again.
-            try:
-                # Clear the disconnecting flag.
-                # We do this just before connects, because this flag weeds out all of the error noise
-                # that might happen while we are performing a disconnect. But at this time, all of that should be
-                # 100% done now.
-                self.IsDisconnecting = False
+    def RunBlocking(self) -> None:
+        # Start the RunFor time checker.
+        with RepeatTimer(self.Logger, "Server-RunForTimer", self.RunForTimeCheckerIntervalSec, self.OnRunForTimerCallback) as runForTimeChecker:
+            runForTimeChecker.start()
 
-                # Set the connecting flag, so we know if we are in the middle of a ws connect.
-                # This is set to false when the websocket is established.
-                self.IsWsConnecting = True
+            while 1:
+                # Since we want to run forever, we want to make sure any exceptions get caught but then we try again.
+                try:
+                    # Clear the disconnecting flag.
+                    # We do this just before connects, because this flag weeds out all of the error noise
+                    # that might happen while we are performing a disconnect. But at this time, all of that should be
+                    # 100% done now.
+                    self.IsDisconnecting = False
 
-                # Since there can be old pending actions from old sessions (session == one websocket connection).
-                # We will keep track of the current session, so old errors from sessions don't effect the new one.
-                self.ActiveSessionId += 1
+                    # Set the connecting flag, so we know if we are in the middle of a ws connect.
+                    # This is set to false when the websocket is established.
+                    self.IsWsConnecting = True
 
-                # Get the new endpoint. This will either be the default endpoint or the lowest latency endpoint.
-                endpoint = self.GetEndpoint()
+                    # Since there can be old pending actions from old sessions (session == one websocket connection).
+                    # We will keep track of the current session, so old errors from sessions don't effect the new one.
+                    self.ActiveSessionId += 1
 
-                # Connect to the service.
-                self.Ws = Client(endpoint, onWsOpen=self.OnOpened, onWsMsg=self.OnMsg, onWsClose=self.OnClosed, onWsError=self.OnError)
-                with self.Ws:
-                    self.Logger.info("Attempting to talk to Homeway, server con "+self.GetConnectionString() + " wsId:"+self.GetWsId(self.Ws))
-                    self.Ws.RunUntilClosed()
+                    # Get the new endpoint. This will either be the default endpoint or the lowest latency endpoint.
+                    endpoint = self.GetEndpoint()
 
-                # Handle disconnects
-                self.Logger.info("Disconnected from Homeway, server con "+self.GetConnectionString())
+                    # Connect to the service.
+                    self.Ws = Client(endpoint, onWsOpen=self.OnOpened, onWsData=self.OnData, onWsClose=self.OnClosed, onWsError=self.OnError)
+                    with self.Ws:
+                        self.Logger.info("Attempting to talk to Homeway, server con "+self.GetConnectionString() + " wsId:"+self.GetWsId(self.Ws))
+                        self.Ws.RunUntilClosed()
 
-                # Ensure all proxy sockets are closed.
-                if self.Session:
-                    self.Session.CloseAllWebStreamsAndDisable()
+                    # Handle disconnects
+                    self.Logger.info("Disconnected from Homeway, server con "+self.GetConnectionString())
 
-            except Exception as e:
-                self.TempDisableLowestLatencyEndpoint = True
-                Sentry.OnException("Exception in Homeway's main RunBlocking function. server con:"+self.GetConnectionString()+".", e)
-                time.sleep(20)
+                    # Ensure all proxy sockets are closed.
+                    if self.Session:
+                        self.Session.CloseAllWebStreamsAndDisable()
 
-            # On each disconnect, check if the RunFor time is now done.
-            if self.IsRunForTimeComplete():
-                # If our run for time expired, cleanup and return.
-                self.Cleanup()
-                self.Logger.info("Server con "+self.GetConnectionString()+" RunFor is complete, disconnected, and exiting the main thread.")
-                # Exit the main run blocking loop.
-                return
+                except Exception as e:
+                    self.TempDisableLowestLatencyEndpoint = True
+                    Sentry.OnException("Exception in Homeway's main RunBlocking function. server con:"+self.GetConnectionString()+".", e)
+                    time.sleep(20)
 
-            # We have a back off time, but always add some random noise as well so not all clients try to use the exact same time.
-            # Note this applies to all reconnects, even for errors in the system and not server connection loss.
-            self.WsConnectBackOffSec += random.randint(self.WsConnectRandomMinSec, self.WsConnectRandomMaxSec)
+                # On each disconnect, check if the RunFor time is now done.
+                if self.IsRunForTimeComplete():
+                    self.Logger.info("Server con "+self.GetConnectionString()+" RunFor is complete, disconnected, and exiting the main thread.")
+                    # Exit the main run blocking loop.
+                    return
 
-            # Don't sleep if we want to NoWaitReconnect
-            if self.NoWaitReconnect:
-                self.NoWaitReconnect = False
-                self.Logger.info("Skipping reconnect delay due to instant reconnect request.")
-            else:
-                self.Logger.info("Sleeping for " + str(self.WsConnectBackOffSec) + " seconds before trying again.")
-                time.sleep(self.WsConnectBackOffSec)
+                # We have a back off time, but always add some random noise as well so not all clients try to use the exact same time.
+                # Note this applies to all reconnects, even for errors in the system and not server connection loss.
+                self.WsConnectBackOffSec += random.randint(self.WsConnectRandomMinSec, self.WsConnectRandomMaxSec)
 
-            # Increment the back off time.
-            self.WsConnectBackOffSec *= 2
-            if self.WsConnectBackOffSec > 180 :
-                self.WsConnectBackOffSec = 180
-                # If we have failed and are waiting over 3 minutes, we will return which will check the server
-                # protocol again, since it might have changed.
-                return
+                # Don't sleep if we want to NoWaitReconnect
+                if self.NoWaitReconnect:
+                    self.NoWaitReconnect = False
+                    self.Logger.info("Skipping reconnect delay due to instant reconnect request.")
+                else:
+                    self.Logger.info("Sleeping for " + str(self.WsConnectBackOffSec) + " seconds before trying again.")
+                    time.sleep(self.WsConnectBackOffSec)
+
+                # Increment the back off time.
+                self.WsConnectBackOffSec *= 2
+                if self.WsConnectBackOffSec > 180 :
+                    self.WsConnectBackOffSec = 180
+                    # If we have failed and are waiting over 3 minutes, we will return which will check the server
+                    # protocol again, since it might have changed.
+                    return
 
 
-    def SendMsg(self, buffer:bytearray, msgStartOffsetBytes:int, msgSize:int):
+    def SendMsg(self, buffer:Buffer, msgStartOffsetBytes:int, msgSize:int) -> None:
         # When we send any message, consider it user activity.
         self.LastUserActivityTime = datetime.now()
-        self.Ws.Send(buffer, msgStartOffsetBytes, msgSize, True)
-
-
-    def GetWsId(self, ws):
         ws = self.Ws
+        if ws is not None:
+            ws.Send(buffer, msgStartOffsetBytes, msgSize, True)
+
+
+    def GetWsId(self, ws:Optional[IWebSocketClient]) -> str:
         if ws is not None:
             return str(id(ws))
         return "UNKNOWN"

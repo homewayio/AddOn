@@ -2,8 +2,11 @@ import os
 import threading
 import socket
 import json
+from typing import Any, Dict, List, Optional, Tuple
 
+from homeway.homeway.interfaces import IWebSocketClient, WebSocketOpCode
 from homeway.homeway.websocketimpl import Client
+from homeway.homeway.buffer import Buffer
 
 from .Util import Util
 from .Paths import Paths
@@ -25,7 +28,8 @@ class Configure:
     # The IP address for a local host server.
     c_LocalHostIpAddressStr = "127.0.0.1"
 
-    def Run(self, context:Context):
+
+    def Run(self, context:Context) -> None:
 
         Logger.Header("Starting configuration...")
 
@@ -53,12 +57,12 @@ class Configure:
         Logger.Info(f'Configured. Service: {context.ServiceName}, Path: {context.ServiceFilePath}, LocalStorage: {context.LocalDataFolder}, Logs: {context.LogFolder}')
 
 
-    def _EnsureHomeAssistantSetup(self, context:Context):
+    def _EnsureHomeAssistantSetup(self, context:Context) -> None:
         Logger.Debug("Running ensure config logic.")
 
         # See if there's a valid config already.
         ip, port, accessToken = ConfigFile.TryToParseConfig(context.AddonFolder)
-        if ip is not None and port is not None or accessToken is not None:
+        if ip is not None and port is not None and accessToken is not None:
             # Check if we can still connect. This can happen if the IP address changes, the API token expires, etc.
             # the user might need to setup the addon again.
             Logger.Info(f"Existing config file found. IP: {ip}:{port}")
@@ -91,9 +95,10 @@ class Configure:
         Logger.Header("Home Assistant connection successful!")
         Logger.Blank()
 
+
     # Helps the user setup a home assistant connection via auto scanning or manual setup.
-    # Returns (ip:str, port:str, apiToken:str)
-    def _SetupNewHomeAssistantConnection(self):
+    # Returns (ip:str, port:str)
+    def _SetupNewHomeAssistantConnection(self) -> Tuple[str, str]:
         Logger.Blank()
         Logger.Blank()
         Logger.Header("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -196,10 +201,10 @@ class Configure:
     # If accessToken is None, then this function will not test auth. And simply return success if the websocket can be opened and HA is detected.
     # If accessToken is not None, then this function will check the connection and also the auth. It will only return success is everything checks out.
     # Returns (success:bool, exception|None, failedDueToBadAuth:bool)
-    def _CheckForHomeAssistantConnection(self, ip:str, port:str, accessToken:str = None, timeoutSec:float = 5.0):
+    def _CheckForHomeAssistantConnection(self, ip:str, port:str, accessToken:Optional[str]=None, timeoutSec:float=5.0) -> Tuple[bool, Optional[Exception], bool]:
         doneEvent = threading.Event()
         lock = threading.Lock()
-        result = {}
+        result:Dict[str, Any] = {}
 
         # Create the URL
         url = f"ws://{ip}:{port}/api/websocket"
@@ -212,17 +217,17 @@ class Configure:
         result["failedDueToAuth"] = False
 
         # Setup the callback functions
-        def OnOpened(ws):
+        def OnOpened(ws:IWebSocketClient):
             Logger.Debug(f"[{url}] - WS Opened")
-        def OnMsg(ws:Client, msg):
+        def OnData(ws:IWebSocketClient, buffer:Buffer, optCode:WebSocketOpCode):
             with lock:
                 if "success" in result:
                     return
                 try:
                     # Try to see if the message looks like the fires home assistant ws message.
-                    msgStr = msg.decode('utf-8')
+                    msgStr = buffer.GetBytesLike().decode('utf-8')
                     Logger.Debug(f"Test [{url}] - WS message `{msgStr}`")
-                    msg = json.loads(msgStr)
+                    msg:Dict[str, Any] = json.loads(msgStr)
 
                     if accessToken is None:
                         # If there is no access token, we consider this a success, that we connected.
@@ -239,7 +244,7 @@ class Configure:
                                     "type": "auth",
                                     "access_token": accessToken
                                 })
-                                ws.Send(authMsg.encode('utf-8'), isData=False)
+                                ws.Send(Buffer(authMsg.encode('utf-8')), isData=False)
                                 result["state"] = 2
                         elif "type" in msg and msg["type"] == "auth_ok":
                             # Auth success!
@@ -254,10 +259,10 @@ class Configure:
                             doneEvent.set()
                 except Exception as e:
                     Logger.Debug(f"[{url}] - Exception in message parsing. {str(e)}")
-        def OnClosed(ws):
+        def OnClosed(ws:IWebSocketClient):
             Logger.Debug(f"Test [{url}] - Closed")
             doneEvent.set()
-        def OnError(ws, exception):
+        def OnError(ws:IWebSocketClient, exception:Exception):
             Logger.Debug(f"Test [{url}] - Error: {str(exception)}")
             with lock:
                 result["exception"] = exception
@@ -265,7 +270,7 @@ class Configure:
 
         # Create the websocket
         Logger.Debug(f"Checking for home assistant using the address: `{url}`")
-        ws = Client(url, onWsOpen=OnOpened, onWsMsg=OnMsg, onWsError=OnError, onWsClose=OnClosed)
+        ws = Client(url, onWsOpen=OnOpened, onWsData=OnData, onWsError=OnError, onWsClose=OnClosed)
         # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
         # This is safe to do, since the connection will be localhost or on the local LAN
         ws.SetDisableCertCheck(True)
@@ -275,9 +280,9 @@ class Configure:
         doneEvent.wait(timeoutSec)
 
         # Get the results before we close the websocket, so that doesn't cause any errors.
-        capturedSuccess = False
-        capturedEx = None
-        failedDueToAuth = False
+        capturedSuccess:bool = False
+        capturedEx:Optional[Exception] = None
+        failedDueToAuth:bool = False
         with lock:
             # If success doesn't exist, it's failed.
             capturedSuccess = result.get("success", False)
@@ -299,8 +304,8 @@ class Configure:
 
     # Scans the subnet for Home Assistant instances.
     # Returns a list of IPs or Hostnames where Home Assistant was found.
-    def _ScanForHomeAssistantInstances(self):
-        foundIps = []
+    def _ScanForHomeAssistantInstances(self) -> List[str]:
+        foundIps:List[str] = []
         try:
             localIp = self._TryToGetLocalIp()
             if localIp is None or len(localIp) == 0:
@@ -327,7 +332,7 @@ class Configure:
                     fullIp = "homeassistant.local"
                 else:
                     fullIp = ipPrefix + str(counter)
-                def threadFunc(ip):
+                def threadFunc(ip:str):
                     try:
                         success, _, _ = self._CheckForHomeAssistantConnection(ip, "8123", None, 5.0)
                         with threadLock:
@@ -361,7 +366,7 @@ class Configure:
             pass
         finally:
             s.close()
-        return ip
+        return str(ip)
 
 
     # Helps the user get an API token for this addon.

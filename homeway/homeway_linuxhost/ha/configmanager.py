@@ -2,15 +2,17 @@ import os
 import logging
 import threading
 import time
+from typing import Optional, List
 
 from homeway.sentry import Sentry
+from homeway.interfaces import IConfigManager
 from homeway.commandhandler import CommandHandler
 
 from .serverinfo import ServerInfo
 from .connection import Connection
 
 # Helps manage the Home Assistant config
-class ConfigManager:
+class ConfigManager(IConfigManager):
 
     # This should be mapped into our docker container due to homeassistant_config in the addon config.
     c_ContainerConfigFilePath = "/homeassistant/configuration.yaml"
@@ -27,8 +29,8 @@ class ConfigManager:
 
     def __init__(self, logger:logging.Logger) -> None:
         self.Logger = logger
-        self.HaConnection = None
-        self.RestartRequired = False
+        self.HaConnection:Optional[Connection] = None
+        self.RestartRequired:bool = False
         CommandHandler.Get().RegisterConfigManager(self)
 
 
@@ -68,7 +70,7 @@ class ConfigManager:
 
 
     # Reads the http port out of the config, if there is one.
-    def ReadHttpPort(self) -> int:
+    def ReadHttpPort(self) -> Optional[int]:
         try:
             # Try to get the config path, if we can find it. Don't try to use the HA API,
             # since the point of getting the http port is to do server discovery.
@@ -82,11 +84,11 @@ class ConfigManager:
                 # We tired to use the yaml library for parsing, but there's uncommon syntax in the HA config that will break it.
                 foundHttpSection = False
                 lines = f.readlines()
-                for l in lines:
+                for line in lines:
                     # Skip empty lines
-                    if len(l) == 0:
+                    if len(line) == 0:
                         continue
-                    lineLower = l.lower()
+                    lineLower = line.lower()
                     # Basic idea:
                     #   Find the "http:" section
                     #   After we find the http section, if we find a line matching the server port, try to parse it out.
@@ -100,10 +102,10 @@ class ConfigManager:
                         foundHttpSection = True
                     # Search for the line with the port number.
                     if foundHttpSection and lineLower.find("server_port") != -1:
-                        self.Logger.debug("ConfigManager.ReadHttpPort Found the server_port %s", l)
+                        self.Logger.debug("ConfigManager.ReadHttpPort Found the server_port %s", line)
                         # We found the line, find the separator
                         if lineLower.find(":") == -1:
-                            self.Logger.warn(f"We found the server_port line, but it's not formatted correctly. We can't parse it. {l}")
+                            self.Logger.warning(f"We found the server_port line, but it's not formatted correctly. We can't parse it. {line}")
                             return None
                         # After the : should only be an int.
                         parts = lineLower.split(":")
@@ -120,18 +122,18 @@ class ConfigManager:
             # This will use the HA API to get the file path and see if it can be found locally.
             configFilePath = self._GetConfigFilePath(True)
             if configFilePath is None:
-                self.Logger.warn("UpdateConfigIfNeeded failed to get a config file path.")
+                self.Logger.warning("UpdateConfigIfNeeded failed to get a config file path.")
                 return
 
             # Open the file and read.
-            foundGoogleAssistantConfig = False
-            foundAlexaConfig = False
+            foundGoogleAssistantConfig:bool = False
+            foundAlexaConfig:bool = False
             with open(configFilePath, 'r', encoding="utf-8") as f:
                 # Look for the starting lines of the configs, since they must be exact.
                 # But remember they will have line endings, so we use startwith.
                 lines = f.readlines()
-                for l in lines:
-                    lineLower = l.lower()
+                for line in lines:
+                    lineLower = line.lower()
                     if lineLower.startswith("google_assistant:"):
                         foundGoogleAssistantConfig = True
                     if lineLower.startswith("alexa:"):
@@ -143,7 +145,7 @@ class ConfigManager:
 
             # Add which ever is needed.
             # It's important to get the indents correct, or we will break the config.
-            linesToAppend = []
+            linesToAppend:List[str] = []
             lineEnding = "\r\n"
 
             # Add a new line to start
@@ -181,13 +183,13 @@ class ConfigManager:
             Sentry.OnException("HomeAssistantConfigManager exception.", e)
 
 
-    def RestartHomeAssistant(self, restartInSec:float):
+    def RestartHomeAssistant(self, restartInSec:float) -> None:
         t = threading.Thread(target=self._RestartHomeAssistant_Thread, args=(restartInSec,))
         t.daemon = True
         t.start()
 
 
-    def _RestartHomeAssistant_Thread(self, restartInSec:float):
+    def _RestartHomeAssistant_Thread(self, restartInSec:float) -> None:
         try:
             self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
             time.sleep(restartInSec)
@@ -198,9 +200,10 @@ class ConfigManager:
                 return
             self.RestartRequired = False
 
-            # Ensure we have a con object.
+            # Ensure we have a connection object.
             if self.HaConnection is None:
                 self.Logger.error("We wanted to restart Home Assistant but we don't have a ha connection object.")
+                return
 
             self.Logger.info("Trying to restart Home Assistant to apply the config change.")
             self.HaConnection.RestartHa()
@@ -212,7 +215,7 @@ class ConfigManager:
     # This will try a few paths on disk and also try the HA API to get it, if possible.
     # If the config path can't be found, None is returned.
     # If a string is returned, it will always be a valid file path.
-    def _GetConfigFilePath(self, useApiIfUnknown:bool = False) -> str:
+    def _GetConfigFilePath(self, useApiIfUnknown:bool=False) -> Optional[str]:
         # First, try the path where the config will be if we are running on a container.
         if os.path.exists(ConfigManager.c_ContainerConfigFilePath) and os.path.isfile(ConfigManager.c_ContainerConfigFilePath):
             self.Logger.debug("HA config path found in expected container location.")
@@ -229,13 +232,13 @@ class ConfigManager:
                     # Note this will also fail if the plugin lost auth to HA.
                     configApiJson = ServerInfo.GetConfigApi(self.Logger)
                     if configApiJson is None:
-                        self.Logger.warn("We tried to get the HA config file path from the HA API, but the config api failed.")
+                        self.Logger.warning("We tried to get the HA config file path from the HA API, but the config api failed.")
                         break
 
                     # Try to get the config file path from the API.
                     configDir = configApiJson.get("config_dir", None)
                     if configDir is None:
-                        self.Logger.warn("Failed to get the config_dir from the HA config API.")
+                        self.Logger.warning("Failed to get the config_dir from the HA config API.")
                         break
 
                     # See if the path exists.
@@ -243,7 +246,7 @@ class ConfigManager:
                     if os.path.exists(configFilePath) and os.path.isfile(configFilePath):
                         self.Logger.debug(f"HA config path found in from API and is on the local disk {configFilePath}.")
                         return configFilePath
-                    self.Logger.warn(f"We got a config file path from the HA config API [{configFilePath}] but it doesn't exist on this device.")
+                    self.Logger.warning(f"We got a config file path from the HA config API [{configFilePath}] but it doesn't exist on this device.")
 
                 except Exception as e:
                     Sentry.OnException("ConfigManager._GetConfigFilePath failed.", e)

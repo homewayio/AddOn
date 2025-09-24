@@ -3,62 +3,64 @@ import logging
 import threading
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from typing import Any, Dict, Optional
 
 from homeway.hostcommon import HostCommon
 from homeway.commandhandler import CommandHandler
+from homeway.interfaces import IAccountLinkStatusUpdateHandler
 from homeway.sentry import Sentry
 
 # Creates a simple web server for users to interact with the plugin from the Home Assistant UI.
-class WebServer:
+class WebServer(IAccountLinkStatusUpdateHandler):
 
     # A static instance var for the handler class to access this class.
-    Instance = None
+    Instance:"WebServer" = None # type: ignore[reportClassAttributeMissing]
 
-    def __init__(self, logger:logging.Logger, pluginId, devConfig_CanBeNone) -> None:
+    def __init__(self, logger:logging.Logger, pluginId:str, devConfig:Optional[Dict[str,Any]]) -> None:
         WebServer.Instance = self
         self.Logger = logger
         self.PluginId = pluginId
         self.AccountConnected = False
         self.IsPendingStartup = True
-        self.webServerThread = None
+        self.webServerThread:Optional[threading.Thread] = None
 
         # Requests must come from 172.30.32.2 IP, they are authenticated by Home Assistant atomically, cool!
-        self.AllowAllIps = self.GetDevConfigStr(devConfig_CanBeNone, "WebServerAllowAllIps") is not None
+        self.AllowAllIps = self.GetDevConfigStr(devConfig, "WebServerAllowAllIps") is not None
         # We bind to the default docker ips and use port 45120.
         # The default port for Home Assistant is 8099, but that's used already by some more major software.
         self.HostName = "0.0.0.0"
         self.Port = 45120
 
 
-    def Start(self):
+    def Start(self) -> None:
         # Start the web server worker thread.
         self.webServerThread = threading.Thread(target=self._WebServerWorker)
         self.webServerThread.start()
 
 
-    def RegisterForAccountStatusUpdates(self):
+    def RegisterForAccountStatusUpdates(self) -> None:
         # Register for account link callbacks.
         # This is called after startup, because the command handler isn't created until after the web server.
         CommandHandler.Get().RegisterAccountLinkStatusUpdateHandler(self)
 
 
     # Called when we are connected and we know if there's an account setup with this addon
-    def OnPrimaryConnectionEstablished(self, hasConnectedAccount):
+    def OnPrimaryConnectionEstablished(self, hasConnectedAccount:bool) -> None:
         self.AccountConnected = hasConnectedAccount
         self.IsPendingStartup = False
 
 
     # Interface function
     # Called from the command handler the account link status changes.
-    def OnAccountLinkStatusUpdate(self, isLinked:bool):
+    def OnAccountLinkStatusUpdate(self, isLinked:bool) -> None:
         self.AccountConnected = isLinked
 
 
-    def _WebServerWorker(self):
-        backoff = 0
+    def _WebServerWorker(self) -> None:
+        backoff:int = 0
         while True:
             # Try to run the webserver forever.
-            webServer = None
+            webServer:Optional[HTTPServer] = None
             try:
                 self.Logger.info(f"Web Server Starting {self.HostName}:{self.Port}")
                 webServer = HTTPServer((self.HostName, self.Port), WebServer.WebServerHandler)
@@ -80,6 +82,7 @@ class WebServer:
 
 
     class WebServerHandler(BaseHTTPRequestHandler):
+
         def do_GET(self):
             # Check if the IP is the authenticated IP from home assistant. If not, deny it.
             # This IP is brokered by Home Assistant, and it does auth checks before forwarding the requests.
@@ -239,7 +242,7 @@ class WebServer:
 
     # Tries to load a dev config option as a string.
     # If not found or it fails, this return None
-    def GetDevConfigStr(self, devConfig, value):
+    def GetDevConfigStr(self, devConfig:Optional[Dict[str, str]], value:str) -> Optional[str]:
         if devConfig is None:
             return None
         if value in devConfig:

@@ -1,11 +1,14 @@
+from typing import Optional
+
 # This is an exception type that can be used to indicate that something bad happened,
 # but we don't want to report it to Sentry because there's no logic error.
 #
 # For example, if we know the Home Assistant connection details are correct but there's no device to connect to,
 # then the server is probably down and we can't do anything about that.
+
 class NoSentryReportException(Exception):
 
-    def __init__(self, message:str = None, exception:Exception = None):
+    def __init__(self, message:Optional[str]=None, exception:Optional[Exception]=None):
         self.Message = message
         self.Exception = exception
         super().__init__(message)

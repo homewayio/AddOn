@@ -1,29 +1,42 @@
+from typing import Any, Optional, Tuple
+
 import octoflatbuffers
+from .buffer import Buffer
 
 from .Proto import MessageContext
 from .Proto import HandshakeSyn
 from .Proto import StreamMessage
-from .Proto.AddonTypes import AddonTypes
-from .Proto.DataCompression import DataCompression
 
 # A helper class that builds our Stream messages as flatbuffers.
 class StreamMsgBuilder:
 
     @staticmethod
-    def BuildHandshakeSyn(pluginId, privateKey, isPrimarySession, pluginVersion, localHttpProxyPort, localIp, rsaChallenge, rasKeyVersionInt, summonMethod, addonType:AddonTypes, receiveCompressionType:DataCompression):
+    def BuildHandshakeSyn(
+                pluginId:str,
+                privateKey:str,
+                isPrimarySession:bool,
+                pluginVersion:str,
+                localHttpProxyPort:int,
+                localIp:str,
+                rsaChallenge:bytes,
+                rasKeyVersionInt:int,
+                summonMethod:int,
+                addonType:int,
+                receiveCompressionType:int
+            ) -> Tuple[Buffer, int, int]:
         # Get a buffer
         builder = StreamMsgBuilder.CreateBuffer(500)
 
         # Setup strings
-        pluginIdOffset = builder.CreateString(pluginId)
-        privateKeyOffset = builder.CreateString(privateKey)
-        pluginVersionOffset = builder.CreateString(pluginVersion)
+        pluginIdOffset = builder.CreateString(pluginId) #pyright: ignore[reportUnknownMemberType]
+        privateKeyOffset = builder.CreateString(privateKey) #pyright: ignore[reportUnknownMemberType]
+        pluginVersionOffset = builder.CreateString(pluginVersion) #pyright: ignore[reportUnknownMemberType]
         localIpOffset = None
         if localIp is not None:
-            localIpOffset = builder.CreateString(localIp)
+            localIpOffset = builder.CreateString(localIp) #pyright: ignore[reportUnknownMemberType]
 
         # Setup the data vectors
-        rasChallengeOffset = builder.CreateByteVector(rsaChallenge)
+        rasChallengeOffset = builder.CreateByteVector(rsaChallenge) #pyright: ignore[reportUnknownMemberType]
 
         # Build the handshake syn
         HandshakeSyn.Start(builder)
@@ -45,12 +58,12 @@ class StreamMsgBuilder:
 
 
     @staticmethod
-    def CreateBuffer(size) -> octoflatbuffers.Builder:
+    def CreateBuffer(size:int) -> octoflatbuffers.Builder:
         return octoflatbuffers.Builder(size)
 
 
     @staticmethod
-    def CreateStreamMsgAndFinalize(builder, contextType, contextOffset):
+    def CreateStreamMsgAndFinalize(builder:octoflatbuffers.Builder, contextType:int, contextOffset:int) -> Tuple[Buffer, int, int]:
         # Create the message
         StreamMessage.Start(builder)
         StreamMessage.AddContextType(builder, contextType)
@@ -58,20 +71,19 @@ class StreamMsgBuilder:
         streamMsgOffset = StreamMessage.End(builder)
 
         # Finalize the message. We use the size prefixed
-        builder.FinishSizePrefixed(streamMsgOffset)
+        builder.FinishSizePrefixed(streamMsgOffset) #pyright: ignore[reportUnknownMemberType]
 
         # Instead of using Output, which will create a copy of the buffer that's trimmed, we return the fully built buffer
         # with the header offset set and size. Flatbuffers are built backwards, so there's usually space in the front were we can add data
         # without creating a new buffer!
         # Note that the buffer is a bytearray
-        buffer = builder.Bytes
+        buffer = Buffer(builder.Bytes)
         msgStartOffsetBytes = builder.Head()
         return (buffer, msgStartOffsetBytes, len(buffer) - msgStartOffsetBytes)
-        #return builder.Output()
 
 
     @staticmethod
-    def BytesToString(buf) -> str:
+    def BytesToString(buf:Any) -> Optional[str]:
         # The default value for optional strings is None
         # So, we handle it.
         if buf is None:

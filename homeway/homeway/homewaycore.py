@@ -1,18 +1,18 @@
 import time
 import threading
 import logging
-
-from .Proto.AddonTypes import AddonTypes
+from typing import Dict, Optional
 
 from .sentry import Sentry
 from .threaddebug import ThreadDebug
 from .servercon import ServerCon
 from .Proto import SummonMethods
+from .interfaces import IStateChangeHandler, IHost
 
 #
 # This is the main running class that will connect and keep a connection to the service.
 #
-class Homeway:
+class Homeway(IHost):
 
     # How long the primary connection will stay connected before recycling.
     # We want to reconnect occasionally to make sure we are connected to the most ideal sever in terms of latency.
@@ -26,7 +26,7 @@ class Homeway:
     SecondaryConnectionRunForTimeSec = 60 * 15 # 15 minutes.
 
 
-    def __init__(self, endpoint:str, pluginId:str, privateKey:str, logger:logging.Logger, statusChangeHandler, pluginVersion:str, addonType:AddonTypes):
+    def __init__(self, endpoint:str, pluginId:str, privateKey:str, logger:logging.Logger, statusChangeHandler:IStateChangeHandler, pluginVersion:str, addonType:int):
         self.Endpoint = endpoint
         self.PluginId = pluginId
         self.PrivateKey = privateKey
@@ -34,7 +34,7 @@ class Homeway:
         self.StatusChangeHandler = statusChangeHandler
         self.PluginVersion = pluginVersion
         self.AddonType = addonType
-        self.SecondaryServerCons = {}
+        self.SecondaryServerCons:Dict[str, threading.Thread] = {}
         self.SecondaryServerConsLock = threading.Lock()
 
 
@@ -69,7 +69,7 @@ class Homeway:
 
             # Check if we already have a secondary connection to this server.
             if summonConnectUrl in self.SecondaryServerCons :
-                self.Logger.warn("We got a summon request for a server that we already have a secondary connection to. "+str(summonConnectUrl)+", method "+str(summonMethod))
+                self.Logger.warning("We got a summon request for a server that we already have a secondary connection to. "+str(summonConnectUrl)+", method "+str(summonMethod))
                 return
 
             # We don't have a connection, so make a new connection now.
@@ -79,7 +79,7 @@ class Homeway:
             self.SecondaryServerCons[summonConnectUrl] = thread
 
 
-    def HandleSecondaryServerCon(self, summonConnectUrl, summonMethod):
+    def HandleSecondaryServerCon(self, summonConnectUrl:str, summonMethod:int):
         # Run the secondary connection for until the RunFor time limit. Note RunFor will account for user activity.
         self.Logger.info("Starting a secondary connection to "+str(summonConnectUrl)+ " method "+str(summonMethod))
         try:
@@ -103,5 +103,5 @@ class Homeway:
         self.Logger.info("Secondary connection to "+str(summonConnectUrl)+" has ended")
 
 
-    def createServerCon(self, endpoint:str, isPrimary:bool, shouldUseLowestLatencyServer:bool, statusChangeHandler, runTime, summonMethod, addonType:AddonTypes):
+    def createServerCon(self, endpoint:str, isPrimary:bool, shouldUseLowestLatencyServer:bool, statusChangeHandler:Optional[IStateChangeHandler], runTime:int, summonMethod:int, addonType:int):
         return ServerCon(self, endpoint, isPrimary, shouldUseLowestLatencyServer, self.PluginId, self.PrivateKey, self.Logger, statusChangeHandler, self.PluginVersion, runTime, summonMethod, addonType)

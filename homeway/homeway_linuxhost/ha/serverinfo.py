@@ -1,19 +1,21 @@
 import os
 import logging
+from typing import Any, Optional, Dict
 
 import requests
 
 from homeway.compat import Compat
+from homeway.interfaces import IServerInfoHandler
 
 # Since ServerInfo is a static class, we need to create a handler for it for the compat class.
-class ServerInfoHandler:
+class ServerInfoHandler(IServerInfoHandler):
 
     #
     # Interface Function!!
     # This must remain the same since it's called by the compat class.
     #
     # Returns the access token, either from the environment or passed from the config.
-    def GetAccessToken(self) -> str:
+    def GetAccessToken(self) -> Optional[str]:
         return ServerInfo.GetAccessToken()
 
     #
@@ -30,18 +32,18 @@ class ServerInfoHandler:
 # A common class for storing the Home Assistant server information
 class ServerInfo:
 
-    ServerIpOrHostname = None
-    ServerPort = None
-    ServerUseHttps = False
-    AccessToken = None
+    ServerIpOrHostname:str = ""
+    ServerPort:int = 0
+    ServerUseHttps:bool = False
+    AccessToken:Optional[str] = None
 
 
     @staticmethod
-    def SetServerInfo(serverIpOrHostname:str, serverPort:int, useHttps:bool, accessToken_CanBeNone:str=None):
+    def SetServerInfo(serverIpOrHostname:str, serverPort:int, useHttps:bool, accessToken:Optional[str]=None):
         ServerInfo.ServerIpOrHostname = serverIpOrHostname
         ServerInfo.ServerPort = serverPort
         ServerInfo.ServerUseHttps = useHttps
-        ServerInfo.AccessToken = accessToken_CanBeNone
+        ServerInfo.AccessToken = accessToken
         # Also make sure we set the compat class with the server info handler.
         Compat.SetServerInfoHandler(ServerInfoHandler())
 
@@ -79,7 +81,7 @@ class ServerInfo:
 
     # Returns the access token, either from the environment or passed from the config.
     @staticmethod
-    def GetAccessToken() -> str:
+    def GetAccessToken() -> Optional[str]:
         envToken = ServerInfo._GetEnvAccessToken()
         if envToken is not None and len(envToken) > 0:
             return envToken
@@ -89,7 +91,7 @@ class ServerInfo:
     # Returns the access token from the environment.
     # If there is no token, this returns None
     @staticmethod
-    def _GetEnvAccessToken() -> str:
+    def _GetEnvAccessToken() -> Optional[str]:
         # Ensure that if we get a token, it's not an empty string.
         token = os.environ.get('SUPERVISOR_TOKEN', None)
         if token is not None and len(token) > 0:
@@ -101,12 +103,12 @@ class ServerInfo:
     # Returns a json dict of the result, see: https://developers.home-assistant.io/docs/api/rest/
     # If it fails, it returns None.
     @staticmethod
-    def GetConfigApi(logger:logging.Logger, timeoutSec:float = 1.0) -> dict:
+    def GetConfigApi(logger:logging.Logger, timeoutSec:float=1.0) -> Optional[Dict[str, Any]]:
         try:
             # Ensure we have an API key.
             accessToken = ServerInfo.GetAccessToken()
             if accessToken is None:
-                logger.warn("GetConfigApi failed because we have no HA API token.")
+                logger.warning("GetConfigApi failed because we have no HA API token.")
                 return None
 
             # Make the request.
@@ -119,11 +121,11 @@ class ServerInfo:
 
             # Check the response.
             if result.status_code != 200:
-                logger.warn(f"Get config API {result.status_code}")
+                logger.warning(f"Get config API {result.status_code}")
                 return None
 
             # Return the json
             return result.json()
         except Exception as e:
-            logger.warn(f"GetConfigApi failed: {e}")
+            logger.warning(f"GetConfigApi failed: {e}")
         return None

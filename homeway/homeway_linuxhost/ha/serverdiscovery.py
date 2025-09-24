@@ -1,7 +1,9 @@
 import logging
+from typing import Optional
 import requests
 
 from .configmanager import ConfigManager
+
 
 class ServerDiscoveryResponse:
     def __init__(self, port:int, isHttps:bool) -> None:
@@ -22,7 +24,7 @@ class ServerDiscovery:
     # This will search for a Home Assistant server on the given IP or hostname.
     # Providing an access code is ideal, because it allows us to ensure that we are connected to the correct server, by using an authed API call.
     # If a port hint is provided, it will be checked first.
-    def SearchForServerPort(self, ipOrHostname:str, accessCode:str = None, portHint:int = None) -> ServerDiscoveryResponse:
+    def SearchForServerPort(self, ipOrHostname:str, accessCode:Optional[str]=None, portHint:Optional[int]=None) -> Optional[ServerDiscoveryResponse]:
 
         # We will try all of these ports to see if we can find anything.
         # These are listed in the order of ideal to least ideal.
@@ -79,7 +81,7 @@ class ServerDiscovery:
         return None
 
 
-    def _CheckForHaServer(self, ipOrHostname:str, port:int, accessCode:str, useHttps:bool = False, timeoutSec:float = 1.0) -> bool:
+    def _CheckForHaServer(self, ipOrHostname:str, port:int, accessCode:Optional[str], useHttps:bool=False, timeoutSec:float=1.0) -> bool:
         try:
             # Create the base URL for testing
             protocol = "https" if useHttps is True else "http"

@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import asyncio
+from typing import Optional, Any, Dict
 import aiohttp
 
 from wyoming.asr import Transcript, Transcribe
@@ -23,9 +24,10 @@ from .fabric import Fabric
 from .sagehistory import SageHistory
 from .fibermanager import FiberManager, SpeakDataResponse
 from .sagetranscribehandler import SageTranscribeHandler
+from .interfaces import ISageHandler
 
 
-class SageHandler(AsyncEventHandler):
+class SageHandler(AsyncEventHandler, ISageHandler):
 
     # This is the max length of any string we will process, be it for transcribing, synthesizing, or anything else.
     # This is more of a sanity check, the server will enforce it's own limits.
@@ -35,33 +37,35 @@ class SageHandler(AsyncEventHandler):
     # Sometimes the describe event is called before an action for some reason and is blocking, so the cache helps there as well.
     # Since this hardly ever changes, there's no reason to update it often. It will update when the addon restarts.
     c_InfoEventMaxCacheTimeSec = 60 * 60 * 24 * 3
-    s_InfoEvent:Info = None
+    s_InfoEvent:Optional[Info] = None
     s_InfoEventTime:float = 0.0
     s_InfoEventLock = threading.Lock()
 
 
     # Note this handler is created for each new request flow, like for a full Listen session.
-    def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, homeContext:HomeContext, sageHistory:SageHistory, sagePrefix_CanBeNone:str, devLocalHomewayServerAddress_CanBeNone:str, *args, **kwargs) -> None:
+    def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, homeContext:HomeContext,
+                   sageHistory:SageHistory, sagePrefix:Optional[str], devLocalHomewayServerAddress:Optional[str],
+                   *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.Logger = logger
         self.Fabric = fabric
         self.FiberManager = fiberManger
         self.HomeContext = homeContext
         self.SageHistory = sageHistory
-        self.SagePrefix_CanBeNone = sagePrefix_CanBeNone
-        self.DevLocalHomewayServerAddress_CanBeNone = devLocalHomewayServerAddress_CanBeNone
+        self.SagePrefix = sagePrefix
+        self.DevLocalHomewayServerAddress = devLocalHomewayServerAddress
 
         # This is created when the first audio stream starts and is reset when the stream ends.
         # It handles holding the context of the incoming audio stream for transcribing.
-        self.SageTranscribeHandler:SageTranscribeHandler = None
+        self.SageTranscribeHandler:Optional[SageTranscribeHandler] = None
 
         # Holds the language we were told from transcribe.
         # This can be None if no language is sent.
-        self.TranscribeLanguage_CanBeNone:str = None
+        self.TranscribeLanguage:Optional[str] = None
 
 
     # Logs and error and writes an error message back to the client.
-    async def WriteError(self, text:str, code:str=None) -> None:
+    async def WriteError(self, text:str, code:Optional[str]=None) -> None:
         self.Logger.error(f"Homeway Sage Error: {text}")
         await self.write_event(Error(text, code).event())
         # Calling stop actually makes HA realize the error happened. Otherwise it will keep spinning,
@@ -71,7 +75,7 @@ class SageHandler(AsyncEventHandler):
 
     # The main event handler for all wyoming events.
     # Returning False will disconnect the client.
-    async def handle_event(self, event: Event) -> bool:
+    async def handle_event(self, event:Event) -> bool:
 
         # Fired when the server is first connected to and the client wants to know what models are available.
         if Describe.is_type(event.type):
@@ -81,19 +85,19 @@ class SageHandler(AsyncEventHandler):
         if Transcribe.is_type(event.type):
             transcribe = Transcribe.from_event(event)
             if transcribe.language is not None:
-                self.TranscribeLanguage_CanBeNone = transcribe.language
+                self.TranscribeLanguage = transcribe.language
             return True
 
         # All speech to text audio is handled by this function.
         if AudioChunk.is_type(event.type) or AudioStart.is_type(event.type) or AudioStop.is_type(event.type):
             # On start, we always re-create the transcribe handler.
             if AudioStart.is_type(event.type):
-                self.SageTranscribeHandler = SageTranscribeHandler(self.Logger, self, self.FiberManager, self.TranscribeLanguage_CanBeNone, event)
+                self.SageTranscribeHandler = SageTranscribeHandler(self.Logger, self, self.FiberManager, self.TranscribeLanguage, event)
                 return True
 
             # We should always have a handler now.
             if self.SageTranscribeHandler is None:
-                self.WriteError("Homeway Sage received an audio chunk or stop before the audio start event.")
+                await self.WriteError("Homeway Sage received an audio chunk or stop before the audio start event.")
                 return False
 
             # Let the handler handle the event.
@@ -153,7 +157,7 @@ class SageHandler(AsyncEventHandler):
             transcript = Synthesize.from_event(event)
 
             # Get the user chosen voice name
-            voiceName = None
+            voiceName:Optional[str] = None
             if transcript.voice is not None:
                 voiceName = transcript.voice.name
 
@@ -188,7 +192,7 @@ class SageHandler(AsyncEventHandler):
                     await self.write_event(AudioStart(rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
 
                 # Now write the audio chunk.
-                await self.write_event(AudioChunk(audio=response.Bytes, rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
+                await self.write_event(AudioChunk(audio=response.Bytes.ForceAsBytes(), rate=response.SampleRate, width=response.BytesPerSample, channels=response.Channels).event())
                 synthContext.ChunkCount += 1
                 synthContext.TotalBytes += len(response.Bytes)
 
@@ -233,7 +237,7 @@ class SageHandler(AsyncEventHandler):
 
         # Since the discovery command is called rapidly sometimes, we will cache the info event for a few seconds.
         try:
-            info:Info = None
+            info:Optional[Info] = None
             with SageHandler.s_InfoEventLock:
                 if SageHandler.s_InfoEvent is not None and time.time() - SageHandler.s_InfoEventTime < SageHandler.c_InfoEventMaxCacheTimeSec:
                     info = SageHandler.s_InfoEvent
@@ -250,15 +254,15 @@ class SageHandler(AsyncEventHandler):
         try:
             # Get the correct URL
             url = "https://homeway.io/api/sage/getmodels"
-            if self.DevLocalHomewayServerAddress_CanBeNone is not None:
-                url = f"http://{self.DevLocalHomewayServerAddress_CanBeNone}/api/sage/getmodels"
+            if self.DevLocalHomewayServerAddress is not None:
+                url = f"http://{self.DevLocalHomewayServerAddress}/api/sage/getmodels"
 
             # Since this is important, we have some retry logic.
             attempt = 0
             async with aiohttp.ClientSession() as session:
                 while True:
                     attempt += 1
-                    serviceInfo:Info  = None
+                    serviceInfo:Optional[Info] = None
                     try:
                         self.Logger.debug(f"Sage - Starting Info Service Request - {url}")
                         # Perform the async GET request with a timeout of 10 seconds.
@@ -297,7 +301,7 @@ class SageHandler(AsyncEventHandler):
 
 
     # Writes the info event back to the client.
-    async def _CacheAndWriteInfoEvent(self, info:Info, cache:bool = True) -> None:
+    async def _CacheAndWriteInfoEvent(self, info:Info, cache:bool=True) -> None:
         # Write it
         await self.write_event(info.event())
 
@@ -310,7 +314,7 @@ class SageHandler(AsyncEventHandler):
 
     # Handles the service info and writes the event back to the client.
     # This must write the info event or throw, so it will retry the process.
-    def _BuildInfoEvent(self, response:dict) -> Info:
+    def _BuildInfoEvent(self, response:Dict[str, Any]) -> Info:
 
         # This is a list of languages we support.
         # We keep them here on the client side so they don't have to be sent every time.
@@ -318,24 +322,24 @@ class SageHandler(AsyncEventHandler):
         # For anything that isn't supported, the server will map it on demand.
         sageLanguages = ["af-ZA", "am-ET", "ar-AE","ar-BH","ar-DZ","ar-EG","ar-IL","ar-IQ","ar-JO","ar-KW","ar-LB","ar-MA","ar-MR","ar-OM","ar-PS","ar-QA","ar-SA","ar-SY","ar-TN","ar-YE","az-AZ","bg-BG","bn-BD","bn-IN","bs-BA","ca-ES","cmn-Hans-CN","cmn-Hans-HK","cmn-Hant-TW","cs-CZ","da-DK","de-AT","de-CH","de-DE","el-GR","en-AU","en-CA","en-GB","en-GH","en-HK","en-IE","en-IN","en-KE","en-NG","en-NZ","en-PH","en-PK","en-SG","en-TZ","en-US","en-ZA","es-AR","es-BO","es-CL","es-CO","es-CR","es-DO","es-EC","es-ES","es-GT","es-HN","es-MX","es-NI","es-PA","es-PE","es-PR","es-PY","es-SV","es-US","es-UY","es-VE","et-EE","eu-ES","fa-IR","fi-FI","fil-PH","fr-BE","fr-CA","fr-CH","fr-FR","gl-ES","gu-IN","hi-IN","hr-HR","hu-HU","hy-AM","id-ID","is-IS","it-CH","it-IT","iw-IL","ja-JP","jv-ID","ka-GE","kk-KZ","km-KH","kn-IN","ko-KR","lo-LA","lt-LT","lv-LV","mk-MK","ml-IN","mn-MN","mr-IN","ms-MY","my-MM","ne-NP","nl-BE","nl-NL","no-NO","pa-Guru-IN","pl-PL","pt-BR","pt-PT","ro-RO","ru-RU","si-LK","sk-SK","sl-SI","sq-AL","sr-RS","su-ID","sv-SE","sw-KE","sw-TZ","ta-IN","ta-LK","ta-MY","ta-SG","te-IN","th-TH","tr-TR","uk-UA","ur-IN","ur-PK","uz-UZ","vi-VN","yue-Hant-HK","zu-ZA",]
 
-        def getOrThrow(d:dict, key:str, expectedType:type, default = None) -> any:
+        def getOrThrow(d:Dict[str, Any], key:str, expectedType:type, defaultValue:Optional[Any]=None) -> Any:
             value = d.get(key, None)
             if value is None:
-                if default is not None:
-                    return default
+                if defaultValue is not None:
+                    return defaultValue
                 raise Exception(f"Failed to get models from service, no {key}.")
             if isinstance(value, expectedType) is False:
                 raise Exception(f"Failed to get models from service, {key} is not the expected type.")
             return value
 
-        def getAttribution(d:dict) -> Attribution:
+        def getAttribution(d:Dict[str, Any]) -> Attribution:
             a = getOrThrow(d, "Attribution", dict)
             return Attribution(getOrThrow(a, "Name", str), getOrThrow(a, "Url", str))
 
         def addSagePrefixIfNeeded(s:str) -> str:
-            if self.SagePrefix_CanBeNone is None:
+            if self.SagePrefix is None:
                 return s
-            return f"{self.SagePrefix_CanBeNone} - {s}"
+            return f"{self.SagePrefix} - {s}"
 
         # Parse the response.
         result = getOrThrow(response, "Result", dict)

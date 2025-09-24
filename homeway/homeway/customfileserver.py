@@ -1,10 +1,14 @@
 import logging
 import hashlib
+from typing import Dict, Optional
 
+from .buffer import Buffer
 from .sentry import Sentry
+from .httpresult import HttpResult
 from .httprequest import HttpRequest
 from .streammsgbuilder import StreamMsgBuilder
 
+from .Proto.HttpInitialContext import HttpInitialContext
 
 # A simple class that can handle serving special files that are custom to homeway.
 # We use our custom included files to prevent the frontend from breaking when the user is out of data.
@@ -14,29 +18,30 @@ class CustomFileServer:
     _HomewayCustomIndexJsFileName = "homeway.js"
     _HomewayCustomIndexCssFileName = "homeway.css"
 
-    _Instance = None
+    _Instance: "CustomFileServer" = None #pyright: ignore[reportAssignmentType]
+
 
     @staticmethod
-    def Init(logger):
+    def Init(logger:logging.Logger):
         CustomFileServer._Instance = CustomFileServer(logger)
 
 
     @staticmethod
-    def Get():
+    def Get() -> "CustomFileServer":
         return CustomFileServer._Instance
 
 
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         # These are set once we have the addon id and api key.
-        self.HomewayCustomHtmlHeaderIncludeBytes = None
-        self.HomewayJsFileContentsBytes = None
-        self.HomewayCssFileContentsBytes = None
+        self.HomewayCustomHtmlHeaderIncludeBytes:Optional[bytes] = None
+        self.HomewayJsFileContentsBytes:Optional[bytes] = None
+        self.HomewayCssFileContentsBytes:Optional[bytes] = None
 
 
     # This is called once we are connected to Homeway and we know the addon id and api key.
     # NOTE that this API key IS NOT a secret, so it's fine to put it in the JS file.
-    def UpdateAddonConfig(self, addonId:str, apiKey:str):
+    def UpdateAddonConfig(self, addonId:str, apiKey:str) -> None:
         try:
             # When we get the addon id and api key, we can now generate the custom js file.
             # Insert the addon id and api key into the js file.
@@ -71,13 +76,13 @@ class CustomFileServer:
 
 
     # This will return the tag or None if the script isn't ready to be sent yet.
-    def GetCustomHtmlHeaderIncludeBytes(self) -> str:
+    def GetCustomHtmlHeaderIncludeBytes(self) -> Optional[bytes]:
         return self.HomewayCustomHtmlHeaderIncludeBytes
 
 
     # Returns True or False depending if this request is for a custom Homeway file or not.
     # If True is returned, HandleRequest should be used to get the response.
-    def IsCustomFileRequest(self, httpInitialContext, method:str) -> bool:
+    def IsCustomFileRequest(self, httpInitialContext:HttpInitialContext, method:str) -> bool:
         try:
             # It must be a get request.
             if method != "GET":
@@ -100,7 +105,7 @@ class CustomFileServer:
 
 
     # Must return a HttpRequest.Result object, or None on failure.
-    def HandleRequest(self, httpInitialContext) -> HttpRequest.Result:
+    def HandleRequest(self, httpInitialContext:HttpInitialContext) -> HttpResult:
         # Get the request path.
         pathAndQueryParams = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
         if pathAndQueryParams is None:
@@ -110,8 +115,8 @@ class CustomFileServer:
             raise Exception("CustomFileServer.ParseOutPath returned None.")
 
         # Match the path to the custom files.
-        returnBuffer = None
-        headers = {}
+        returnBuffer:Optional[bytes] = None
+        headers:Dict[str, str] = {}
         path = path.lower()
         if path.endswith(CustomFileServer._HomewayCustomIndexJsFileName):
             returnBuffer = self.HomewayJsFileContentsBytes
@@ -125,7 +130,7 @@ class CustomFileServer:
         # This shouldn't be possible, since the client can't make requests before the handshake is ready, and the files are made right after that.
         if returnBuffer is None:
             raise Exception("CustomFileServer.HandleRequest called before the custom js file is ready.")
-        return HttpRequest.Result(200, headers, pathAndQueryParams, False, fullBodyBuffer=returnBuffer)
+        return HttpResult(200, headers, pathAndQueryParams, False, fullBodyBuffer=Buffer(returnBuffer))
 
 
     # For now embedding this CSS file here is the easiest way to do it.

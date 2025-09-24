@@ -3,7 +3,7 @@ from pathlib import Path
 class Util:
 
     @staticmethod
-    def EnsureDirExists(path:str):
+    def EnsureDirExists(path:str) -> None:
         Path(path).mkdir(parents=True, exist_ok=True)
 
 

@@ -1,12 +1,8 @@
+import logging
 import sys
-import struct
 import threading
 import traceback
-
-
-#
-# This file represents one connection session to the service. If anything fails it is destroyed and a new connection will be made.
-#
+from typing import Dict, List, Optional
 
 from .WebStream.webstreamimpl import WebStreamImpl
 from .httprequest import HttpRequest
@@ -15,19 +11,32 @@ from .streammsgbuilder import StreamMsgBuilder
 from .serverauth import ServerAuthHelper
 from .sentry import Sentry
 from .compression import Compression
+from .interfaces import IStream, ISession
+from .buffer import Buffer, ByteLikeOrMemoryView
 
-from .Proto import StreamMessage
+from .Proto.StreamMessage import StreamMessage
 from .Proto import HandshakeAck
 from .Proto import MessageContext
 from .Proto import WebStreamMsg
 from .Proto import Summon
-from .Proto.AddonTypes import AddonTypes
 from .Proto.DataCompression import DataCompression
 
-class Session:
+#
+# This file represents one connection session to the service. If anything fails it is destroyed and a new connection will be made.
+#
 
-    def __init__(self, stream, logger, pluginId, privateKey, isPrimarySession, sessionId, pluginVersion):
-        self.ActiveWebStreams = {}
+class Session(ISession):
+
+    def __init__(self,
+                    stream:IStream,
+                    logger:logging.Logger,
+                    pluginId:str,
+                    privateKey:str,
+                    isPrimarySession:bool,
+                    sessionId:int,
+                    pluginVersion:str
+                ):
+        self.ActiveWebStreams:Dict[int, WebStreamImpl] = {}
         self.ActiveWebStreamsLock = threading.Lock()
         self.IsAcceptingStreams = True
 
@@ -43,35 +52,47 @@ class Session:
         self.ServerAuth = ServerAuthHelper(self.Logger)
 
 
-    def OnSessionError(self, backoffModifierSec):
+    def OnSessionError(self, backoffModifierSec:int) -> None:
         # Just forward
         self.Stream.OnSessionError(self.SessionId, backoffModifierSec)
 
 
-    def Send(self, buffer:bytearray, msgStartOffsetBytes:int, msgSize:int):
+    def Send(self, buffer:Buffer, msgStartOffsetBytes:int, msgSize:int) -> None:
         # The message is already encoded, pass it along to the socket.
         self.Stream.SendMsg(buffer, msgStartOffsetBytes, msgSize)
 
 
-    def HandleSummonRequest(self, msg):
+    def HandleSummonRequest(self, msg:StreamMessage) -> None:
         try:
+            context = msg.Context()
+            if context is None:
+                self.Logger.error("Summon message is missing context.")
+                return
+
+            # Parse the summon message
             summonMsg = Summon.Summon()
-            summonMsg.Init(msg.Context().Bytes, msg.Context().Pos)
+            summonMsg.Init(context.Bytes, context.Pos)
             serverConnectUrl = StreamMsgBuilder.BytesToString(summonMsg.ServerConnectUrl())
             summonMethod = summonMsg.SummonMethod()
             if serverConnectUrl is None or len(serverConnectUrl) == 0:
                 self.Logger.error("Summon notification is missing a server url.")
                 return
+
             # Process it!
             self.Stream.OnSummonRequest(self.SessionId, serverConnectUrl, summonMethod)
         except Exception as e:
             Sentry.OnException("Failed to handle summon request ", e)
 
 
-    def HandleHandshakeAck(self, msg):
+    def HandleHandshakeAck(self, msg:StreamMessage) -> None:
+        # Get the context.
+        context = msg.Context()
+        if context is None:
+            raise Exception("HandleHandshakeAck message is missing context.")
+
         # Handles a handshake ack message.
         handshakeAck = HandshakeAck.HandshakeAck()
-        handshakeAck.Init(msg.Context().Bytes, msg.Context().Pos)
+        handshakeAck.Init(context.Bytes, context.Pos)
 
         if handshakeAck.Accepted():
             # Accepted!
@@ -80,17 +101,22 @@ class Session:
             if self.ServerAuth.ValidateChallengeResponse(rasChallengeResponse) is False:
                 raise Exception("Server RAS challenge failed!")
             # Parse out the response and report.
-            connectedAccounts = None
+            connectedAccounts:List[str] = []
             connectedAccountsLen = handshakeAck.ConnectedAccountsLength()
             if handshakeAck.ConnectedAccountsLength() != 0:
                 i = 0
                 connectedAccounts = []
                 while i < connectedAccountsLen:
-                    connectedAccounts.append(StreamMsgBuilder.BytesToString(handshakeAck.ConnectedAccounts(i)))
+                    account = StreamMsgBuilder.BytesToString(handshakeAck.ConnectedAccounts(i))
+                    if account is not None:
+                        connectedAccounts.append(account)
                     i += 1
 
-            # Parse out the apiKey
+            # Parse out the api key
             apiKey = StreamMsgBuilder.BytesToString(handshakeAck.ApiKey())
+            if apiKey is None:
+                raise Exception("Handshake ack is missing apiKey.")
+
             self.Stream.OnHandshakeComplete(self.SessionId, apiKey, connectedAccounts)
         else:
             # Pull out the error.
@@ -112,10 +138,15 @@ class Session:
             self.OnSessionError(backoffModifierSec)
 
 
-    def HandleWebStreamMessage(self, msg):
+    def HandleWebStreamMessage(self, msg:StreamMessage) -> None:
+        # Get the context.
+        context = msg.Context()
+        if context is None:
+            raise Exception("HandleWebStreamMessage message is missing context.")
+
         # Handles a web stream.
         webStreamMsg = WebStreamMsg.WebStreamMsg()
-        webStreamMsg.Init(msg.Context().Bytes, msg.Context().Pos)
+        webStreamMsg.Init(context.Bytes, context.Pos)
 
         # Get the stream id
         streamId = webStreamMsg.StreamId()
@@ -125,13 +156,10 @@ class Session:
             raise Exception("We got a web stream message for an invalid stream id of 0")
 
         # Grab the lock before messing with the map.
-        localStream = None
+        localStream:Optional[WebStreamImpl] = None
         with self.ActiveWebStreamsLock:
-            # First, check if the stream exists.
-            if streamId in self.ActiveWebStreams :
-                # It exists, so use it.
-                localStream = self.ActiveWebStreams[streamId]
-            else:
+            localStream = self.ActiveWebStreams.get(streamId, None)
+            if localStream is None:
                 # It doesn't exist. Validate this is a open message.
                 if webStreamMsg.IsOpenMsg() is False:
                     # TODO - Handle messages that arrive for just closed streams better.
@@ -139,7 +167,7 @@ class Session:
                     if isCloseMessage:
                         self.Logger.debug("We got a web stream message for a stream id [" + str(streamId) + "] that doesn't exist and isn't an open message. IsClose:"+str(isCloseMessage))
                     else:
-                        self.Logger.warn("We got a web stream message for a stream id [" + str(streamId) + "] that doesn't exist and isn't an open message. IsClose:"+str(isCloseMessage))
+                        self.Logger.warning("We got a web stream message for a stream id [" + str(streamId) + "] that doesn't exist and isn't an open message. IsClose:"+str(isCloseMessage))
                     # Don't throw, because this message maybe be coming in from the server as the local side closed.
                     return
 
@@ -149,7 +177,7 @@ class Session:
                     return
 
                 # Create the new stream object now.
-                localStream = WebStreamImpl(args=(self.Logger, streamId, self,))
+                localStream = WebStreamImpl(name="OctoWebStreamPumper", args=(self.Logger, streamId, self, ))
                 # Set it in the map
                 self.ActiveWebStreams[streamId] = localStream
                 # Start it's main worker thread
@@ -159,19 +187,19 @@ class Session:
         localStream.OnIncomingServerMessage(webStreamMsg)
 
 
-    def WebStreamClosed(self, streamId):
+    def WebStreamClosed(self, sessionId:int) -> None:
         # Called from the webstream when it's closing.
         with self.ActiveWebStreamsLock:
-            if streamId in self.ActiveWebStreams :
-                self.ActiveWebStreams.pop(streamId)
-            else:
+            # Provide none so this doesn't thrown
+            foundStream = self.ActiveWebStreams.pop(sessionId, None)
+            if foundStream is None:
                 self.Logger.error("A web stream asked to close that wasn't in our webstream map.")
 
 
     def CloseAllWebStreamsAndDisable(self):
         # The streams will remove them selves from the map when they close, so all we need to do is ask them
         # to close.
-        localWebStreamList = []
+        localWebStreamList:List[WebStreamImpl] = []
         with self.ActiveWebStreamsLock:
             # Close them all.
             self.Logger.info("Closing all open web stream sockets ("+str(len(self.ActiveWebStreams))+")")
@@ -196,7 +224,7 @@ class Session:
             Sentry.OnException("Exception thrown while closing all web streams.", ex)
 
 
-    def StartHandshake(self, summonMethod, addonType:AddonTypes):
+    def StartHandshake(self, summonMethod:int, addonType:int):
         # Send the handshakesyn
         try:
             # Get our unique challenge
@@ -212,7 +240,8 @@ class Session:
                 receiveCompressionType = DataCompression.ZStandard
 
             # Build the message
-            buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.BuildHandshakeSyn(self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
+            buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.BuildHandshakeSyn(
+                self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
                 HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIp(),
                 rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType, receiveCompressionType)
 
@@ -227,9 +256,9 @@ class Session:
     # Since all web stream messages use their own threads, we don't spin off a thread
     # for messages here. However, that means we need to be careful to not do any
     # long processing in the function, since it will delay all incoming messages.
-    def HandleMessage(self, msgBytes):
+    def HandleMessage(self, msgBytes:Buffer) -> None:
         # Decode the message.
-        msg = None
+        msg:Optional[StreamMessage] = None
         try:
             msg = self.DecodeStreamMessage(msgBytes)
         except Exception as e:
@@ -267,29 +296,24 @@ class Session:
 
 
     # Helper to unpack uint32
-    def Unpack32Int(self, buffer, bufferOffset) :
+    def Unpack32Int(self, buffer:ByteLikeOrMemoryView, bufferOffset:int):
         if sys.byteorder == "little":
-            if sys.version_info[0] < 3:
-                return (struct.unpack('1B', buffer[0 + bufferOffset])[0]) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 8) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[3 + bufferOffset])[0] << 24)
-            else:
-                return (buffer[0 + bufferOffset]) + (buffer[1 + bufferOffset] << 8) + (buffer[2 + bufferOffset] << 16) + (buffer[3 + bufferOffset] << 24)
+            return (buffer[0 + bufferOffset]) + (buffer[1 + bufferOffset] << 8) + (buffer[2 + bufferOffset] << 16) + (buffer[3 + bufferOffset] << 24)
         else:
-            if sys.version_info[0] < 3:
-                return (struct.unpack('1B', buffer[0 + bufferOffset])[0] << 24) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 8) + struct.unpack('1B', buffer[3 + bufferOffset])[0]
-            else:
-                return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
+            return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
 
 
-    def DecodeStreamMessage(self, buf):
+    def DecodeStreamMessage(self, buf:Buffer) -> StreamMessage:
         # Our wire protocol is a uint32 followed by the flatbuffer message.
+        rawBuffer = buf.Get()
 
         # First, read the message size.
         # We add 4 to account for the full buffer size, including the uint32.
-        messageSize = self.Unpack32Int(buf, 0) + 4
+        messageSize = self.Unpack32Int(rawBuffer, 0) + 4
 
         # Check that things make sense.
-        if messageSize != len(buf):
-            raise Exception("We got an StreamMsg that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(buf)))
+        if messageSize != len(rawBuffer):
+            raise Exception("We got an StreamMsg that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(rawBuffer)))
 
         # Decode and return
-        return StreamMessage.StreamMessage.GetRootAs(buf, 4)
+        return StreamMessage.GetRootAs(rawBuffer, 4) #pyright: ignore[reportUnknownMemberType]

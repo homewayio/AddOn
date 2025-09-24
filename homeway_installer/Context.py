@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Optional
 
 from .Logging import Logger
 
@@ -17,21 +18,21 @@ class Context:
         #
 
         # This is the repo root of Homeway. This is common for all instances.
-        self.RepoRootFolder:str = None
+        self.RepoRootFolder:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # This is the path to the PY virtual env for Homeway. This is common for all instances.
-        self.VirtualEnvPath:str = None
+        self.VirtualEnvPath:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # This is the user name of the user who launched the install script.
         # Useful because this module is running as a sudo user.
-        self.UserName:str = None
+        self.UserName:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # This is the user home path of the user who launched the install script.
         # Useful because this module is running as a sudo user.
-        self.UserHomePath:str = None
+        self.UserHomePath:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # A string containing all of the args the install script was launched with.
-        self.CmdLineArgs:str = None
+        self.CmdLineArgs:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # Parsed from the command line args, if debug should be enabled.
         self.Debug:bool = False
@@ -54,14 +55,14 @@ class Context:
         #
 
         # The root folder where this addon instance will setup it's data.
-        self.AddonFolder:str = None
+        self.AddonFolder:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # True if this is the primary instance, aka InstanceId=="1"
         self.IsPrimaryInstance:bool = False
 
         # The instance id, so we can support multiple instances on one device.
         # Note the Primary Instance will have a id of "1"
-        self.InstanceId:str = None
+        self.InstanceId:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
 
         #
@@ -69,27 +70,27 @@ class Context:
         #
 
         # Generation 3 - This it the path to the logs folder.
-        self.LogFolder:str = None
+        self.LogFolder:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # Generation 3 - This is the name of this Homeway instance's service.
-        self.ServiceName:str = None
+        self.ServiceName:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # Generation 3 - The full file path and file name of this instance's service file.
-        self.ServiceFilePath:str = None
+        self.ServiceFilePath:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         # Generation 3 - The path to where the local storage will be put for this instance.
-        self.LocalDataFolder:str = None
+        self.LocalDataFolder:str = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
         #
         # Generation 4
         #
 
         # Generation 4 - If the instance config file existed before we created the service, this will hold the addon id.
-        self.ExistingAddonId:str = None
+        self.ExistingAddonId:Optional[str] = None #pyright: ignore[reportAttributeAccessIssue] we allow these to not be optional, so logic doesn't have to check. The validation function will check before they are used.
 
 
     @staticmethod
-    def LoadFromArgString(argString:str):
+    def LoadFromArgString(argString:str) -> 'Context':
         Logger.Debug("Found config: "+argString)
         try:
             argObj = json.loads(argString)
@@ -105,7 +106,7 @@ class Context:
             raise e
 
 
-    def Validate(self, generation = 1) -> None:
+    def Validate(self, generation:int=1) -> None:
         self._ValidatePathAndExists(self.RepoRootFolder, "Required Env Var HA_REPO_DIR was not found; make sure to run the install.sh script to begin the installation process")
         self._ValidatePathAndExists(self.VirtualEnvPath, "Required Env Var HA_ENV was not found; make sure to run the install.sh script to begin the installation process")
         self._ValidatePathAndExists(self.UserHomePath, "Required Env Var USER_HOME was not found; make sure to run the install.sh script to begin the installation process")
@@ -138,7 +139,7 @@ class Context:
             pass
 
 
-    def ParseCmdLineArgs(self):
+    def ParseCmdLineArgs(self) -> None:
         # We must have a string, indicating the ./install script passed the var.
         # But it can be an empty string, that's fine.
         if self.CmdLineArgs is None:
@@ -176,11 +177,11 @@ class Context:
                     raise Exception(f"Unknown argument '{rawArg}' found. Use install.sh -help for options.")
 
 
-    def _ValidatePathAndExists(self, path:str, error:str):
+    def _ValidatePathAndExists(self, path:str, error:str) -> None:
         if path is None or os.path.exists(path) is False:
             raise Exception(error)
 
 
-    def _ValidateString(self, s:str, error:str):
+    def _ValidateString(self, s:str, error:str) -> None:
         if s is None or isinstance(s, str) is False or len(s) == 0:
             raise Exception(error)

@@ -3,6 +3,7 @@ import sys
 import json
 import base64
 from enum import Enum
+from typing import Any, Dict, Optional, Union
 
 from homeway.Proto.AddonTypes import AddonTypes
 
@@ -17,14 +18,28 @@ class ConfigDataTypes(Enum):
     Bool = 3
     Int = 4
 
-
-def _GetConfigVarAndValidate(config, varName:str, dataType:ConfigDataTypes):
-    if varName not in config:
-        raise Exception(f"{varName} isn't found in the json config.")
-    var = config[varName]
+# A helper to get a specific value from the json config.
+# oldVarName allows us to stay compat with older installs.
+def _GetConfigVarAndValidate(jsonConfig:Dict[str, Any],
+                            varName:str,
+                            dataType:ConfigDataTypes,
+                            oldVarName:Optional[str]=None,
+                            defaultValue:Union[bool, str, None]=None, # If set to not None, if the var isn't found, it will be returned. (aka the config var is optional)
+                            ) -> Union[bool, str]:
+    var = None
+    if varName in jsonConfig:
+        var = jsonConfig[varName]
+    elif oldVarName in jsonConfig:
+        var = jsonConfig[oldVarName]
+    else:
+        if defaultValue is None:
+            raise Exception(f"{varName} isn't found in the json jsonConfig, and it's required.")
+        else:
+            # If it's not required, we can just return None.
+            return defaultValue
 
     if var is None:
-        raise Exception(f"{varName} returned None when parsing json config.")
+        raise Exception(f"{varName} returned None when parsing json jsonConfig.")
 
     if dataType == ConfigDataTypes.String or dataType == ConfigDataTypes.Path:
         var = str(var)
@@ -38,11 +53,8 @@ def _GetConfigVarAndValidate(config, varName:str, dataType:ConfigDataTypes):
     elif dataType == ConfigDataTypes.Bool:
         var = bool(var)
 
-    elif dataType == ConfigDataTypes.Int:
-        var = int(var)
-
     else:
-        raise Exception(f"{varName} has an invalid config data type. {dataType}")
+        raise Exception(f"{varName} has an invalid jsonConfig data type. {dataType}")
     return var
 
 #
@@ -65,7 +77,13 @@ if __name__ == '__main__':
         _PrintErrorAndExit("No json settings path passed to service")
 
     # Try to parse the config
-    jsonConfigStr = None
+    jsonConfigStr:Optional[str]= None
+    IsRunningInHaAddonEnv:Any = False
+    IsRunningAsStandaloneDocker:Any = False
+    VersionFileDir:Any = ""
+    AddonDataRootDir:Any = ""
+    LogsDir:Any = ""
+    StorageDir:Any = ""
     try:
         # The args are passed as a urlbase64 encoded string, to prevent issues with passing some chars as args.
         argsJsonBase64 = sys.argv[1]
@@ -88,15 +106,14 @@ if __name__ == '__main__':
         if "IsRunningAsStandaloneDocker" in config:
             IsRunningAsStandaloneDocker = _GetConfigVarAndValidate(config, "IsRunningAsStandaloneDocker", ConfigDataTypes.Bool)
 
-
     except Exception as e:
         _PrintErrorAndExit(f"Exception while loading json config. Error:{str(e)}, Config: {jsonConfigStr}")
 
     # For debugging, we also allow an optional dev object to be passed.
-    devConfig_CanBeNone = None
+    devConfig:Optional[Dict[str, Any]] = None
     try:
         if len(sys.argv) > 2:
-            devConfig_CanBeNone = json.loads(sys.argv[2])
+            devConfig = json.loads(sys.argv[2])
             print("Using dev config: "+sys.argv[2])
     except Exception as e:
         _PrintErrorAndExit(f"Exception while DEV CONFIG. Error:{str(e)}, Config: {sys.argv[2]}")
@@ -111,8 +128,8 @@ if __name__ == '__main__':
             addon = AddonTypes.StandaloneDocker
 
         # Create and run the main host!
-        host = LinuxHost(AddonDataRootDir, LogsDir, addon, devConfig_CanBeNone)
-        host.RunBlocking(StorageDir, VersionFileDir, devConfig_CanBeNone)
+        host = LinuxHost(AddonDataRootDir, LogsDir, addon, devConfig)
+        host.RunBlocking(StorageDir, VersionFileDir, devConfig)
     except Exception as e:
         _PrintErrorAndExit(f"Exception leaked from main host class. Error:{str(e)}")
 

@@ -1,8 +1,12 @@
 import logging
+from typing import Optional
 
 from homeway.compat import Compat
+from homeway.httpresult import HttpResult
+from homeway.buffer import Buffer
 from homeway.sentry import Sentry
 from homeway.httprequest import HttpRequest
+from homeway.interfaces import IWebRequestHandler
 from homeway.customfileserver import CustomFileServer
 
 
@@ -15,19 +19,20 @@ class ResponseHandlerContext:
 
 
 # Implements the platform specific logic for web request response handler.
-class WebRequestResponseHandler:
+class WebRequestResponseHandler(IWebRequestHandler):
 
     # The static instance.
-    _Instance = None
+    _Instance:"WebRequestResponseHandler" = None # type: ignore[reportClassAttributeMissing]
+
 
     @staticmethod
-    def Init(logger:logging.Logger):
+    def Init(logger:logging.Logger) -> None:
         WebRequestResponseHandler._Instance = WebRequestResponseHandler(logger)
         Compat.SetWebRequestResponseHandler(WebRequestResponseHandler._Instance)
 
 
     @staticmethod
-    def Get():
+    def Get() -> "WebRequestResponseHandler":
         return WebRequestResponseHandler._Instance
 
 
@@ -40,12 +45,12 @@ class WebRequestResponseHandler:
     # If no, then None is returned and the call is handled as normal.
     # If yes, some kind of context object must be returned, which will be given back to us.
     #     If yes, the entire response will be read as one full byte buffer, and given for us to deal with.
-    def CheckIfResponseNeedsToBeHandled(self, uri:str) -> ResponseHandlerContext:
+    def CheckIfResponseNeedsToBeHandled(self, uri:str) -> Optional[ResponseHandlerContext]:
         try:
             # Parse out only the path.
             path = HttpRequest.ParseOutPath(uri)
             if path is None:
-                self.Logger.warn(f"WebRequestResponseHandler failed to parse path from uri: {uri}")
+                self.Logger.warning(f"WebRequestResponseHandler failed to parse path from uri: {uri}")
 
             # Try to detect any load of the main html page.
             # This isn't a perfect list, but for now we think it's safer to do an opt-in.
@@ -63,7 +68,7 @@ class WebRequestResponseHandler:
     # If we returned a context above in CheckIfResponseNeedsToBeHandled, this will be called after the web request is made
     # and the body is fully read. The entire body will be read into the bodyBuffer.
     # We are able to modify the bodyBuffer as we wish or not, but we must return the full bodyBuffer back to be returned.
-    def HandleResponse(self, contextObject:ResponseHandlerContext, hwHttpResult:HttpRequest.Result, bodyBuffer: bytes) -> bytes:
+    def HandleResponse(self, contextObject:ResponseHandlerContext, httpResult:HttpResult, bodyBuffer:Buffer) -> Buffer:
         try:
             if contextObject.Type == ResponseHandlerContext.HomeAssistantHtmlPage:
                 return self._HandleHomeAssistantHtmlPage(bodyBuffer)
@@ -73,15 +78,16 @@ class WebRequestResponseHandler:
         return bodyBuffer
 
 
-    def _HandleHomeAssistantHtmlPage(self, bodyBuffer: bytes) -> bytes:
+    def _HandleHomeAssistantHtmlPage(self, bodyBuffer:Buffer) -> Buffer:
         # This is a index page, let's inject our js we use to help with when the user's data runs out.
         # Find the </head> tag and insert our config before it.
-        headEnd = bodyBuffer.find(b"</head>")
+        bytesLike = bodyBuffer.GetBytesLike()
+        headEnd = bytesLike.find(b"</head>")
         if headEnd == -1:
-            self.Logger.warn("Failed to find </head> tag in index page.")
+            self.Logger.warning("Failed to find </head> tag in index page.")
             return bodyBuffer
         customHeaderInclude = CustomFileServer.Get().GetCustomHtmlHeaderIncludeBytes()
         if customHeaderInclude is None:
             self.Logger.error("Failed to get custom header include from the custom file server, it's not ready yet, but this shouldn't be able to happen!")
             return bodyBuffer
-        return bodyBuffer[:headEnd] + customHeaderInclude + bodyBuffer[headEnd:]
+        return Buffer(bytesLike[:headEnd] + customHeaderInclude + bytesLike[headEnd:])

@@ -1,5 +1,6 @@
 import logging
 import traceback
+from typing import Any, Dict, List, Optional
 
 from homeway.mdns import MDns
 from homeway.sentry import Sentry
@@ -13,7 +14,7 @@ from homeway.httpsessions import HttpSessions
 from homeway.Proto.AddonTypes import AddonTypes
 from homeway.commandhandler import CommandHandler
 from homeway.customfileserver import CustomFileServer
-
+from homeway.interfaces import IStateChangeHandler
 
 from .config import Config
 from .secrets import Secrets
@@ -31,14 +32,14 @@ from .sage.sagehost import SageHost
 
 
 # This file is the main host for the linux service.
-class LinuxHost:
+class LinuxHost(IStateChangeHandler):
 
-    def __init__(self, addonDataRootDir:str, logsDir:str, addonType:AddonTypes, devConfig_CanBeNone) -> None:
+    def __init__(self, addonDataRootDir:str, logsDir:str, addonType:int, devConfig:Optional[Dict[str,Any]]) -> None:
         # When we create our class, make sure all of our core requirements are created.
-        self.Secrets = None
-        self.WebServer = None
-        self.HaEventHandler = None
-        self.Sage:SageHost = None
+        self.Secrets:Secrets = None #pyright: ignore[reportAttributeAccessIssue]
+        self.WebServer:WebServer = None #pyright: ignore[reportAttributeAccessIssue]
+        self.HaEventHandler:EventHandler = None #pyright: ignore[reportAttributeAccessIssue]
+        self.Sage:SageHost = None #pyright: ignore[reportAttributeAccessIssue]
 
         # Indicates if we are running as the Home Assistant addon, or standalone docker or cli.
         self.AddonType = addonType
@@ -50,7 +51,7 @@ class LinuxHost:
             self.Config = Config(addonDataRootDir)
 
             # Next, setup the logger.
-            logLevelOverride_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "LogLevel")
+            logLevelOverride_CanBeNone = self.GetDevConfigStr(devConfig, "LogLevel")
             self.Logger = LoggerInit.GetLogger(self.Config, logsDir, logLevelOverride_CanBeNone)
             self.Config.SetLogger(self.Logger)
 
@@ -64,7 +65,7 @@ class LinuxHost:
             raise
 
 
-    def RunBlocking(self, storageDir, versionFileDir, devConfig_CanBeNone):
+    def RunBlocking(self, storageDir:str, versionFileDir:str, devConfig:Optional[Dict[str,Any]]):
         # Do all of this in a try catch, so we can log any issues before exiting
         try:
             self.Logger.info("##################################")
@@ -85,10 +86,10 @@ class LinuxHost:
             elif self.AddonType is AddonTypes.StandaloneCli:
                 addonTypeStr = "StandaloneCli"
             self.Logger.info("Plugin Type: %s", addonTypeStr)
-            Sentry.Setup(pluginVersionStr, addonTypeStr, devConfig_CanBeNone is not None)
+            Sentry.Setup(pluginVersionStr, addonTypeStr, devConfig is not None)
 
             # We don't store any sensitive things in the config file, since all config files are sometimes backed up publicly.
-            self.Secrets = Secrets(self.Logger, storageDir, self.Config)
+            self.Secrets = Secrets(self.Logger, storageDir)
 
             # Now, detect if this is a new instance and we need to init our global vars. If so, the setup script will be waiting on this.
             self.DoFirstTimeSetupIfNeeded()
@@ -96,6 +97,8 @@ class LinuxHost:
             # Get our required vars
             pluginId = self.GetPluginId()
             privateKey = self.GetPrivateKey()
+            if pluginId is None or privateKey is None:
+                raise Exception("Plugin ID or Private Key is None! This should never happen, please report this issue to the OctoEverywhere team.")
 
             # Set the plugin id when we know it.
             Sentry.SetAddonId(pluginId)
@@ -103,22 +106,24 @@ class LinuxHost:
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.
             # We always create the class, but only start the server for the in HA addon.
-            self.WebServer = WebServer(self.Logger, pluginId, devConfig_CanBeNone)
+            self.WebServer = WebServer(self.Logger, pluginId, devConfig)
             if self.AddonType is AddonTypes.HaAddon:
                 self.WebServer.Start()
 
             # Unpack any dev vars that might exist
-            devLocalHomewayServerAddress_CanBeNone = self.GetDevConfigStr(devConfig_CanBeNone, "LocalHomewayServerAddress")
-            if devLocalHomewayServerAddress_CanBeNone is not None:
-                self.Logger.warning("~~~ Using Local Dev Server Address: %s ~~~", devLocalHomewayServerAddress_CanBeNone)
+            devLocalHomewayServerAddress = self.GetDevConfigStr(devConfig, "LocalHomewayServerAddress")
+            if devLocalHomewayServerAddress is not None:
+                self.Logger.warning("~~~ Using Local Dev Server Address: %s ~~~", devLocalHomewayServerAddress)
             # This is mostly just used to not allow the dev plugin to fallback to port 80
-            if self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantProxyPort") is not None:
-                HttpRequest.SetLocalHttpProxyPort(int(self.GetDevConfigStr(devConfig_CanBeNone, "HomeAssistantProxyPort")))
+            if self.GetDevConfigStr(devConfig, "HomeAssistantProxyPort") is not None:
+                portStr = self.GetDevConfigStr(devConfig, "HomeAssistantProxyPort")
+                if portStr is not None:
+                    HttpRequest.SetLocalHttpProxyPort(int(portStr))
 
             # Init Sentry, but it won't report since we are in dev mode.
             Telemetry.Init(self.Logger)
-            if devLocalHomewayServerAddress_CanBeNone is not None:
-                Telemetry.SetServerProtocolAndDomain("http://"+devLocalHomewayServerAddress_CanBeNone)
+            if devLocalHomewayServerAddress is not None:
+                Telemetry.SetServerProtocolAndDomain("http://"+devLocalHomewayServerAddress)
 
             # Init compression
             Compression.Init(self.Logger, storageDir)
@@ -138,13 +143,13 @@ class LinuxHost:
             self.WebServer.RegisterForAccountStatusUpdates()
 
             # Get the Home Assistant server details from the config.
-            homeAssistantIpOrHostname = self.Config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
-            homeAssistantPort = self.Config.GetInt(Config.HomeAssistantSection, Config.HaPortKey, 8123)
-            homeAssistantUseHttps = self.Config.GetBool(Config.HomeAssistantSection, Config.HaUseHttps, False)
-            accessToken_CanBeNone = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
+            homeAssistantIpOrHostname = self.Config.GetStrRequired(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
+            homeAssistantPort = self.Config.GetIntRequired(Config.HomeAssistantSection, Config.HaPortKey, 8123)
+            homeAssistantUseHttps = self.Config.GetBoolRequired(Config.HomeAssistantSection, Config.HaUseHttps, False)
+            accessToken = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
 
             # For port discovery, it's ideal to have the access token, to ensure we found the exact right server.
-            discoveryAccessToken = accessToken_CanBeNone
+            discoveryAccessToken = accessToken
             if discoveryAccessToken is None:
                 # Try to get the access token from the env which will work if we are running in a container.
                 discoveryAccessToken = ServerInfo.GetAccessToken()
@@ -173,18 +178,18 @@ class LinuxHost:
             HttpRequest.SetDirectServicePort(homeAssistantPort)
             HttpRequest.SetDirectServiceAddress(homeAssistantIpOrHostname)
             HttpRequest.SetDirectServiceUseHttps(homeAssistantUseHttps)
-            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, homeAssistantUseHttps, accessToken_CanBeNone)
+            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, homeAssistantUseHttps, accessToken)
 
             # Init the ping pong helper.
-            PingPong.Init(self.Logger, storageDir)
-            if devLocalHomewayServerAddress_CanBeNone is not None:
+            PingPong.Init(self.Logger, storageDir, pluginId)
+            if devLocalHomewayServerAddress is not None:
                 PingPong.Get().DisablePrimaryOverride()
 
             # Setup the web response handler
             WebRequestResponseHandler.Init(self.Logger)
 
             # Setup the HA state change handler
-            self.HaEventHandler = EventHandler(self.Logger, pluginId, devLocalHomewayServerAddress_CanBeNone)
+            self.HaEventHandler = EventHandler(self.Logger, pluginId, devLocalHomewayServerAddress)
 
             # Setup the HA connection object
             haConnection = Connection(self.Logger, self.HaEventHandler)
@@ -199,13 +204,13 @@ class LinuxHost:
             homeContext.Start()
 
             # Setup the sage sub system, it won't be started until the primary connection is established.
-            sagePrefix_CanBeNone = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)
-            self.Sage = SageHost(self.Logger, pluginVersionStr, homeContext, sagePrefix_CanBeNone, devLocalHomewayServerAddress_CanBeNone)
+            sagePrefix = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)
+            self.Sage = SageHost(self.Logger, pluginVersionStr, homeContext, sagePrefix, devLocalHomewayServerAddress)
 
             # Now start the main runner!
             pluginConnectUrl = HostCommon.GetPluginConnectionUrl()
-            if devLocalHomewayServerAddress_CanBeNone is not None:
-                pluginConnectUrl = HostCommon.GetPluginConnectionUrl(fullHostString="ws://"+devLocalHomewayServerAddress_CanBeNone)
+            if devLocalHomewayServerAddress is not None:
+                pluginConnectUrl = HostCommon.GetPluginConnectionUrl(fullHostString="ws://"+devLocalHomewayServerAddress)
             oe = Homeway(pluginConnectUrl, pluginId, privateKey, self.Logger, self, pluginVersionStr, self.AddonType)
             oe.RunBlocking()
         except Exception as e:
@@ -254,18 +259,18 @@ class LinuxHost:
 
 
     # Returns None if no plugin id has been set.
-    def GetPluginId(self):
+    def GetPluginId(self) -> Optional[str]:
         return self.Secrets.GetPluginId()
 
 
     # Returns None if no private id has been set.
-    def GetPrivateKey(self):
+    def GetPrivateKey(self) -> Optional[str]:
         return self.Secrets.GetPrivateKey()
 
 
     # Tries to load a dev config option as a string.
     # If not found or it fails, this return None
-    def GetDevConfigStr(self, devConfig, value):
+    def GetDevConfigStr(self, devConfig:Optional[Dict[str, str]], value:str) -> Optional[str]:
         if devConfig is None:
             return None
         if value in devConfig:
@@ -278,17 +283,22 @@ class LinuxHost:
     #
     # StatusChangeHandler Interface - Called by the Homeway logic when the server connection has been established.
     #
-    def OnPrimaryConnectionEstablished(self, apiKey, connectedAccounts):
+    def OnPrimaryConnectionEstablished(self, apiKey:str, connectedAccounts:List[str]) -> None:
         self.Logger.info("Primary Connection To Homeway Established - We Are Ready To Go!")
+
+        # Ensure we have a valid plugin id
+        pluginId = self.GetPluginId()
+        if pluginId is None:
+            raise Exception("Plugin ID is None in OnPrimaryConnectionEstablished, this should never happen!")
 
         # Set the current API key to the event handler
         self.HaEventHandler.SetHomewayApiKey(apiKey)
 
         # Once we have the API key, we can start or refresh the Sage system.
-        self.Sage.StartOrRefresh(self.GetPluginId(), apiKey)
+        self.Sage.StartOrRefresh(pluginId, apiKey)
 
         # Set the current API key to the custom file server
-        CustomFileServer.Get().UpdateAddonConfig(self.GetPluginId(), apiKey)
+        CustomFileServer.Get().UpdateAddonConfig(pluginId, apiKey)
 
         # Tell the web server if there's a connect user or not.
         hasConnectedAccount = connectedAccounts is not None and len(connectedAccounts) > 0
@@ -302,7 +312,7 @@ class LinuxHost:
             self.Logger.info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             self.Logger.info("              This Add-On Isn't Connected To Homeway!             ")
             self.Logger.info("             Use this link to finish the add-on setup:            ")
-            self.Logger.info(" %s", HostCommon.GetAddPluginUrl(self.GetPluginId()))
+            self.Logger.info(" %s", HostCommon.GetAddPluginUrl(pluginId ))
             self.Logger.info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             self.Logger.info("")
             self.Logger.info("")

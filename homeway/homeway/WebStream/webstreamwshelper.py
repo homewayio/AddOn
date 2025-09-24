@@ -3,9 +3,10 @@
 import threading
 import time
 import logging
+from typing import Optional
 
-import octowebsocket
-
+from ..buffer import Buffer
+from ..interfaces import IWebSocketClient, IWebStream, WebSocketOpCode
 from .headerimpl import HeaderHelper
 from ..sentry import Sentry
 from ..httprequest import HttpRequest
@@ -13,7 +14,7 @@ from ..mdns import MDns
 from ..streammsgbuilder import StreamMsgBuilder
 from ..localip import LocalIpHelper
 from ..websocketimpl import Client
-from ..compression import Compression, CompressionContext
+from ..compression import Compression, CompressionContext, CompressionResult
 from ..Proto import WebStreamMsg
 from ..Proto import MessageContext
 from ..Proto import WebSocketDataTypes
@@ -30,17 +31,18 @@ class WebStreamWsHelper:
 
     # Called by the main socket thread so this should be quick!
     # Throwing from here will shutdown the entire connection.
-    def __init__(self, streamId, logger:logging.Logger, webStream, webStreamOpenMsg, openedTime):
+    def __init__(self, streamId:int, logger:logging.Logger, webStream:IWebStream, webStreamOpenMsg:WebStreamMsg.WebStreamMsg, openedTime:float):
         self.Id = streamId
         self.Logger = logger
         self.WebStream = webStream
-        self.WebStreamOpenMsg:WebStreamMsg.WebStreamMsg = webStreamOpenMsg
+        self.WebStreamOpenMsg = webStreamOpenMsg
         self.IsClosed = False
         self.StateLock = threading.Lock()
         self.OpenedTime = openedTime
-        self.Ws = None
+        self.Ws:Optional[IWebSocketClient] = None
         self.FirstWsMessageSentToLocal = False
-        self.ResolvedLocalHostnameUrl = None
+        self.ResolvedLocalHostnameUrl:Optional[str] = None
+        self.LookingForConnectMsgAttempts = 0
         self.CompressionContext = CompressionContext(self.Logger)
 
         # These vars indicate if the actual websocket is opened or closed.
@@ -50,9 +52,10 @@ class WebStreamWsHelper:
         self.IsWsObjClosed = False
 
         # Capture the initial http context
-        self.HttpInitialContext = webStreamOpenMsg.HttpInitialContext()
-        if self.HttpInitialContext is None:
+        context = webStreamOpenMsg.HttpInitialContext()
+        if context is None:
             raise Exception("Web stream ws helper got a open message with no http context")
+        self.HttpInitialContext = context
 
         # Parse the headers, filter them, and keep them locally.
         # This is required for some clients, since they need to send the X-API-Key header with the API key.
@@ -77,7 +80,7 @@ class WebStreamWsHelper:
     #
     # Returns True if a new connection is being attempted.
     # Returns False if a new connection is not being attempted.
-    def AttemptConnection(self):
+    def AttemptConnection(self) -> bool:
         # If this webstream context has already opened a successful websocket connection to something,
         # never try to connect again.
         if self.SuccessfullyOpenedSocket is True:
@@ -101,7 +104,7 @@ class WebStreamWsHelper:
             raise Exception("Web stream ws helper got a open message with no path")
 
         # Depending on the connection attempt, build the URI
-        uri = None
+        uri:Optional[str] = None
         pathType = self.HttpInitialContext.PathType()
         if pathType is PathTypes.PathTypes.Relative:
             # If the path is relative, we will make a few attempts to connect.
@@ -183,7 +186,7 @@ class WebStreamWsHelper:
 
         # Make the websocket object and start it running.
         self.Logger.debug(self.getLogMsgPrefix()+"opening websocket to "+str(uri) + " attempt "+ str(self.ConnectionAttempt))
-        ws = Client(uri, onWsOpen=self.onWsOpened, onWsData=self.onWsData, onWsClose=self.onWsClosed, onWsError=self.onWsError, headers=self.Headers, subProtocolList=self.SubProtocolList)
+        ws = Client(url=uri, onWsOpen=self.onWsOpened, onWsData=self.onWsData, onWsClose=self.onWsClosed, onWsError=self.onWsError, subProtocolList=self.SubProtocolList)
         # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
         # This is safe to do, since the connection will be localhost or on the local LAN
         ws.SetDisableCertCheck(True)
@@ -210,9 +213,9 @@ class WebStreamWsHelper:
 
     # When close is called, all http operations should be shutdown.
     # Called by the main socket thread so this should be quick!
-    def Close(self):
+    def Close(self) -> None:
         # Don't try to close twice.
-        wsToClose = None
+        wsToClose:Optional[IWebSocketClient] = None
         with self.StateLock:
             # If we are already closed, there's nothing to do.
             if self.IsClosed is True:
@@ -247,7 +250,7 @@ class WebStreamWsHelper:
     # Returning true will case the websocket to close on return.
     # This function is called on it's own thread from the web stream, so it's ok to block
     # as long as it gets cleaned up when the socket closes.
-    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
+    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bool:
 
         # We can get messages from this web stream before the actual websocket has opened and is ready for messages.
         # If this happens, when we try to send the message on the socket and we will get an error saying "the socket is closed" (which is incorrect, it's not open yet).
@@ -273,6 +276,7 @@ class WebStreamWsHelper:
         buffer = webStreamMsg.DataAsByteArray()
         if buffer == 0:
             buffer = bytearray(0)
+        buffer = Buffer(buffer)
 
         # If the message is compressed, decompress it.
         compressionType = webStreamMsg.DataCompression()
@@ -280,14 +284,14 @@ class WebStreamWsHelper:
             buffer = Compression.Get().Decompress(self.CompressionContext, buffer, webStreamMsg.OriginalDataSize(), False, compressionType)
 
         # Get the send type.
-        sendType = 0
+        sendType = WebSocketOpCode.CLOSE
         msgType = webStreamMsg.WebsocketDataType()
         if msgType == WebSocketDataTypes.WebSocketDataTypes.Text:
-            sendType = octowebsocket.ABNF.OPCODE_TEXT
+            sendType = WebSocketOpCode.TEXT
         elif msgType == WebSocketDataTypes.WebSocketDataTypes.Binary:
-            sendType = octowebsocket.ABNF.OPCODE_BINARY
+            sendType = WebSocketOpCode.BINARY
         elif msgType == WebSocketDataTypes.WebSocketDataTypes.Close:
-            sendType = octowebsocket.ABNF.OPCODE_CLOSE
+            sendType = WebSocketOpCode.CLOSE
         else:
             raise Exception("Web stream ws was sent a data type that's unknown. "+str(msgType))
 
@@ -311,7 +315,7 @@ class WebStreamWsHelper:
         return False
 
 
-    def onWsData(self, ws, buffer:bytes, msgType):
+    def onWsData(self, ws:IWebSocketClient, buffer:Buffer, msgType:WebSocketOpCode) -> None:
         # Only handle callbacks for the current websocket.
         if self.Ws is not None and self.Ws != ws:
             return
@@ -320,9 +324,9 @@ class WebStreamWsHelper:
             # Figure out the data type
             # TODO - we should support the OPCODE_CONT type at some point. But it's not needed right now.
             sendType = WebSocketDataTypes.WebSocketDataTypes.None_
-            if msgType == octowebsocket.ABNF.OPCODE_BINARY:
+            if msgType == WebSocketOpCode.BINARY:
                 sendType = WebSocketDataTypes.WebSocketDataTypes.Binary
-            elif msgType == octowebsocket.ABNF.OPCODE_TEXT:
+            elif msgType == WebSocketOpCode.TEXT:
                 sendType = WebSocketDataTypes.WebSocketDataTypes.Text
                 # In PY3 using the modern websocket_client lib the text also comes as a byte buffer.
             else:
@@ -331,7 +335,7 @@ class WebStreamWsHelper:
             # Figure out if we should compress the data.
             usingCompression = len(buffer) >= Compression.MinSizeToCompress
             originalDataSize = 0
-            compressionResult = None
+            compressionResult:Optional[CompressionResult]  = None
             if usingCompression:
                 originalDataSize = len(buffer)
                 compressionResult = Compression.Get().Compress(self.CompressionContext, buffer)
@@ -343,14 +347,14 @@ class WebStreamWsHelper:
             # Note its ok to have an empty buffer, we still want to send the ping.
             dataOffset = None
             if len(buffer) > 0:
-                dataOffset = builder.CreateByteVector(buffer)
+                dataOffset = builder.CreateByteVector(buffer.Get()) #pyright: ignore[reportUnknownMemberType]
 
             # Setup the message to send.
             WebStreamMsg.Start(builder)
             WebStreamMsg.AddStreamId(builder, self.Id)
             WebStreamMsg.AddIsControlFlagsOnly(builder, False)
             WebStreamMsg.AddWebsocketDataType(builder, sendType)
-            if usingCompression:
+            if compressionResult is not None:
                 WebStreamMsg.AddDataCompression(builder, compressionResult.CompressionType)
                 WebStreamMsg.AddOriginalDataSize(builder, originalDataSize)
             if dataOffset is not None:
@@ -365,7 +369,7 @@ class WebStreamWsHelper:
             self.WebStream.Close()
 
 
-    def onWsClosed(self, ws):
+    def onWsClosed(self, ws:IWebSocketClient) -> None:
         # Only handle callbacks for the current websocket.
         if self.Ws is not None and self.Ws != ws:
             return
@@ -377,7 +381,7 @@ class WebStreamWsHelper:
         self.WebStream.Close()
 
 
-    def onWsError(self, ws, error):
+    def onWsError(self, ws:IWebSocketClient, error:Exception) -> None:
         # Only handle callbacks for the current websocket.
         if self.Ws is not None and self.Ws != ws:
             return
@@ -409,7 +413,7 @@ class WebStreamWsHelper:
         self.WebStream.Close()
 
 
-    def onWsOpened(self, ws):
+    def onWsOpened(self, ws:IWebSocketClient) -> None:
         # Only handle callbacks for the current websocket.
         if self.Ws is not None and self.Ws != ws:
             return
@@ -421,5 +425,5 @@ class WebStreamWsHelper:
         self.Logger.info(self.getLogMsgPrefix()+"opened, attempt "+str(self.ConnectionAttempt) + " after " +str(time.time() - self.OpenedTime) + " seconds")
 
 
-    def getLogMsgPrefix(self):
+    def getLogMsgPrefix(self) -> str:
         return "Web Stream ws   ["+str(self.Id)+"] "

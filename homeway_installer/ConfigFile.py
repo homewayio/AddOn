@@ -1,3 +1,4 @@
+from typing import Optional, Tuple
 
 from homeway.homeway_linuxhost.config import Config
 
@@ -8,7 +9,7 @@ class ConfigFile:
 
     # Returns the (ip:str, port:str, accessToken:str) if the config can be parsed. Otherwise (None, None, None)
     @staticmethod
-    def TryToParseConfig(addonFolder:str):
+    def TryToParseConfig(addonFolder:str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         try:
             config = Config(addonFolder)
             ip = config.GetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, None)
@@ -24,7 +25,7 @@ class ConfigFile:
 
     # Creates or uses an existing config, updates the ip and port.
     @staticmethod
-    def UpdateConfig(context:Context, ip:str, port:str, accessToken:str):
+    def UpdateConfig(context:Context, ip:str, port:str, accessToken:str) -> bool:
         try:
             config = Config(context.AddonFolder)
             config.SetStr(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, ip)

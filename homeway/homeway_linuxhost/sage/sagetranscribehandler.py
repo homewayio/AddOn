@@ -1,13 +1,16 @@
 import time
 import logging
+from typing import Optional
 
 from wyoming.event import Event
 from wyoming.asr import Transcript
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 
 from homeway.Proto.SageDataTypesFormats import SageDataTypesFormats
+from homeway.buffer import Buffer
 
 from .fibermanager import FiberManager
+from .interfaces import ISageHandler
 
 
 # Handles holding the context of the streaming incoming audio stream for transcribe.
@@ -22,13 +25,14 @@ class SageTranscribeHandler:
     # This is also enforced on the server side.
     c_MaxStreamTimeSec = 20.0
 
-    def __init__(self, logger:logging.Logger, sageHandler, fiberManager:FiberManager, transcribeLanguage_CanBeNone:str, startAudioEvent:Event):
+
+    def __init__(self, logger:logging.Logger, sageHandler:ISageHandler, fiberManager:FiberManager, transcribeLanguage:Optional[str], startAudioEvent:Event):
         self.Logger = logger
         self.SageHandler = sageHandler
         self.FiberManager = fiberManager
-        self.TranscribeLanguage_CanBeNone = transcribeLanguage_CanBeNone
+        self.TranscribeLanguage = transcribeLanguage
 
-        self.Logger.debug(f"Sage - Listen Start - {self.TranscribeLanguage_CanBeNone}")
+        self.Logger.debug(f"Sage - Listen Start - {self.TranscribeLanguage}")
 
         # Reset any existing Listen action in the fiber manager.
         self.FiberManager.ResetListen()
@@ -40,24 +44,25 @@ class SageTranscribeHandler:
 
         # If this is not None, we have hit an error and can ignore the rest of this listen stream.
         # But due to the way the protocol works, we still need to handle the rest of the stream and send the error at the end as the result.
-        self.ErrorMessage:str = None
+        self.ErrorMessage:Optional[str] = None
 
         # This holds the incoming audio buffer that is being streamed to the server.
         # If it's none, that means we haven't gotten any chunks since the last start.
-        self.Buffer:bytearray = None
+        self.DataBuffer:Optional[bytearray] = None
 
         # This is the last time we sent the buffered audio.
-        self.LastSentTimeSec:float = None
+        self.LastSentTimeSec:Optional[float] = None
 
         # Used to track the start time of the audio stream and to see if there was any audio stream at all.
-        self.AudioStreamStartTimeSec:float = None
+        self.AudioStreamStartTimeSec:Optional[float] = None
 
 
     # Logs and error and writes an error message back to the client.
-    def _SetError(self, text:str) -> None:
+    def _SetError(self, text:str) -> str:
         # If we ever write an error back, set this boolean so we stop handing audio for this stream request.
         self.Logger.warning(f"Sage Listen Failed - {text}")
         self.ErrorMessage = text
+        return text
 
 
     # Helper for writing an event back to the client.
@@ -66,7 +71,7 @@ class SageTranscribeHandler:
 
 
    # Handles all streaming audio for speech to text.
-    async def HandleStreamingAudio(self, event: Event) -> bool:
+    async def HandleStreamingAudio(self, event:Event) -> bool:
 
         # Called when audio is being streamed to the server.
         if AudioChunk.is_type(event.type):
@@ -91,13 +96,18 @@ class SageTranscribeHandler:
                     return True
 
             # If this is the start of a new buffer, create the buffer now and start the timer.
-            if self.Buffer is None:
-                self.Buffer = bytearray(e.audio)
+            if self.DataBuffer is None:
+                self.DataBuffer = bytearray(e.audio)
                 self.LastSentTimeSec = time.time()
                 return True
 
+            # This should never happen, but if it does, log it and reset the timer.
+            if self.LastSentTimeSec is None:
+                self.Logger.error("Sage Listen - LastSentTimeSec is None when DataBuffer is not None. This should never happen.")
+                self.LastSentTimeSec = time.time()
+
             # Append to the current buffer.
-            self.Buffer.extend(e.audio)
+            self.DataBuffer.extend(e.audio)
 
             # Get get audio about every 5ms, so we build it up some before sending.
             timeSinceLastSendSec = time.time() - self.LastSentTimeSec
@@ -106,8 +116,13 @@ class SageTranscribeHandler:
 
             # This will not block on a response, it will just send the audio.
             start = time.time()
-            result = await self.FiberManager.Listen(False, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
+            result = await self.FiberManager.Listen(False, Buffer(self.DataBuffer), SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate,
+                                                     self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage)
             deltaSec = time.time() - start
+
+            # Before anything else, reset the buffer and last send time.
+            self.DataBuffer = bytearray()
+            self.LastSentTimeSec = time.time()
 
             # This should never happen.
             if result is None:
@@ -124,9 +139,7 @@ class SageTranscribeHandler:
             if deltaSec > 0.020:
                 self.Logger.warning(f"Sage Listen upload chunk stream took more than 20ms. Time: {deltaSec}s")
 
-            # Reset the buffer and last send time.
-            self.Buffer = bytearray()
-            self.LastSentTimeSec = time.time()
+            # Return true to indicate we handled the event.
             return True
 
         # Fired when the audio streaming is done.
@@ -144,29 +157,41 @@ class SageTranscribeHandler:
                 await self._WriteEvent(Transcript(self.ErrorMessage).event())
                 return True
 
+            # If we got any data, the data buffer will not be None.
+            # So if it is None, we never streamed anything.
+            if self.DataBuffer is None:
+                self.Logger.info("Sage Listen - We never got any audio chunks, returning an empty transcript.")
+                await self._WriteEvent(Transcript(text="").event())
+                return True
+
             # Send the final audio chunk indicating that the audio stream is done.
             # This will now block and wait for a response.
             # Note that this incoming audio buffer can be empty if we don't have any buffered audio, which is fine.
             start = time.time()
-            result = await self.FiberManager.Listen(True, self.Buffer, SageDataTypesFormats.AudioPCM, self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels, self.IncomingAudioStartEvent.width, self.TranscribeLanguage_CanBeNone)
+            result = await self.FiberManager.Listen(True, Buffer(self.DataBuffer), SageDataTypesFormats.AudioPCM,
+                                                    self.IncomingAudioStartEvent.rate, self.IncomingAudioStartEvent.channels,
+                                                    self.IncomingAudioStartEvent.width, self.TranscribeLanguage)
+
+            # This should be the final run, so we can set the buffer to None.
+            self.DataBuffer = None
 
             # This should never happen.
             if result is None:
-                self._SetError("Homeway Sage Listen - No Result Returned.")
-                await self._WriteEvent(Transcript(self.ErrorMessage).event())
+                err = self._SetError("Homeway Sage Listen - No Result Returned.")
+                await self._WriteEvent(Transcript(err).event())
                 return True
 
             # If the error text is set, we failed to send the audio.
             # We try to send the error string, since it might help the user.
             if result.Error is not None:
-                self._SetError(result.Error)
-                await self._WriteEvent(Transcript(self.ErrorMessage).event())
+                err = self._SetError(result.Error)
+                await self._WriteEvent(Transcript(err).event())
                 return True
 
             # This shouldn't happen.
             if result.Result is None:
-                self._SetError("Homeway Sage Listen - No Result Returned")
-                await self._WriteEvent(Transcript(self.ErrorMessage).event())
+                err = self._SetError("Homeway Sage Listen - No Result Returned")
+                await self._WriteEvent(Transcript(err).event())
                 return True
 
             # Send the text back to the client.

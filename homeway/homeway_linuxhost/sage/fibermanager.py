@@ -1,13 +1,13 @@
 import sys
 import json
-import struct
 import logging
 import threading
-from typing import List, Dict, Optional
+from typing import Awaitable, Callable, List, Dict, Optional
 import octoflatbuffers
 
 from homeway.sentry import Sentry
 from homeway.compression import CompressionResult
+from homeway.buffer import Buffer, ByteLikeOrMemoryView
 
 from homeway.Proto import SageStreamMessage
 from homeway.Proto import SageFiber
@@ -16,27 +16,28 @@ from homeway.Proto.SageOperationTypes import SageOperationTypes
 from homeway.Proto.SageDataTypesFormats import SageDataTypesFormats
 
 from .fabric import Fabric
+from .interfaces import IFiberManager
 
 # Manages the fiber streams being sent over Fabric.
-class FiberManager:
+class FiberManager(IFiberManager):
 
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
-        self.Fabric:Fabric = None
+        self.Fabric:Optional[Fabric] = None
 
         # Used to keep track of pending request contexts.
         self.StreamContextLock = threading.Lock()
-        self.StreamContextMap:Dict[str,StreamContext] = {}
+        self.StreamContextMap:Dict[int, StreamContext] = {}
         self.StreamId = 1
 
 
     # Set the fabric connection.
-    def SetFabric(self, fabric):
+    def SetFabric(self, fabric:Fabric) -> None:
         self.Fabric = fabric
 
 
     # Called when the socket is closed and any pending requests need to be cleaned up.
-    def OnSocketReset(self):
+    def OnSocketReset(self) -> None:
         # Release the pending contexts and clear them.
         # There's no need to send close messages, as the socket is already closed.
         with self.StreamContextLock:
@@ -48,9 +49,9 @@ class FiberManager:
 
     # Called whenever a new listen is started, to make sure any existing listen calls are closed.
     # For example, if we got a start and chunks, and a new start before the end.
-    def ResetListen(self):
+    def ResetListen(self) -> None:
         # Check if there's a current listen request.
-        context:StreamContext = None
+        context:Optional[StreamContext] = None
         with self.StreamContextLock:
             for _, c in self.StreamContextMap.items():
                 # We only allow one type of request at a time, so if we find it, it's the stream we want.
@@ -70,20 +71,27 @@ class FiberManager:
     #    If Error is ever set, the operation failed and the stream should be stopped.
     #    If Result is set, the final result has been delivered.
     #    Otherwise, the stream is in a good state and more data can be sent.
-    async def Listen(self, isTransmissionDone:bool, audio:bytes, audioFormat:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int, languageCode_CanBeNone:str) -> "ListenResult":
+    async def Listen(self,
+                     isTransmissionDone:bool,
+                     audio:Buffer,
+                     audioFormat:int,
+                     sampleRate:int,
+                     channels:int,
+                     bytesPerSample:int,
+                     languageCode:Optional[str]) -> "ListenResult":
 
         # This is only called on the first message sent, this sends the audio settings.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, audioFormat, sampleRate, channels, bytesPerSample, languageCode_CanBeNone)
+            return self._CreateDataContext(builder, audioFormat, sampleRate, channels, bytesPerSample, languageCode)
 
         # onDataStreamReceived can be called at anytime, streaming or waiting for the response.
         # If it's called while streaming, an error has occurred and we should stop until the next audio reset.
         class ResponseContext:
-            Text:str = None
-            StatusCode:int = None
-            ErrorMessage:str = None
+            Text:Optional[str] = None
+            StatusCode:Optional[int] = None
+            ErrorMessage:Optional[str] = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:Optional[Buffer], dataContext:Optional[SageDataContext.SageDataContext], isFinalDataChunk:bool) -> bool:
             # For listen, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Listen onDataStreamReceived called more than once.")
@@ -97,15 +105,24 @@ class FiberManager:
             if response.StatusCode != 200:
                 return False
 
+            if dataContext is None:
+                response.StatusCode = 620
+                raise Exception("Sage Listen got a response with no data or data context?")
+
             # This data format must be text.
             dataType = dataContext.DataType()
             if dataType != SageDataTypesFormats.Text:
                 response.StatusCode = 500
                 raise Exception("Sage Listen got a response that wasn't text?")
 
+            # The data can only be none for the final chunk, which means we are done and there were no words.
+            if data is None:
+                response.StatusCode = 620
+                raise Exception("Sage Listen got a response with no data")
+
             # Set the text.
             # Remember that an empty buffer isn't a failure, it means there were no words in the text!
-            response.Text = data.decode("utf-8")
+            response.Text = data.GetBytesLike().decode("utf-8")
             return True
 
         # Do the operation, stream or wait for the response.
@@ -146,7 +163,11 @@ class FiberManager:
     # async streamingDataReceivedCallback(SpeakDataResponse) -> bool
     #   If the callback returns False, the operation will stop.
     # Return True on success, False on failure.
-    async def Speak(self, text:str, voiceName_OrNone:str, streamingDataReceivedCallback) -> bool:
+    async def Speak(self,
+                    text:str,
+                    voiceName:Optional[str],
+                    streamingDataReceivedCallback:Callable[["SpeakDataResponse"], Awaitable[bool]]
+                    ) -> bool:
 
         # Creates the sending data context for the text we want to send.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
@@ -155,10 +176,10 @@ class FiberManager:
         # This onDataStreamReceived will be called each time there's more chunked audio data
         # to stream back.
         class ResponseContext:
-            StatusCode:int = None
-            ErrorMessage:str = None
+            StatusCode:Optional[int] = None
+            ErrorMessage:Optional[str] = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:Optional[Buffer], dataContext:Optional[SageDataContext.SageDataContext], isFinalDataChunk:bool) -> bool:
             # Set the error string, to either a string or None
             response.ErrorMessage = errorMessage
 
@@ -166,17 +187,22 @@ class FiberManager:
             # If we have anything but a 200, stop processing now.
             response.StatusCode = statusCode
             if response.StatusCode != 200:
-                return
+                return False
+
+            if data is None or dataContext is None:
+                response.StatusCode = 620
+                raise Exception("Sage Speak got a response with no data or data context?")
 
             # Create the data object and call the handler.
             # If it returns false, we will stop.
-            dataResponse = SpeakDataResponse(data, dataContext.DataType(), dataContext.SampleRate(), dataContext.Channels(), dataContext.BytesPerSample(), isFinalDataChunk)
+            dataType:int = dataContext.DataType()
+            dataResponse = SpeakDataResponse(data, dataType, dataContext.SampleRate(), dataContext.Channels(), dataContext.BytesPerSample(), isFinalDataChunk)
             return await streamingDataReceivedCallback(dataResponse)
 
         # Do the operation, stream or wait for the response.
-        request = {"Text": text, "VoiceName": voiceName_OrNone}
+        request = {"Text": text, "VoiceName": voiceName}
         requestBytes = json.dumps(request).encode("utf-8")
-        result = await self._SendAndReceive(SageOperationTypes.Speak, requestBytes, createDataContextOffset, onDataStreamReceived)
+        result = await self._SendAndReceive(SageOperationTypes.Speak, Buffer(requestBytes), createDataContextOffset, onDataStreamReceived)
 
         # Check if either of the error systems are set.
         if response.ErrorMessage is not None:
@@ -195,19 +221,24 @@ class FiberManager:
 
     # Takes a chat json object and returns the assistant's response text.
     # Returns None on failure.
-    async def Chat(self, requestJson:str, homeContext_CanBeNone:CompressionResult, states_CanBeNone:CompressionResult, liveContext_CanBeNone:CompressionResult) -> str:
+    async def Chat(self,
+                   requestJson:str,
+                   homeContext:Optional[CompressionResult],
+                   states:Optional[CompressionResult],
+                   liveContext:Optional[CompressionResult]
+                   ) -> Optional[str]:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext_CanBeNone, states=states_CanBeNone, liveContext=liveContext_CanBeNone)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext, states=states, liveContext=liveContext)
 
         # We expect the onDataStreamReceived handler to be called once, with the full response.
         class ResponseContext:
-            Bytes = None
-            StatusCode:int = None
-            ErrorMessage:str = None
+            Bytes:Optional[Buffer] = None
+            StatusCode:Optional[int] = None
+            ErrorMessage:Optional[str] = None
         response:ResponseContext = ResponseContext()
-        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:bytearray, dataContext:SageDataContext, isFinalDataChunk:bool):
+        async def onDataStreamReceived(statusCode:int, errorMessage:Optional[str], data:Optional[Buffer], dataContext:Optional[SageDataContext.SageDataContext], isFinalDataChunk:bool) -> bool:
             # For Chat, this should only be called once
             if response.StatusCode is not None:
                 raise Exception("Sage Chat onDataStreamReceived called more than once.")
@@ -220,6 +251,10 @@ class FiberManager:
             response.StatusCode = statusCode
             if response.StatusCode != 200:
                 return False
+
+            if data is None or dataContext is None:
+                response.StatusCode = 620
+                raise Exception("Sage Chat got a response with no data or data context?")
 
             # This data format must be text.
             dataType = dataContext.DataType()
@@ -235,7 +270,7 @@ class FiberManager:
         data = requestJson.encode("utf-8")
 
         # Do the operation, wait for the result.
-        result = await self._SendAndReceive(SageOperationTypes.Chat, data, createDataContextOffset, onDataStreamReceived, True)
+        result = await self._SendAndReceive(SageOperationTypes.Chat, Buffer(data), createDataContextOffset, onDataStreamReceived, True)
 
         # If the error string or status code is set at any time, we failed, regardless of the mode.
         # Check these before anything else, to ensure they get handled.
@@ -255,9 +290,12 @@ class FiberManager:
         # If we failed, we always return None.
         if result is False:
             return None
+        if response.Bytes is None:
+            self.Logger.error("Sage Chat didn't fail the status code but has no text?")
+            return None
 
         # Decode the text response
-        return response.Bytes.decode("utf-8")
+        return response.Bytes.GetBytesLike().decode("utf-8")
 
 
     # A helper function that allows us to send messages for many different types of actions.
@@ -268,12 +306,13 @@ class FiberManager:
     # The onDataReceivedCallback can be called many times if the response is being streamed.
     # The onDataReceivedCallback can also be called on any call into this function with a status code, if the stream closed early for some reason.
     async def _SendAndReceive(self,
-                        requestType:SageOperationTypes,
-                        sendData:bytearray,
-                        dataContextCreateCallback,
-                        onDataStreamReceivedCallbackAsync,
+                        requestType:int,
+                        sendData:Buffer,
+                        dataContextCreateCallback:Callable[[octoflatbuffers.Builder], int],
+                        onDataStreamReceivedCallbackAsync:Callable[[int, Optional[str], Optional[Buffer], Optional[SageDataContext.SageDataContext], bool], Awaitable[bool]],
                         isTransmissionDone:bool=True,
-                        timeoutSec:float = 20.0) -> bool:
+                        timeoutSec:float = 20.0
+                        ) -> bool:
 
         # Before we try anything and increment the stream id, make sure we are connected.
         if self.Fabric is None or self.Fabric.GetIsConnected() is False:
@@ -282,7 +321,7 @@ class FiberManager:
 
         # First, get or create the stream.
         # This might be a new stream, or it might be a stream we have already started and are uploading data to.
-        context:StreamContext = None
+        context:Optional[StreamContext] = None
         with self.StreamContextLock:
             for _, c in self.StreamContextMap.items():
                 # We only allow one type of request at a time, so if we find it, it's the stream we want.
@@ -319,7 +358,7 @@ class FiberManager:
             isOpenMessage = not context.HasSentOpenMessage
 
             # If this is the open message, we must send a data context
-            dataContextOffset = None
+            dataContextOffset:Optional[int] = None
             if isOpenMessage:
                 dataContextOffset = dataContextCreateCallback(builder)
                 if dataContextOffset is None:
@@ -344,7 +383,9 @@ class FiberManager:
                 if context.StatusCode is not None or context.IsAborted:
                     # If the stream was aborted, fire the callback and return False
                     # ErrorMessage is either None or a string to send to the user.
-                    await onDataStreamReceivedCallbackAsync(context.StatusCode, context.ErrorMessage, bytearray(), None, True)
+                    if context.StatusCode is None or context.StatusCode < 500:
+                        context.StatusCode = 620
+                    await onDataStreamReceivedCallbackAsync(context.StatusCode, context.ErrorMessage, None, None, True)
                     return False
 
                 # Otherwise, keep the context around and return success.
@@ -358,10 +399,10 @@ class FiberManager:
 
                 # We don't use the result of the timeout because we need to check under lock to see if we got anything.
                 # This is needed so we can clear the Event flag if we have more data to stream.
-                data:List[bytearray] = None
-                dataContext:SageDataContext = None
-                statusCode:int = None
-                errorMessage:str = None
+                data:Optional[List[Buffer]] = None
+                dataContext:Optional[SageDataContext.SageDataContext] = None
+                statusCode:Optional[int] = None
+                errorMessage:Optional[str] = None
                 isDataDownloadComplete:bool = True
                 with self.StreamContextLock:
                     # Grab all of the data we currently have and process it.
@@ -378,14 +419,16 @@ class FiberManager:
                 # Check for a stream abort, before we check if there's no data.
                 if context.IsAborted:
                     self.Logger.error(f"Sage message stream was aborted: {statusCode}")
-                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, bytearray(), None, True)
+                    if statusCode is None or statusCode < 500:
+                        statusCode = 620
+                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, None, None, True)
                     return False
 
                 # Regardless of the other vars, if we didn't get any data, the response wait timed out.
                 if len(data) == 0:
                     self.Logger.error("Sage message timed out while waiting for a response.")
                     statusCode = 608
-                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, bytearray(), None, True)
+                    await onDataStreamReceivedCallbackAsync(statusCode, errorMessage, None, None, True)
                     return False
 
                 # Process the data
@@ -415,12 +458,15 @@ class FiberManager:
 
 
     # Returns the offset of the message in the buffer.
-    def _CreateStreamMessage(self, builder:octoflatbuffers.Builder, streamId:int, msgType:SageOperationTypes, data:bytearray,
-                             dataContextOffset:int=None, statusCode:int=None, isOpen:bool=None, isAbort:bool=None, isTransmissionDone:bool=None) -> int:
+    def _CreateStreamMessage(self, builder:octoflatbuffers.Builder, streamId:int, msgType:int, data:Optional[Buffer]=None,
+                             dataContextOffset:Optional[int]=None, statusCode:Optional[int]=None,
+                             isOpen:Optional[bool]=None, isAbort:Optional[bool]=None,
+                             isTransmissionDone:Optional[bool]=None
+                             ) -> int:
         # Create any buffers we need.
-        dataOffset = None
+        dataOffset:Optional[int] = None
         if data is not None:
-            dataOffset = builder.CreateByteVector(data)
+            dataOffset = builder.CreateByteVector(data.Get()) #pyright: ignore[reportUnknownMemberType]
 
         # Build the message.
         SageStreamMessage.Start(builder)
@@ -442,22 +488,22 @@ class FiberManager:
 
 
     # Builds the data context.
-    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:SageDataTypesFormats,
-                           sampleRate:int=None, channels:int=None, bytesPerSample:int=None, languageCode:str=None,
-                           homeContext:CompressionResult=None, states:CompressionResult=None, liveContext:CompressionResult=None) -> int:
-        homeContextBytesOffset = None
+    def _CreateDataContext(self, builder:octoflatbuffers.Builder, dataFormat:int,
+                           sampleRate:Optional[int]=None, channels:Optional[int]=None, bytesPerSample:Optional[int]=None, languageCode:Optional[str]=None,
+                           homeContext:Optional[CompressionResult]=None, states:Optional[CompressionResult]=None, liveContext:Optional[CompressionResult]=None) -> int:
+        homeContextBytesOffset:Optional[int] = None
         if homeContext is not None:
-            homeContextBytesOffset = builder.CreateByteVector(homeContext.Bytes)
-        satesBytesOffset = None
+            homeContextBytesOffset = builder.CreateByteVector(homeContext.Bytes.Get()) #pyright: ignore[reportUnknownMemberType]
+        statesBytesOffset:Optional[int] = None
         if states is not None:
-            satesBytesOffset = builder.CreateByteVector(states.Bytes)
-        liveContextBytesOffset = None
+            statesBytesOffset = builder.CreateByteVector(states.Bytes.Get()) #pyright: ignore[reportUnknownMemberType]
+        liveContextBytesOffset:Optional[int] = None
         if liveContext is not None:
-            liveContextBytesOffset = builder.CreateByteVector(liveContext.Bytes)
+            liveContextBytesOffset = builder.CreateByteVector(liveContext.Bytes.Get()) #pyright: ignore[reportUnknownMemberType]
 
         languageCodeOffset = None
         if languageCode is not None:
-            languageCodeOffset = builder.CreateString(languageCode)
+            languageCodeOffset = builder.CreateString(languageCode) #pyright: ignore[reportUnknownMemberType]
 
         SageDataContext.Start(builder)
         SageDataContext.AddDataType(builder, dataFormat)
@@ -469,15 +515,15 @@ class FiberManager:
             SageDataContext.AddBytesPerSample(builder, bytesPerSample)
         if languageCodeOffset is not None:
             SageDataContext.AddLanguageCode(builder, languageCodeOffset)
-        if homeContextBytesOffset is not None:
+        if homeContextBytesOffset is not None and homeContext is not None:
             SageDataContext.AddHomeContext(builder, homeContextBytesOffset)
             SageDataContext.AddHomeContextCompression(builder, homeContext.CompressionType)
             SageDataContext.AddHomeContextOriginalDataSize(builder, homeContext.UncompressedSize)
-        if satesBytesOffset is not None:
-            SageDataContext.AddStates(builder, satesBytesOffset)
+        if statesBytesOffset is not None and states is not None:
+            SageDataContext.AddStates(builder, statesBytesOffset)
             SageDataContext.AddStatesCompression(builder, states.CompressionType)
             SageDataContext.AddStatesOriginalDataSize(builder, states.UncompressedSize)
-        if liveContextBytesOffset is not None:
+        if liveContextBytesOffset is not None and liveContext is not None:
             SageDataContext.AddLiveContext(builder, liveContextBytesOffset)
             SageDataContext.AddLiveContextCompression(builder, liveContext.CompressionType)
             SageDataContext.AddLiveContextOriginalDataSize(builder, liveContext.UncompressedSize)
@@ -493,13 +539,15 @@ class FiberManager:
         streamMsgOffset = SageFiber.End(builder)
 
         # Finalize the builder
-        builder.FinishSizePrefixed(streamMsgOffset)
+        builder.FinishSizePrefixed(streamMsgOffset) #pyright: ignore[reportUnknownMemberType]
         buffer = builder.Bytes
-        bufferStartOffsetBytes = builder.Head()
-        bufferLen = len(buffer) - bufferStartOffsetBytes
+        bufferStartOffsetBytes:int = builder.Head()
+        bufferLen:int = len(buffer) - bufferStartOffsetBytes
 
         # Send it!
-        return self.Fabric.SendMsg(buffer, bufferStartOffsetBytes, bufferLen)
+        if self.Fabric is None:
+            raise Exception("Sage Fabric is None when trying to send a message.")
+        return self.Fabric.SendMsg(Buffer(buffer), bufferStartOffsetBytes, bufferLen)
 
 
     # Removes the stream context from the map.
@@ -507,7 +555,7 @@ class FiberManager:
     def _CleanUpStreamContext(self, streamId:int):
         try:
             # Remove the context from the map.
-            context:StreamContext = None
+            context:Optional[StreamContext] = None
             with self.StreamContextLock:
                 context = self.StreamContextMap.pop(streamId, None)
 
@@ -526,7 +574,7 @@ class FiberManager:
             # Build the abort message.
             # The abort message must have a status code set.
             builder = octoflatbuffers.Builder(50)
-            msgOffset = self._CreateStreamMessage(builder, context.StreamId, context.RequestType, bytearray(), statusCode=400, isAbort=True)
+            msgOffset = self._CreateStreamMessage(builder, context.StreamId, context.RequestType, None, statusCode=400, isAbort=True)
 
             # Send it!
             if self._SendStreamMessage(builder, msgOffset) is False:
@@ -536,20 +584,21 @@ class FiberManager:
         except Exception as e:
             # If we fail, reset the socket.
             Sentry.OnException("Sage _CleanUpStreamContext exception", e)
-            self.Fabric.Close()
+            if self.Fabric is not None:
+                self.Fabric.Close()
 
 
     # Called from the socket when a message is received
-    def OnIncomingMessage(self, buf:bytearray):
+    def OnIncomingMessage(self, data:Buffer):
         # First, read the message size. Add 4 to account for the full buffer size, including the uint32.
-        messageSize = self.Unpack32Int(buf, 0) + 4
+        messageSize = self.Unpack32Int(data.Get(), 0) + 4
 
         # Check that things make sense.
-        if messageSize != len(buf):
-            raise Exception("Sage Fabric got a ws message that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(buf)))
+        if messageSize != len(data):
+            raise Exception("Sage Fabric got a ws message that's not the correct size! MsgSize:"+str(messageSize)+"; BufferLen:"+str(len(data)))
 
         # Parse the response
-        fiber = SageFiber.SageFiber.GetRootAs(buf, 4)
+        fiber = SageFiber.SageFiber.GetRootAs(data.Get(), 4) #pyright: ignore[reportUnknownMemberType]
         msg = fiber.Message()
         if msg is None:
             raise Exception("Sage Fiber message is None.")
@@ -568,8 +617,9 @@ class FiberManager:
                 return
 
             # If there's an error string, always set or update it.
-            if msg.ErrorMessage() is not None:
-                context.ErrorMessage = msg.ErrorMessage().decode("utf-8")
+            errorMsg:bytes = msg.ErrorMessage() #pyright: ignore[reportAssignmentType] - This is a bug in the generator, it says the type is Optional[str] but it returns bytes.
+            if errorMsg is not None:
+                context.ErrorMessage = errorMsg.decode("utf-8")
 
             # The abort message doesn't require the other checks.
             if msg.IsAbortMsg():
@@ -585,15 +635,17 @@ class FiberManager:
 
                 # DataAsByteArray will return the int 0 if there's no data, so check the length first.
                 # We always want the data to be a valid bytearray object, so we just make an empty one.
-                data:bytearray = None
+                # This is important because things like speech-to-text will return an empty buffer to indicate success but no words were found.
+                buffer:Optional[Buffer] = None
                 if msg.DataLength() > 0:
-                    data = msg.DataAsByteArray()
+                    buffer = Buffer(msg.DataAsByteArray()) #pyright: ignore[reportArgumentType]
                 else:
-                    data = bytearray()
+                    buffer = Buffer(bytearray())
                 isDataTransmissionDone = msg.IsDataTransmissionDone()
 
                 # There needs to be a data buffer unless this is the final message, then it's optional.
-                if len(data) == 0 and isDataTransmissionDone is False:
+                # But an empty buffer is also fine, it just means there's no data in this chunk.
+                if buffer is None and isDataTransmissionDone is False:
                     raise Exception("Sage Fiber message was missing a data buffer")
 
                 # Ensure we haven't already gotten the data complete flag.
@@ -617,29 +669,23 @@ class FiberManager:
                     context.DataContext = dataContext
 
                  # Append the data.
-                context.Data.append(data)
+                context.Data.append(buffer)
 
             # Set the event so the caller can consume the data.
             context.Event.set()
 
 
     # Helper to unpack uint32
-    def Unpack32Int(self, buffer, bufferOffset) :
+    # Helper to unpack uint32
+    def Unpack32Int(self, buffer:ByteLikeOrMemoryView, bufferOffset:int):
         if sys.byteorder == "little":
-            if sys.version_info[0] < 3:
-                return (struct.unpack('1B', buffer[0 + bufferOffset])[0]) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 8) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[3 + bufferOffset])[0] << 24)
-            else:
-                return (buffer[0 + bufferOffset]) + (buffer[1 + bufferOffset] << 8) + (buffer[2 + bufferOffset] << 16) + (buffer[3 + bufferOffset] << 24)
+            return (buffer[0 + bufferOffset]) + (buffer[1 + bufferOffset] << 8) + (buffer[2 + bufferOffset] << 16) + (buffer[3 + bufferOffset] << 24)
         else:
-            if sys.version_info[0] < 3:
-                return (struct.unpack('1B', buffer[0 + bufferOffset])[0] << 24) + (struct.unpack('1B', buffer[1 + bufferOffset])[0] << 16) + (struct.unpack('1B', buffer[2 + bufferOffset])[0] << 8) + struct.unpack('1B', buffer[3 + bufferOffset])[0]
-            else:
-                return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
-
+            return (buffer[0 + bufferOffset] << 24) + (buffer[1 + bufferOffset] << 16) + (buffer[2 + bufferOffset] << 8) + (buffer[3 + bufferOffset])
 
     # Some status codes we want to map and then send a message to the user.
     # Returns None if there's no error to map.
-    def _MapErrorStatusCodeToUserStr(self, statusCode:int) -> str:
+    def _MapErrorStatusCodeToUserStr(self, statusCode:int) -> Optional[str]:
         linkErrorMessage = "You must link your Homeway addon with your Homeway account before using Sage! https://homeway.io/s/link"
         if statusCode is None:
             return None
@@ -651,7 +697,7 @@ class FiberManager:
 
 # Holds the context of the result for the speak function.
 class SpeakDataResponse:
-    def __init__(self, data:bytearray, dataType:SageDataTypesFormats, sampleRate:int, channels:int, bytesPerSample:int, isFinalDataChunk:bool):
+    def __init__(self, data:Buffer, dataType:int, sampleRate:int, channels:int, bytesPerSample:int, isFinalDataChunk:bool):
         self.Bytes = data
         self.DataFormat = dataType
         self.SampleRate = sampleRate
@@ -663,7 +709,7 @@ class SpeakDataResponse:
 # Used to track the current state of a stream.
 class StreamContext:
 
-    def __init__(self, streamId:int, requestType:SageOperationTypes):
+    def __init__(self, streamId:int, requestType:int):
         # Core properties.
         self.StreamId = streamId
         self.RequestType = requestType
@@ -678,32 +724,33 @@ class StreamContext:
         self.Event = threading.Event()
 
         # Usually set to 200 for success otherwise it can be an error.
-        self.StatusCode:int = None
+        self.StatusCode:Optional[int] = None
 
         # Optional - If set, this is an error message that should be shown to the user.
-        self.ErrorMessage:str = None
+        self.ErrorMessage:Optional[str] = None
 
         # Set when the first response is received.
-        self.DataContext:SageDataContext = None
+        self.DataContext:Optional[SageDataContext.SageDataContext] = None
 
         # When set, the data has been fully downloaded.
         self.IsDataDownloadComplete = False
 
         # The response data.
         # This will be appended to as more data is received.
-        self.Data:List[bytearray] = []
+        # There will always be a buffer here per chunk, even if it's empty.
+        self.Data:List[Buffer] = []
 
 
 # Returned from the listen function, see the function def for more details.
 class ListenResult:
     @staticmethod
-    def Success(resultText:str=None) -> "ListenResult":
+    def Success(resultText:Optional[str]=None) -> "ListenResult":
         return ListenResult(resultText=resultText)
 
     @staticmethod
-    def Failure(errorStr:str) -> "ListenResult":
+    def Failure(errorStr:Optional[str]) -> "ListenResult":
         return ListenResult(errorStr=errorStr)
 
-    def __init__(self, resultText:str = None, errorStr:str = None):
+    def __init__(self, resultText:Optional[str]=None, errorStr:Optional[str]=None):
         self.Result = resultText
         self.Error = errorStr

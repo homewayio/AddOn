@@ -1,18 +1,15 @@
 import threading
+import logging
 import time
 import sys
 import traceback
-import logging
+
 
 class ThreadDebug:
-
 
     def Start(self, logger:logging.Logger, delaySec:float):
         try:
             th = threading.Thread(target=self.threadWorker, args=(logger, delaySec))
-            # pylint: disable=deprecated-method
-            # This is deprecated in PY3.10
-            th.setDaemon(True)
             th.start()
         except Exception as e:
             logger.error("Failed to start Thread Debug Thread: "+str(e))

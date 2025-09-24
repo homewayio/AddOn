@@ -1,7 +1,7 @@
 import time
 import logging
 import threading
-from typing import List
+from typing import Dict, List
 
 # A class to track and manage the chat history, since we can't get it from the context.
 class SageHistory:
@@ -35,11 +35,11 @@ class SageHistory:
 
 
     # Returns the history as a json object.
-    def GetHistoryMessagesJsonObj(self) -> dict:
+    def GetHistoryMessagesJsonObj(self) -> List[Dict[str, str]]:
         with self.Lock:
             # The format of this json object must be kept in sync with the server.
             self.Logger.debug(f"Homeway Sage - Building chat history of {len(self.History)} messages.")
-            messages = []
+            messages:List[Dict[str, str]] = []
             for x in self.History:
                 messages.append({
                     "Type": x.Type,

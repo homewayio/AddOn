@@ -13,7 +13,7 @@ class Updater:
     def PlaceUpdateScriptInRoot(self, context:Context) -> bool:
         try:
             # Create the script file with any optional args we might need.
-            s = f'''\
+            s:str = f'''\
 #!/bin/bash
 
 #
@@ -31,12 +31,12 @@ cd {context.RepoRootFolder}
 cd $startingDir
             '''
             # Create the file.
-            updateFilePath = os.path.join(context.UserHomePath, "update-homeway.sh")
+            updateFilePath:str = os.path.join(context.UserHomePath, "update-homeway.sh")
             with open(updateFilePath, 'w', encoding="utf-8") as f:
                 f.write(s)
 
             # Make sure to make it executable
-            st = os.stat(updateFilePath)
+            st:os.stat_result = os.stat(updateFilePath)
             os.chmod(updateFilePath, st.st_mode | stat.S_IEXEC)
 
             # Ensure the user who launched the installer script has permissions to run it.
@@ -50,7 +50,7 @@ cd $startingDir
 
     # We need to be running as sudo to make a sudo cron job.
     # The cron job has to be sudo, so it can update system packages and restart the service.
-    def EnsureCronUpdateJob(self, oeRepoRoot:str):
+    def EnsureCronUpdateJob(self, oeRepoRoot:str) -> None:
         pass
         # This is disabled for now, due to problems running the update script as the root user.
         # try:

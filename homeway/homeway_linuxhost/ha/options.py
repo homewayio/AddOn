@@ -1,4 +1,5 @@
 import json
+from typing import Any, Dict, Optional
 
 from homeway.sentry import Sentry
 
@@ -15,11 +16,11 @@ class Options:
     c_HomeAssistantOptionsConfigFilepath = "/data/options.json"
 
     # Static instance
-    _Instance = None
+    _Instance:Optional["Options"] = None
 
 
     def __init__(self) -> None:
-        self._Options = {}
+        self._Options:Dict[str, Any] = {}
         self._LoadOptions()
 
 
@@ -32,7 +33,7 @@ class Options:
 
 
     # Get an option from the options file.
-    def GetOption(self, key: str, default: str = None) -> str:
+    def GetOption(self, key:str, default:Optional[str]=None) -> Optional[str]:
         try:
             val = self._Options.get(key, default)
             if val is None:
@@ -43,7 +44,7 @@ class Options:
             return default
 
 
-    def _LoadOptions(self) -> dict:
+    def _LoadOptions(self) -> None:
         # The file might not exist if we aren't running as the addon or other cases.
         # This is loaded before the logger.
         try:

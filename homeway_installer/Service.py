@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+from typing import Tuple
 
 from .Util import Util
 from .Logging import Logger
@@ -9,7 +10,7 @@ from .Context import Context
 # Responsible for creating, running, and ensuring the service is installed and running.
 class Service:
 
-    def Install(self, context:Context):
+    def Install(self, context:Context) -> None:
         Logger.Header("Setting Up System Service...")
 
         # We always re-write the service file, to make sure it's current.
@@ -22,7 +23,7 @@ class Service:
         # We base64 encode the json string to prevent any arg passing issues with things like quotes, spaces, or other chars.
         # Note that the VersionFileDir points to where the config.yaml sits. This is the file that defines the version of the addon
         # for all things.
-        argsJson = json.dumps({
+        argsJson:str = json.dumps({
             'VersionFileDir': os.path.join(context.RepoRootFolder, "homeway"),
             'AddonDataRootDir': context.AddonFolder,
             'LogsDir': context.LogFolder,
@@ -30,17 +31,17 @@ class Service:
             'IsRunningInHaAddonEnv': False,
         })
         # We have to convert to bytes -> encode -> back to string.
-        argsJsonBase64 = base64.urlsafe_b64encode(bytes(argsJson, "utf-8")).decode("utf-8")
+        argsJsonBase64:str = base64.urlsafe_b64encode(bytes(argsJson, "utf-8")).decode("utf-8")
 
         # Base on the OS type, install the service differently
         self._InstallDebian(context, argsJsonBase64)
 
 
     # Install for debian setups
-    def _InstallDebian(self, context:Context, argsJsonBase64):
+    def _InstallDebian(self, context:Context, argsJsonBase64:str) -> None:
         # Note we use root as a user instead of the installing user
         # to make sure we have access to the HA config file for updates if needed
-        s = f'''\
+        s:str = f'''\
     # Homeway Addon Service
     [Unit]
     Description=Homeway
@@ -81,10 +82,12 @@ class Service:
 
 
     @staticmethod
-    def RestartDebianService(serviceName:str, throwOnBadReturnCode = True):
-        (returnCode, output, errorOut) = Util.RunShellCommand("systemctl stop "+serviceName, throwOnBadReturnCode)
+    def RestartDebianService(serviceName:str, throwOnBadReturnCode:bool=True) -> None:
+        result_tuple:Tuple[int,str,str] = Util.RunShellCommand("systemctl stop "+serviceName, throwOnBadReturnCode)
+        (returnCode, output, errorOut) = result_tuple
         if returnCode != 0:
             Logger.Warn(f"Service {serviceName} might have failed to stop. Output: {output} Error: {errorOut}")
-        (returnCode, output, errorOut) = Util.RunShellCommand("systemctl start "+serviceName, throwOnBadReturnCode)
+        result_tuple = Util.RunShellCommand("systemctl start "+serviceName, throwOnBadReturnCode)
+        (returnCode, output, errorOut) = result_tuple
         if returnCode != 0:
             Logger.Warn(f"Service {serviceName} might have failed to start. Output: {output} Error: {errorOut}")

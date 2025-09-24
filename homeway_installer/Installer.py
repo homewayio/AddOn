@@ -1,5 +1,6 @@
 import sys
 import traceback
+from typing import Optional
 
 from .Linker import Linker
 from .Logging import Logger
@@ -13,7 +14,7 @@ from .OptionalDepsInstaller import OptionalDepsInstaller
 
 class Installer:
 
-    def Run(self):
+    def Run(self) -> None:
         try:
             # Any error during the process will be thrown, which will be printed here, and exit the installer.
             self._RunInternal()
@@ -33,7 +34,7 @@ class Installer:
             Logger.Blank()
 
 
-    def _RunInternal(self):
+    def _RunInternal(self) -> None:
 
         #
         # Setup Phase
@@ -137,7 +138,7 @@ class Installer:
         Logger.Blank()
 
 
-    def GetArgumentObjectStr(self) -> str:
+    def GetArgumentObjectStr(self) -> Optional[str]:
         # We want to skip arguments until we find the json string and then concat all args after that together.
         # The reason is the PY args logic will split the entire command line string by space, so any spaces in the json get broken
         # up into different args. This only really happens in the case of the CMD_LINE_ARGS, since it can be like "-companion -debug -whatever"
@@ -153,7 +154,7 @@ class Installer:
         return jsonStr
 
 
-    def PrintHelp(self):
+    def PrintHelp(self) -> None:
         Logger.Blank()
         Logger.Blank()
         Logger.Blank()

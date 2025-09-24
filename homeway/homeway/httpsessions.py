@@ -1,12 +1,15 @@
 import logging
 import threading
+from typing import Dict
+
 import requests
 
 # A common class to cache http sessions per host.
 # This makes the connections more efficient as we can reuse the connections and the session isn't created every time.
 class HttpSessions:
 
-    _Instance = None
+    _Instance: "HttpSessions" = None #pyright: ignore[reportAssignmentType]
+
 
     @staticmethod
     def Init(logger:logging.Logger):
@@ -14,13 +17,13 @@ class HttpSessions:
 
 
     @staticmethod
-    def Get():
+    def Get() -> "HttpSessions":
         return HttpSessions._Instance
 
 
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
-        self.Sessions = {}
+        self.Sessions:Dict[str, requests.Session] = {}
         self.SessionsLock = threading.Lock()
 
 

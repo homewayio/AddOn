@@ -1,16 +1,16 @@
 import platform
 import logging
-
-import requests
+from typing import Dict, Optional
 
 from .mdns import MDns
+from .buffer import BufferOrNone
 from .compat import Compat
 from .localip import LocalIpHelper
+from .httpresult import HttpResult
 from .httpsessions import HttpSessions
 from .streammsgbuilder import StreamMsgBuilder
 
 from .Proto.PathTypes import PathTypes
-from .Proto.DataCompression import DataCompression
 from .Proto.HaApiTarget import HaApiTarget
 from .Proto.HttpInitialContext import HttpInitialContext
 
@@ -22,49 +22,49 @@ class HttpRequest:
     DirectServiceIsHttps = False
 
     # As a fallback, we will try different http proxy options.
-    LocalHttpProxyPort = 80
+    LocalHttpProxyPort:int = 80
     LocalHttpProxyIsHttps = False
 
 
     @staticmethod
-    def SetLocalHttpProxyPort(port):
+    def SetLocalHttpProxyPort(port:int):
         HttpRequest.LocalHttpProxyPort = port
     @staticmethod
-    def GetLocalHttpProxyPort():
+    def GetLocalHttpProxyPort() -> int:
         return HttpRequest.LocalHttpProxyPort
 
     @staticmethod
-    def SetLocalHttpProxyIsHttps(isHttps):
+    def SetLocalHttpProxyIsHttps(isHttps:bool):
         HttpRequest.LocalHttpProxyIsHttps = isHttps
     @staticmethod
-    def GetLocalHttpProxyIsHttps():
+    def GetLocalHttpProxyIsHttps() -> bool:
         return HttpRequest.LocalHttpProxyIsHttps
 
     @staticmethod
-    def SetDirectServicePort(port):
+    def SetDirectServicePort(port:int):
         HttpRequest.DirectServicePort = port
     @staticmethod
-    def GetDirectServicePort():
+    def GetDirectServicePort() -> int:
         return HttpRequest.DirectServicePort
 
     @staticmethod
-    def SetDirectServiceAddress(address):
+    def SetDirectServiceAddress(address:str):
         HttpRequest.DirectServiceAddress = address
     @staticmethod
-    def GetDirectServiceAddress():
+    def GetDirectServiceAddress() -> str:
         return HttpRequest.DirectServiceAddress
 
     @staticmethod
-    def SetDirectServiceUseHttps(address):
+    def SetDirectServiceUseHttps(address:bool):
         HttpRequest.DirectServiceIsHttps = address
     @staticmethod
-    def GetDirectServiceUseHttps():
+    def GetDirectServiceUseHttps() -> bool  :
         return HttpRequest.DirectServiceIsHttps
 
 
     # Based on the URL passed, this will return PathTypes.Relative or PathTypes.Absolute
     @staticmethod
-    def GetPathType(url):
+    def GetPathType(url:str) -> int:
         if url.find("://") != -1:
             # If there is a protocol, it's for sure absolute.
             return PathTypes.Absolute
@@ -92,183 +92,21 @@ class HttpRequest:
         return uri[pathStart:queryStart]
 
 
-    # This result class is a wrapper around the requests PY lib Response object.
-    # For the most part, it should abstract away what's needed from the Response object, so that an actual Response object isn't needed
-    # for all http calls. However, sometimes the actual Response object might be in this result object, because a ref to it needs to be held
-    # so the body stream can be read, assuming there's no full body buffer.
-    #
-    # There are three ways this class can contain a body to be used.
-    #       1) ResponseForBodyRead - If this is not None, then there's a requests.Response attached to this Result and it can be used to be read from.
-    #              Note, in this case, ideally the Result is used with a `with` keyword to cleanup when it's done.
-    #       2) FullBodyBuffer - If this is not None, then there's a fully read body buffer that should be used.
-    #              In this case, the size of the body is known, it's the size of the full body buffer. The size can't change.
-    #       3) CustomBodyStream - If this is not None, then there's a custom body stream that should be used.
-    #              This callback can be implemented by anything. The size is unknown and should continue until the callback returns None.
-    #                   customBodyStreamCallback() -> byteArray : Called to get more bytes. If None is returned, the stream is done.
-    #                   customBodyStreamClosedCallback() -> None : MUST BE CALLED when this Result object is closed, to clean up the stream.
-    class Result():
-        def __init__(self, statusCode:int, headers:dict, url:str, didFallback:bool, fullBodyBuffer=None, requestLibResponseObj:requests.Response=None, customBodyStreamCallback=None, customBodyStreamClosedCallback=None):
-            # Status code isn't a property because some things need to set it externally to the class. (Result.StatusCode = 302)
-            self.StatusCode = statusCode
-            self._headers = headers
-            self._url:str = url
-            self._requestLibResponseObj = requestLibResponseObj
-            self._didFallback:bool = didFallback
-            self._fullBodyBuffer = fullBodyBuffer
-            self._bodyCompressionType = DataCompression.None_
-            self._fullBodyBufferPreCompressedSize:int = 0
-            self.SetFullBodyBuffer(fullBodyBuffer)
-            self._customBodyStreamCallback = customBodyStreamCallback
-            self._customBodyStreamClosedCallback = customBodyStreamClosedCallback
-            if (self._customBodyStreamCallback is not None and self._customBodyStreamClosedCallback is None) or (self._customBodyStreamCallback is None and self._customBodyStreamClosedCallback is not None):
-                raise Exception("Both the customBodyStreamCallback and customBodyStreamClosedCallback must be set!")
-
-        @property
-        def Headers(self) -> dict:
-            return self._headers
-
-        @property
-        def Url(self) -> str:
-            return self._url
-
-        @property
-        def DidFallback(self) -> bool:
-            return self._didFallback
-
-        # This should only be used for reading the http stream body and it might be None
-        # If this Result was created without one.
-        @property
-        def ResponseForBodyRead(self) -> requests.Response:
-            return self._requestLibResponseObj
-
-        @property
-        def FullBodyBuffer(self) -> bytearray:
-            # Defaults to None
-            return self._fullBodyBuffer
-
-        @property
-        def BodyBufferCompressionType(self) -> DataCompression:
-            # Defaults to None
-            return self._bodyCompressionType
-
-        @property
-        def BodyBufferPreCompressSize(self) -> int:
-            # There must be a buffer
-            if self._fullBodyBuffer is None:
-                return 0
-            return self._fullBodyBufferPreCompressedSize
-
-        # Note the buffer can be bytes or bytearray object!
-        # A bytes object is more efficient, but bytearray can be edited.
-        def SetFullBodyBuffer(self, buffer, compressionType:DataCompression = DataCompression.None_, preCompressedSize:int = 0):
-            self._fullBodyBuffer = buffer
-            self._bodyCompressionType = compressionType
-            self._fullBodyBufferPreCompressedSize = preCompressedSize
-            if compressionType != DataCompression.None_ and (preCompressedSize == 0 or len(buffer) == 0):
-                raise Exception("The pre-compress size or the buffer size can't be zero if compression type is set.")
-            if compressionType != DataCompression.None_ and preCompressedSize <= 0:
-                raise Exception("The pre-compression full size must be set if the buffer is compressed.")
-
-        # It's important we clear all of the vars that are set above.
-        # This is used by the system that updates the request object with a 304 if the cache headers match.
-        def ClearFullBodyBuffer(self):
-            self._fullBodyBuffer = None
-            self._bodyCompressionType = DataCompression.None_
-            self._fullBodyBufferPreCompressedSize = 0
-
-
-        # Since most things use request Stream=True, this is a helpful util that will read the entire
-        # content of a request and return it. Note if the request has no defined length, this will read
-        # as long as the stream will go.
-        # This function will not throw on failures, it will read as much as it can and then set the buffer.
-        # On a complete failure, the buffer will be set to None, so that should be checked.
-        def ReadAllContentFromStreamResponse(self, logger:logging.Logger) -> None:
-            # Ensure we have a stream to read.
-            if self._requestLibResponseObj is None:
-                raise Exception("ReadAllContentFromStreamResponse was called on a result with no request lib Response object.")
-            # It's more efficient to gather the data in a single buffer, and append together at the end.
-            buffers = []
-
-            # In the past, we used iter_content, but it has a lot of overhead and also doesn't read all available data, it will only read a chunk if the transfer encoding is chunked.
-            # This isn't great because it's slow and also we don't need to reach each chunk, process it, just to dump it in a buffer and read another.
-            #
-            # For more comments, read doBodyRead, but using read is way more efficient.
-            # The only other thing to note is that read will allocate the full buffer size passed, even if only some of it is filled.
-            try:
-                # Ideally we use the content size, but if we can't we use our default.
-                perReadSizeBytes = 490 * 1024
-                contentLengthStr = self._requestLibResponseObj.headers.get("Content-Length", None)
-                if contentLengthStr is not None:
-                    perReadSizeBytes = int(contentLengthStr)
-
-                while True:
-                    # Read data
-                    data = self._requestLibResponseObj.raw.read(perReadSizeBytes)
-
-                    # Check if we are done.
-                    if data is None or len(data) == 0:
-                        # This is weird, but there can be lingering data in response.content, so add that if there is any.
-                        # See doBodyRead for more details.
-                        if len(self._requestLibResponseObj.content) > 0:
-                            buffers.append(self._requestLibResponseObj.content)
-                        # Break out when we are done.
-                        break
-
-                    # If we aren't done, append the buffer.
-                    buffers.append(data)
-            except Exception as e:
-                bufferLength = sum(len(p) for p in buffers)
-                lengthStr = "[buffer is None]" if bufferLength == 0 else str(bufferLength)
-                logger.warning(f"ReadAllContentFromStreamResponse got an exception. We will return the current buffer length of {lengthStr}, exception: {e}")
-
-            # Ensure we got something, as after this callers will expect an object to be there.
-            buffer = None
-            if len(buffers) == 1:
-                buffer = buffers[0]
-            elif len(buffers) > 0:
-                buffer = b''.join(buffers)
-            else:
-                buffer = bytearray()
-            self.SetFullBodyBuffer(buffer)
-
-
-        @property
-        def GetCustomBodyStreamCallback(self):
-            return self._customBodyStreamCallback
-
-        @property
-        def GetCustomBodyStreamClosedCallback(self):
-            return self._customBodyStreamClosedCallback
-
-        # We need to support the with keyword incase we have an actual Response object.
-        def __enter__(self):
-            if self._requestLibResponseObj is not None:
-                self._requestLibResponseObj.__enter__()
-            return self
-
-        # We need to support the with keyword incase we have an actual Response object.
-        def __exit__(self, t, v, tb):
-            if self._requestLibResponseObj is not None:
-                self._requestLibResponseObj.__exit__(t, v, tb)
-            if self._customBodyStreamClosedCallback is not None:
-                self._customBodyStreamClosedCallback()
-
-
-    # Handles making all http calls out of the plugin to locally ports, other services running locally on the device, or
+    # Handles making all http calls out of the plugin to OctoPrint or other services running locally on the device or
     # even on other devices on the LAN.
     #
     # The main point of this function is to abstract away the logic around relative paths, absolute URLs, and the fallback logic
     # we use for different ports. See the comments in the function for details.
     @staticmethod
-    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers, data=None) -> "HttpRequest.Result":
-        # Get the vars we need from the stream initial context.
+    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers:Dict[str, str], data:BufferOrNone=None) -> Optional[HttpResult]:
+        # Get the vars we need from the octostream initial context.
         path = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
         if path is None:
             raise Exception("Http request has no path field in open message.")
         pathType = httpInitialContext.PathType()
 
         # Make the common call.
-        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data, apiTarget=httpInitialContext.ApiTarget())
+        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data)
 
 
     # allowRedirects should be false for all proxy calls. If it's true, then the content returned might be from a redirected URL and the actual URL will be incorrect.
@@ -276,7 +114,7 @@ class HttpRequest:
     # The X-Forwarded-Host header will tell the local server the correct place to set the location redirect header.
     # However, for calls that aren't proxy calls, things like local snapshot requests and such, we want to allow redirects to be more robust.
     @staticmethod
-    def MakeHttpCall(logger:logging.Logger, pathOrUrl:str, pathOrUrlType:PathTypes, method:str, headers:dict=None, data=None, allowRedirects=False, apiTarget:HaApiTarget=None) -> "HttpRequest.Result":
+    def MakeHttpCall(logger:logging.Logger, pathOrUrl:str, pathOrUrlType:int, method:str, headers:Optional[Dict[str, str]]=None, data:BufferOrNone=None, allowRedirects=False, apiTarget:Optional[int]=None) -> Optional[HttpResult]:
 
         # Handle special API type targets.
         if apiTarget is not None and apiTarget == HaApiTarget.Core:
@@ -338,10 +176,10 @@ class HttpRequest:
 
         # Figure out the main and fallback url.
         url = ""
-        fallbackUrl = None
-        fallbackWebcamUrl = None
-        fallbackLocalIpDirectServicePortSuffix = None
-        fallbackLocalIpHttpProxySuffix = None
+        fallbackUrl:Optional[str] = None
+        fallbackWebcamUrl:Optional[str]= None
+        fallbackLocalIpDirectServicePortSuffix:Optional[str] = None
+        fallbackLocalIpHttpProxySuffix:Optional[str] = None
         if pathOrUrlType == PathTypes.Relative:
 
             # Note!
@@ -381,7 +219,6 @@ class HttpRequest:
             # requests lib and everything will work. However, on some systems mDNS isn't support and the call will fail. On top of that, mDNS
             # is super flakey, and it will randomly stop working often. For both of those reasons, we will check if we find a local address, and try
             # to resolve it manually. Our logic has a cache and local disk backup, so if mDNS is being flakey, our logic will recover it.
-            # TODO - This could break servers that need the hostname to use the right service - but the fallback should cover it.
             localResolvedUrl = MDns.Get().TryToResolveIfLocalHostnameFound(url)
             if localResolvedUrl is not None:
                 # The function will only return back the full URL if a local hostname was found and it was able to resolve to an IP.
@@ -415,6 +252,11 @@ class HttpRequest:
         if ret.IsChainDone:
             return ret.Result
 
+        # We should have a fallback url if we are here.
+        if fallbackUrl is None:
+            logger.error("Main request failed and no fallback URL was provided. This is a critical error and should be reported to the OctoEverywhere team.")
+            return ret.Result
+
         # We keep track of the main response, if all future fallbacks fail. (This can be None)
         mainResult = ret.Result
 
@@ -429,6 +271,11 @@ class HttpRequest:
         # We build these full URLs after the failures so we don't try to get the local IP on every call.
         localIp = LocalIpHelper.TryToGetLocalIp()
 
+        # We should have a fallbackLocalIpHttpProxySuffix if we are here.
+        if fallbackLocalIpHttpProxySuffix is None:
+            logger.error("Main request failed and no fallbackLocalIpHttpProxySuffix was provided. This is a critical error and should be reported to the OctoEverywhere team.")
+            return ret.Result
+
         # With the local IP, first try to use the http proxy URL, since it's the most likely to be bound to the public IP and not firewalled.
         # It's important we use the right http proxy protocol with the http proxy port.
         localIpFallbackUrl = httpProxyProtocol + localIp + fallbackLocalIpHttpProxySuffix
@@ -438,7 +285,12 @@ class HttpRequest:
         if ret.IsChainDone:
             return ret.Result
 
-        # Now try the local service direct port with the local IP.
+        # We should have a fallbackLocalIpHttpProxySuffix if we are here.
+        if fallbackLocalIpDirectServicePortSuffix is None:
+            logger.error("Main request failed and no fallbackLocalIpOctoPrintPortSuffix was provided. This is a critical error and should be reported to the OctoEverywhere team.")
+            return ret.Result
+
+        # Now try the OcotoPrint direct port with the local IP.
         localIpFallbackUrl = "http://" + localIp + fallbackLocalIpDirectServicePortSuffix
         ret = HttpRequest.MakeHttpCallAttempt(logger, "Local IP fallback", method, localIpFallbackUrl, headers, data, mainResult, True, fallbackWebcamUrl, allowRedirects)
         # If the function reports the chain is done, the next fallback URL is invalid and we should always return
@@ -446,32 +298,43 @@ class HttpRequest:
         if ret.IsChainDone:
             return ret.Result
 
+        # We should have a fallbackWebcamUrl if we are here.
+        if fallbackWebcamUrl is None:
+            logger.error("Main request failed and no fallbackWebcamUrl was provided. This is a critical error and should be reported to the OctoEverywhere team.")
+            return ret.Result
+
         # If all others fail, try the hardcoded webcam URL.
         # Note this has to be last, because there commonly isn't a fallbackWebcamUrl, so it will stop the
         # chain of other attempts.
         ret = HttpRequest.MakeHttpCallAttempt(logger, "Webcam hardcode fallback", method, fallbackWebcamUrl, headers, data, mainResult, True, None, allowRedirects)
+
         # No matter what, always return the result now.
         return ret.Result
+
 
     # Returned by a single http request attempt.
     # IsChainDone - indicates if the fallback chain is done and the response should be returned
     # Result - is the final result. Note the result can be unsuccessful or even `None` if everything failed.
     class AttemptResult():
-        def __init__(self, isChainDone, result):
+        def __init__(self, isChainDone:bool, result:Optional[HttpResult]):
             self.isChainDone = isChainDone
-            self.result:HttpRequest.Result = result
+            self.result = result
 
         @property
-        def IsChainDone(self):
+        def IsChainDone(self) -> bool:
             return self.isChainDone
 
         @property
-        def Result(self):
+        def Result(self) -> Optional[HttpResult]:
             return self.result
+
 
     # This function should always return a AttemptResult object.
     @staticmethod
-    def MakeHttpCallAttempt(logger, attemptName, method, url, headers, data, mainResult, isFallback, nextFallbackUrl, allowRedirects:bool = False) -> Result:
+    def MakeHttpCallAttempt(logger:logging.Logger, attemptName:str, method:str, url:str, headers:Optional[Dict[str,str]], data:BufferOrNone, mainResult:Optional[HttpResult], isFallback:bool, nextFallbackUrl:Optional[str], allowRedirects:bool=False) -> AttemptResult:
+        # The requests lib can accept any "byte like" object. We use this to force the type to be bytes, so pyright is happy.
+        dataBuffer:Optional[bytes] = None if data is None else data.GetBytesLike() #pyright: ignore[reportAssignmentType]
+
         response = None
         try:
             # Try to make the http call.
@@ -483,15 +346,15 @@ class HttpRequest:
             #
             # See the note about allowRedirects above MakeHttpCall.
             #
-            # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert. Or it's a cert for a hostname we aren't using.
+            # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert.
             #
             # We always set stream=True because we use the iter_content function to read the content.
             # This means that response.content will not be valid and we will always use the iter_content. But it also means
             # iter_content will ready into memory on demand and throw when the stream is consumed. This is important, because
             # our logic relies on the exception when the stream is consumed to end the http response stream.
-            response = HttpSessions.GetSession(url).request(method, url, headers=headers, data=data, timeout=1800, allow_redirects=allowRedirects, stream=True, verify=False)
+            response = HttpSessions.GetSession(url).request(method, url, headers=headers, data=dataBuffer, timeout=1800, allow_redirects=allowRedirects, stream=True, verify=False)
         except Exception as e:
-            logger.info(attemptName + " http URL threw an exception: "+str(e))
+            logger.debug(attemptName + " http URL threw an exception: "+str(e))
 
         # We have seen when making absolute calls to some lower end devices, like external IP cameras, they can't handle the number of headers we send.
         # So if any call fails due to 431 (headers too long) we will retry the call with no headers at all. Note this will break most auth, but
@@ -502,28 +365,26 @@ class HttpRequest:
             if response is not None and response.status_code == 431:
                 logger.info(url + " http call returned 431, too many headers. Trying again with no headers.")
             else:
-                logger.warn(url + " http call returned no response on Windows. Trying again with no headers.")
+                logger.warning(url + " http call returned no response on Windows. Trying again with no headers.")
             try:
-                response = HttpSessions.GetSession(url).request(method, url, headers={}, data=data, timeout=1800, allow_redirects=False, stream=True, verify=False)
+                response = HttpSessions.GetSession(url).request(method, url, headers={}, data=dataBuffer, timeout=1800, allow_redirects=False, stream=True, verify=False)
             except Exception as e:
                 logger.info(attemptName + " http NO HEADERS URL threw an exception: "+str(e))
 
         # Check if we got a valid response.
-        if response is not None:
-            if response.status_code != 404:
-                # We got a valid response, we are done.
-                # Return true and the result object, so it can be returned.
-                return HttpRequest.AttemptResult(True, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
-            else:
-                # We got a 404, which is a valid response, but we need to keep going to the next fallback.
-                logger.info(attemptName + " failed with a 404. Trying the next fallback.")
+        if response is not None and response.status_code != 404:
+            # We got a valid response, we are done.
+            # Return true and the result object, so it can be returned.
+            return HttpRequest.AttemptResult(True, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
 
         # Check if we have another fallback URL to try.
         if nextFallbackUrl is not None:
             # We have more fallbacks to try.
             # Return false so we keep going, but also return this response if we had one. This lets
             # use capture the main result object, so we can use it eventually if all fallbacks fail.
-            return HttpRequest.AttemptResult(False, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
+            if response is None:
+                return HttpRequest.AttemptResult(False, None)
+            return HttpRequest.AttemptResult(False, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
 
         # We don't have another fallback, so we need to end this.
         if mainResult is not None:
@@ -531,18 +392,10 @@ class HttpRequest:
             logger.info(attemptName + " failed and we have no more fallbacks. Returning the main URL response.")
             return HttpRequest.AttemptResult(True, mainResult)
         else:
-            # If we have a response, return it.
             if response is not None:
-                logger.error(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
-                return HttpRequest.AttemptResult(True, HttpRequest._buildHttRequestResultFromResponse(response, url, isFallback))
+                logger.debug(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
+                return HttpRequest.AttemptResult(True, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
 
             # Otherwise return the failure.
-            logger.error(attemptName + " failed and we have no more fallbacks. We have no main response, but will return the current response.")
+            logger.debug(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
             return HttpRequest.AttemptResult(True, None)
-
-
-    @staticmethod
-    def _buildHttRequestResultFromResponse(response:requests.Response, url:str, isFallback:bool) -> Result:
-        if response is None:
-            return None
-        return HttpRequest.Result(response.status_code, response.headers, url, isFallback, requestLibResponseObj=response)

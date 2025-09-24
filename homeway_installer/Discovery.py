@@ -1,4 +1,5 @@
 import os
+from typing import List
 
 from .Logging import Logger
 from .Context import Context
@@ -7,16 +8,18 @@ from .ConfigFile import ConfigFile
 
 # This class is used to find existing instances running on this device.
 class Discovery:
+
     # This is the base data folder name that will be used.
     # For any instance past #1, a number will be appended on the end of the folder in _1 format.
     # The folders will always be in the user's home path.
     c_AddonRootFolder_Lower = ".homeway-addon"
 
-    def Discovery(self, context:Context):
+
+    def Discovery(self, context:Context) -> None:
         Logger.Debug("Starting addon discovery.")
 
         # Look for existing addon data installs.
-        existingAddonFolders = []
+        existingAddonFolders:List[str] = []
         # Sort so the folder we find are ordered from 1-... This makes the selection process nicer, since the ID == selection.
         fileAndDirList = sorted(os.listdir(context.UserHomePath))
         for fileOrDirName in fileAndDirList:
@@ -111,7 +114,7 @@ class Discovery:
         return
 
 
-    def _SetupContextFromVars(self, context:Context, folderName:str):
+    def _SetupContextFromVars(self, context:Context, folderName:str) -> None:
         # First, ensure we can parse the id and set it.
         context.InstanceId = self._GetAddonIdFromFolderName(folderName)
         # If this is the primary instance, set the flag so others know.
@@ -122,7 +125,7 @@ class Discovery:
         Util.EnsureDirExists(context.AddonFolder, context, True)
 
 
-    def _GetAddonIdFromFolderName(self, folderName:str):
+    def _GetAddonIdFromFolderName(self, folderName:str) -> str:
         folderName_lower = folderName.lower()
         # For instance #1, it will be just the folder name. For extra instances there will be a _#
         # appended on the folder.

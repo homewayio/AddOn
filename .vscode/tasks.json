@@ -18,12 +18,12 @@
       {
         "label": "Run Env Setup",
         "type": "shell",
-        "command": "${workspaceFolder}/.dev/setup.sh",
+        "command": "${workspaceFolder}/.dev/setup.sh"
       },
       {
         "label": "Run Precommit Checks",
         "type": "shell",
-        "command": "${workspaceFolder}/.dev/precommit.sh",
+        "command": "${workspaceFolder}/.dev/precommit.sh"
       }
     ]
   }

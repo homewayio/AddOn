@@ -3,6 +3,7 @@
 import time
 import logging
 import threading
+from typing import Any, Dict, Optional, List, Tuple
 
 import requests
 import urllib3
@@ -10,6 +11,9 @@ import octoflatbuffers
 
 from .headerimpl import HeaderHelper
 from .headerimpl import BaseProtocol
+
+from ..interfaces import IWebStream
+from ..buffer import Buffer, BufferOrNone
 from ..httprequest import HttpRequest
 from ..streammsgbuilder import StreamMsgBuilder
 from ..commandhandler import CommandHandler
@@ -17,6 +21,7 @@ from ..customfileserver import CustomFileServer
 from ..compression import Compression, CompressionContext
 from ..sentry import Sentry
 from ..compat import Compat
+from ..httpresult import HttpResult, HttpResultOrNone
 from ..Proto import HttpHeader
 from ..Proto import WebStreamMsg
 from ..Proto import MessageContext
@@ -34,7 +39,7 @@ class MsgBuilderContext:
     c_MsgStreamOverheadSize = 1024 * 10
 
     def __init__(self):
-        self.Builder:octoflatbuffers.Builder = None
+        self.Builder:Optional[octoflatbuffers.Builder] = None
 
     def CreateBuilder(self, knownBodySizeBytes = 0):
         self.Builder = octoflatbuffers.Builder(knownBodySizeBytes + self.c_MsgStreamOverheadSize)
@@ -49,7 +54,7 @@ class MsgBuilderContext:
 class WebStreamHttpHelper:
 
     # Called by the main socket thread so this should be quick!
-    def __init__(self, streamId, logger:logging.Logger, webStream, webStreamOpenMsg:WebStreamMsg.WebStreamMsg, openedTime):
+    def __init__(self, streamId:int, logger:logging.Logger, webStream:IWebStream, webStreamOpenMsg:WebStreamMsg.WebStreamMsg, openedTime:float):
         self.Id = streamId
         self.Logger = logger
         self.WebStream = webStream
@@ -59,22 +64,22 @@ class WebStreamHttpHelper:
         self.CompressionContext = CompressionContext(self.Logger)
 
         # Vars for response reading
-        self.BodyReadTempBuffer:bytearray = None
+        self.BodyReadTempBuffer:Optional[Buffer] = None
         self.ChunkedBodyHasNoContentLengthHeaders = False
-        self.CompressionType:DataCompression.DataCompression = None
+        self.CompressionType:Optional[int]  = None
         self.CompressionTimeSec = -1
         self.MissingBoundaryWarningCounter = 0
         self.IsUsingFullBodyBuffer = False
         self.IsUsingCustomBodyStreamCallbacks = False
 
         # If this doesn't not equal None, it means we know how much data to expect.
-        self.KnownFullStreamUploadSizeBytes = None
-        self.UploadBytesReceivedSoFar = 0
-        self.UploadBuffer = None
+        self.KnownFullStreamUploadSizeBytes:Optional[int] = None
+        self.UploadBytesReceivedSoFar:int = 0
+        self.UploadBuffer:Optional[Buffer] = None
 
         # Unknown body size chunk reader
         # If this is not None, we are doing the unknown body read. Then the rest of the body reads must use this same system.
-        self.UnknownBodyChunkReadContext:UnknownBodyChunkReadContext = None
+        self.UnknownBodyChunkReadContext:Optional[UnknownBodyChunkReadContext] = None
 
         # Perf stats
         self.BodyReadTimeSec = 0.0
@@ -115,7 +120,7 @@ class WebStreamHttpHelper:
     # Called when a new message has arrived for this stream from the server.
     # This function should throw on critical errors, that will reset the connection.
     # Returning true will case the websocket to close on return.
-    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
+    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bool:
 
         # Note this is called on a single thread and will always handle messages
         # in order as they were sent.
@@ -185,7 +190,7 @@ class WebStreamHttpHelper:
         # 1) An oracle snapshot or webcam stream request. In this case the WebCamHelper class will handle the request.
         # 2) If the request is a StreamCommand, the CommandHandler will handle the request.
         # 3) Finally, check if the request is cached in Slipstream.
-        hwHttpResult = None
+        hwHttpResult:HttpResultOrNone = None
         isFromCache = False
         # If this is a special command for Homeway, we handle it differently.
         if CommandHandler.Get().IsCommandRequest(httpInitialContext):
@@ -195,19 +200,14 @@ class WebStreamHttpHelper:
             # This HandleRequest wil return a valid httpResult, with a full result.
             hwHttpResult = CustomFileServer.Get().HandleRequest(httpInitialContext)
         else:
-            # Check if we got a cache hit.
-            if hwHttpResult is not None:
-                isFromCache = True
-            else:
-                # If we don't have a valid result yet, do the normal http path.
-                hwHttpResult = HttpRequest.MakeHttpCallStreamHelper(self.Logger, httpInitialContext, method, sendHeaders, self.UploadBuffer)
-
+            # If we don't have a valid result yet, do the normal http path.
+            hwHttpResult = HttpRequest.MakeHttpCallStreamHelper(self.Logger, httpInitialContext, method, sendHeaders, self.UploadBuffer)
 
         # If None is returned, it failed.
         # Since the request failed, we want to just close the stream, since it's not a protocol failure.
         if hwHttpResult is None:
             path = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
-            self.Logger.warn(self.getLogMsgPrefix() + " failed to make http request. hwHttpResult was None; url:"+str(path))
+            self.Logger.warning(self.getLogMsgPrefix() + " failed to make http request. hwHttpResult was None; url:"+str(path))
             self.WebStream.SetClosedDueToFailedRequestConnection()
             self.WebStream.Close()
             return
@@ -262,13 +262,13 @@ class WebStreamHttpHelper:
 
             # Look at the headers to see what kind of response we are dealing with.
             # See if we find a content length, for http request that are streams, there is no content length.
-            contentLength = None
+            contentLength:Optional[int] = None
             # We will also look for the content type, and look for a boundary string if there is one
             # The boundary stream is used for webcam streams, and it's an ideal place to package and send each frame
-            boundaryStr = None
+            boundaryStr:Optional[str] = None
             # Pull out the content type value, so we can use it to figure out if we want to compress this data or not
-            contentTypeLower = None
-            ogLocationHeaderValue = None
+            contentTypeLower:Optional[str] = None
+            ogLocationHeaderValue:Optional[str] = None
             headers = hwHttpResult.Headers
             for name, value in headers.items():
                 nameLower = name.lower()
@@ -294,7 +294,7 @@ class WebStreamHttpHelper:
                     # We have noticed that some proxy servers aren't setup correctly to forward the x-forwarded-for and such headers.
                     # So when the web server responds back with a 301 or 302, the location header might not have the correct hostname, instead an ip like 127.0.0.1.
                     ogLocationHeaderValue = value
-                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders, httpInitialContext)
+                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders)
 
             if ogLocationHeaderValue is not None:
                 # Also set the og location, so the server has it if it needs it.
@@ -317,9 +317,10 @@ class WebStreamHttpHelper:
 
             # Check for a response handler and if we have one, check if it might want to edit the response of this call.
             # If so, it will return a context object. If not, it will return None.
-            responseHandlerContext = None
-            if Compat.HasWebRequestResponseHandler():
-                responseHandlerContext = Compat.GetWebRequestResponseHandler().CheckIfResponseNeedsToBeHandled(uri)
+            responseHandlerContext:Optional[Any] = None
+            webRequestResponseHandler = Compat.GetWebRequestResponseHandler()
+            if webRequestResponseHandler is not None:
+                responseHandlerContext = webRequestResponseHandler.CheckIfResponseNeedsToBeHandled(uri)
 
             # Setup a loop to read the stream and push it out in multiple messages.
             contentReadBytes = 0
@@ -395,10 +396,10 @@ class WebStreamHttpHelper:
 
                 # Validate.
                 if contentLength is not None and nonCompressedContentReadSizeBytes > contentLength:
-                    self.Logger.warn(self.getLogMsgPrefix()+" the http stream read more data than the content length indicated.")
+                    self.Logger.warning(self.getLogMsgPrefix()+" the http stream read more data than the content length indicated.")
                 if dataOffset is not None and contentLength is not None and nonCompressedContentReadSizeBytes < contentLength:
                     # This might happen if the connection closes unexpectedly before the transfer is done.
-                    self.Logger.warn(self.getLogMsgPrefix()+f" we expected a fixed length response, but the body read completed before we read it all. cl:{contentLength}, got:{nonCompressedContentReadSizeBytes} {uri}")
+                    self.Logger.warning(self.getLogMsgPrefix()+f" we expected a fixed length response, but the body read completed before we read it all. cl:{contentLength}, got:{nonCompressedContentReadSizeBytes} {uri}")
 
                 # Check if this is the last message.
                 # This is the last message if...
@@ -412,74 +413,80 @@ class WebStreamHttpHelper:
                 if isLastMessage and nonCompressedContentReadSizeBytes == 0:
                     compressBody = False
 
+                builder = builderContext.Builder
+                if builder is None:
+                    raise Exception("We are trying to send a message but the builder is None. This should never happen.")
+
                 # If this is the first response in the stream, we need to send the initial http context and status code.
-                httpInitialContextOffset = None
-                statusCode = None
+                httpInitialContextOffset:Optional[int] = None
+                statusCode:Optional[int] = None
                 if isFirstResponse is True:
                     # Set the status code, so it's sent.
                     statusCode = hwHttpResult.StatusCode
 
                     # Gather the headers, if there are any. This will return None if there are no headers to send.
-                    headerVectorOffset = self.buildHeaderVector(builderContext.Builder, hwHttpResult)
+                    headerVectorOffset = self.buildHeaderVector(builder, hwHttpResult)
 
                     # Build the initial context. We should always send a http initial context on the first response,
                     # even if there are no headers in t.
-                    HttpInitialContext.Start(builderContext.Builder)
+                    HttpInitialContext.Start(builder)
                     if headerVectorOffset is not None:
-                        HttpInitialContext.AddHeaders(builderContext.Builder, headerVectorOffset)
-                    httpInitialContextOffset = HttpInitialContext.End(builderContext.Builder)
+                        HttpInitialContext.AddHeaders(builder, headerVectorOffset)
+                    httpInitialContextOffset = HttpInitialContext.End(builder)
 
                 # Now build the return message
-                WebStreamMsg.Start(builderContext.Builder)
-                WebStreamMsg.AddStreamId(builderContext.Builder, self.Id)
+                WebStreamMsg.Start(builder)
+                WebStreamMsg.AddStreamId(builder, self.Id)
                 # Indicate this message has data, even if it's just the initial http context (because there's no data for this request)
-                WebStreamMsg.AddIsControlFlagsOnly(builderContext.Builder, False)
+                WebStreamMsg.AddIsControlFlagsOnly(builder, False)
                 if statusCode is not None:
-                    WebStreamMsg.AddStatusCode(builderContext.Builder, statusCode)
+                    WebStreamMsg.AddStatusCode(builder, statusCode)
                 if dataOffset is not None:
-                    WebStreamMsg.AddData(builderContext.Builder, dataOffset)
+                    WebStreamMsg.AddData(builder, dataOffset)
                 if httpInitialContextOffset is not None:
                     # This should always be not null for the first response.
-                    WebStreamMsg.AddHttpInitialContext(builderContext.Builder, httpInitialContextOffset)
+                    WebStreamMsg.AddHttpInitialContext(builder, httpInitialContextOffset)
                 if isFirstResponse is True and contentLength is not None:
                     # Only on the first response, if we know the full size, set it.
-                    WebStreamMsg.AddFullStreamDataSize(builderContext.Builder, contentLength)
+                    WebStreamMsg.AddFullStreamDataSize(builder, contentLength)
                 if compressBody:
+                    # If we are compressing, we need to add what we are using and what the original size was.
                     if self.CompressionType is None:
-                        raise Exception(f"The body of this message should be compressed but not compression type is set. status: {hwHttpResult.StatusCode} url: {uri}, readSize: {contentReadBytes}, fullbuffercompression: {hwHttpResult.BodyBufferCompressionType}, contentType: {contentTypeLower}, contentLength: {contentLength}")
-                    WebStreamMsg.AddDataCompression(builderContext.Builder, self.CompressionType)
-                    WebStreamMsg.AddOriginalDataSize(builderContext.Builder, nonCompressedBodyReadSize)
+                        raise Exception("The body of this message should be compressed but not compression type is set.")
+                    WebStreamMsg.AddDataCompression(builder, self.CompressionType)
+                    WebStreamMsg.AddOriginalDataSize(builder, nonCompressedBodyReadSize)
                 if isLastMessage:
                     # If this is the last message because we know the body is all
                     # sent, indicate that the data stream is done and send the close message.
-                    WebStreamMsg.AddIsDataTransmissionDone(builderContext.Builder, True)
-                    WebStreamMsg.AddIsCloseMsg(builderContext.Builder, True)
+                    WebStreamMsg.AddIsDataTransmissionDone(builder, True)
+                    WebStreamMsg.AddIsCloseMsg(builder, True)
                 if self.MultipartReadsPerSecond != 0:
                     # If this is a multipart stream (webcam streaming), every 1 second a value will be dumped into MultipartReadsPerSecond
                     # when it's there, we want to send it to the server for telemetry, and then zero it out.
                     if self.Logger.isEnabledFor(logging.DEBUG):
                         self.Logger.debug(f"Multipart Stats; reads per second: {str(self.MultipartReadsPerSecond)}, body read high water mark {str(format(self.BodyReadTimeHighWaterMarkSec*1000.0, '.2f'))}ms, socket write high water mark {str(format(self.ServiceUploadTimeHighWaterMarkSec*1000.0, '.2f'))}ms")
                     if self.MultipartReadsPerSecond > 255 or self.MultipartReadsPerSecond < 0:
-                        self.Logger.warn("self.MultipartReadsPerSecond is larger than uint8. "+str(self.MultipartReadsPerSecond))
+                        self.Logger.warning("self.MultipartReadsPerSecond is larger than uint8. "+str(self.MultipartReadsPerSecond))
                         self.MultipartReadsPerSecond  = 255
-                    WebStreamMsg.AddMultipartReadsPerSecond(builderContext.Builder, self.MultipartReadsPerSecond)
+                    WebStreamMsg.AddMultipartReadsPerSecond(builder, self.MultipartReadsPerSecond)
                     self.MultipartReadsPerSecond = 0
                     # Also attach the other stats.
-                    if self.BodyReadTimeHighWaterMarkSec > 65535.0 or self.BodyReadTimeHighWaterMarkSec < 0.0:
-                        self.Logger.warn("self.BodyReadTimeHighWaterMarkSec is larger than uint8. "+str(self.BodyReadTimeHighWaterMarkSec))
-                        self.BodyReadTimeHighWaterMarkSec  = 65535.0
-                    WebStreamMsg.AddBodyReadTimeHighWaterMarkMs(builderContext.Builder, int(self.BodyReadTimeHighWaterMarkSec * 1000.0))
+                    bodyReadTimeHighWaterMarkMs = int(self.BodyReadTimeHighWaterMarkSec * 1000.0)
                     self.BodyReadTimeHighWaterMarkSec = 0.0
-                    if self.ServiceUploadTimeHighWaterMarkSec > 65535.0 or self.ServiceUploadTimeHighWaterMarkSec < 0.0:
-                        self.Logger.warn("self.ServiceUploadTimeHighWaterMarkSec is larger than uint8. "+str(self.ServiceUploadTimeHighWaterMarkSec))
-                        self.ServiceUploadTimeHighWaterMarkSec  = 65535.0
-                    WebStreamMsg.AddBodyReadTimeHighWaterMarkMs(builderContext.Builder, int(self.ServiceUploadTimeHighWaterMarkSec * 1000.0))
-                    self.ServiceUploadTimeHighWaterMarkSec = 0.0
+                    if bodyReadTimeHighWaterMarkMs > 65535 or bodyReadTimeHighWaterMarkMs < 0:
+                        bodyReadTimeHighWaterMarkMs  = 65535
+                    WebStreamMsg.AddBodyReadTimeHighWaterMarkMs(builder, bodyReadTimeHighWaterMarkMs)
 
-                webStreamMsgOffset = WebStreamMsg.End(builderContext.Builder)
+                    serviceUploadTimeHighWaterMarkMs = int(self.ServiceUploadTimeHighWaterMarkSec * 1000.0)
+                    self.ServiceUploadTimeHighWaterMarkSec = 0.0
+                    if serviceUploadTimeHighWaterMarkMs > 65535 or serviceUploadTimeHighWaterMarkMs < 0:
+                        serviceUploadTimeHighWaterMarkMs  = 65535
+                    WebStreamMsg.AddSocketSendTimeHighWaterMarkMs(builder, serviceUploadTimeHighWaterMarkMs)
+
+                webStreamMsgOffset = WebStreamMsg.End(builder)
 
                 # Wrap in the StreamMsg and finalize.
-                buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.CreateStreamMsgAndFinalize(builderContext.Builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
+                buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.CreateStreamMsgAndFinalize(builder, MessageContext.MessageContext.WebStreamMsg, webStreamMsgOffset)
 
                 # Send the message.
                 # If this is the last, we need to make sure to set that we have set the closed flag.
@@ -495,7 +502,7 @@ class WebStreamHttpHelper:
                 finalFullBufferBytes = len(buffer)
                 if finalFullBufferBytes > lastBodyReadLength + builderContext.c_MsgStreamOverheadSize and self.Logger.isEnabledFor(logging.DEBUG):
                     delta = msgSizeBytes - (lastBodyReadLength + builderContext.c_MsgStreamOverheadSize)
-                    self.Logger.warn(f"The flatbuffer internal buffer had to be resized from the guess we set. Flatbuffer full buffer size: {finalFullBufferBytes}, last body read length: {lastBodyReadLength}; overrage delta: {delta}")
+                    self.Logger.warning(f"The flatbuffer internal buffer had to be resized from the guess we set. Flatbuffer full buffer size: {finalFullBufferBytes}, last body read length: {lastBodyReadLength}; overage delta: {delta}")
 
                 # Clear this flag
                 isFirstResponse = False
@@ -507,17 +514,17 @@ class WebStreamHttpHelper:
                 self.Logger.debug(self.getLogMsgPrefix() + method+" [upload:"+str(format(requestExecutionStart - self.OpenedTime, '.3f'))+"s; request_exe:"+str(format(requestExecutionEnd - requestExecutionStart, '.3f'))+"s; send:"+str(format(responseWriteDone - requestExecutionEnd, '.3f'))+"s; body_read:"+str(format(self.BodyReadTimeSec, '.3f'))+"s; compress:"+str(format(self.CompressionTimeSec, '.3f'))+"s; stream_upload:"+str(format(self.ServiceUploadTimeSec, '.3f'))+"s] size:("+str(nonCompressedContentReadSizeBytes)+"->"+str(contentReadBytes)+") compressed:"+str(compressBody)+" msgcount:"+str(messageCount)+" microreads:"+str(self.UnknownBodyChunkReadContext is not None)+" type:"+str(contentTypeLower)+" status:"+str(hwHttpResult.StatusCode)+" cached:"+str(isFromCache)+" for " + uri)
 
 
-    def buildHeaderVector(self, builder, hwHttpResult:HttpRequest.Result):
+    def buildHeaderVector(self, builder:octoflatbuffers.Builder, httpResult:HttpResult) -> Optional[int]:
         # Gather up the headers to return.
-        headerTableOffsets = []
-        headers = hwHttpResult.Headers
+        headerTableOffsets:List[int] = []
+        headers = httpResult.Headers
         for name, value in headers.items():
             nameLower = name.lower()
 
             # Since we send the entire result as one non-encoded
             # payload we want to drop this header. Otherwise the server might emit it to
             # the client, when it actually doesn't match what the server sends to the client.
-            # Note: Typically, if the web server sent something chunk encoded,
+            # Note: Typically, if the OctoPrint web server sent something chunk encoded,
             # our web server will also send it to the client via chunk encoding. But it will handle
             # that on it's own and set the header accordingly.
             if nameLower == "transfer-encoding":
@@ -527,25 +534,25 @@ class WebStreamHttpHelper:
                 continue
 
             # Allocate strings
-            keyOffset = builder.CreateString(name)
-            valueOffset = builder.CreateString(value)
+            keyOffset = builder.CreateString(name) #pyright: ignore[reportUnknownMemberType]
+            valueOffset = builder.CreateString(value) #pyright: ignore[reportUnknownMemberType]
             # Create the header table
             HttpHeader.Start(builder)
             HttpHeader.AddKey(builder, keyOffset)
             HttpHeader.AddValue(builder, valueOffset)
-            headerTableOffsets.append(HttpHeader.End(builder))
+            headerTableOffsets.append(HttpHeader.End(builder)) #pyright: ignore[reportUnknownMemberType]
 
         # Check if there were any headers, if not, return null so we don't set the vector.
         if len(headerTableOffsets) == 0:
             return None
 
         # Build the heaver vector
-        HttpInitialContext.StartHeadersVector(builder, len(headerTableOffsets))
+        HttpInitialContext.StartHeadersVector(builder, len(headerTableOffsets)) #pyright: ignore[reportUnknownMemberType]
         for offset in headerTableOffsets:
             # This function was very hard to find, I eventually found an example in the
             # py samples in the flatbuffer repo.
-            builder.PrependUOffsetTRelative(offset)
-        return builder.EndVector()
+            builder.PrependUOffsetTRelative(offset) #pyright: ignore[reportUnknownMemberType]
+        return builder.EndVector() #pyright: ignore[reportUnknownMemberType]
 
 
     def finalizeUnknownUploadSizeIfNeeded(self):
@@ -557,15 +564,16 @@ class WebStreamHttpHelper:
         if self.UploadBuffer is not None and self.KnownFullStreamUploadSizeBytes is None:
             # Trim the buffer to the final size that we received.
             # This will do a copy and set the copy as the upload buffer.
-            self.UploadBuffer = self.UploadBuffer[0:self.UploadBytesReceivedSoFar]
+            if len(self.UploadBuffer) != self.UploadBytesReceivedSoFar:
+                self.UploadBuffer = Buffer(self.UploadBuffer.Get()[0:self.UploadBytesReceivedSoFar])
 
 
     def copyUploadDataFromMsg(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
-        # Check how much data this message has in it.
+      # Check how much data this message has in it.
         # This size is the size of the full buffer, which is decompressed size if the data is compressed.
         thisMessageDataLen = webStreamMsg.DataLength()
         if thisMessageDataLen <= 0:
-            self.Logger.warn(self.getLogMsgPrefix() + " is waiting on upload data but got a message with no data. ")
+            self.Logger.warning(self.getLogMsgPrefix() + " is waiting on upload data but got a message with no data. ")
             return
 
         # Most uploads have very small payloads that come in single messages.
@@ -576,7 +584,8 @@ class WebStreamHttpHelper:
         # just use this buffer.
         if self.UploadBuffer is None and self.KnownFullStreamUploadSizeBytes is not None and self.KnownFullStreamUploadSizeBytes == thisMessageDataLen:
             # This is the only message with data, just use it's buffer.
-            self.UploadBuffer = self.decompressBufferIfNeeded(webStreamMsg)
+            buff = self.decompressBufferIfNeeded(webStreamMsg)
+            self.UploadBuffer = buff
             self.UploadBytesReceivedSoFar = len(self.UploadBuffer)
             # Done!
             return
@@ -585,7 +594,7 @@ class WebStreamHttpHelper:
         # The full upload size will be the same size as we expect, but the compression will make the payload larger.
         # If we know the upload size, make sure this doesn't exceeded it.
         # if self.KnownFullStreamUploadSizeBytes is not None and thisMessageDataLen + self.UploadBytesReceivedSoFar > self.KnownFullStreamUploadSizeBytes:
-        #     self.Logger.warn(self.getLogMsgPrefix() + " received more bytes than it was expecting for the upload. thisMsg:"+str(thisMessageDataLen)+"; so far:"+str(self.UploadBytesReceivedSoFar) + "; expected:"+str(self.KnownFullStreamUploadSizeBytes))
+        #     self.Logger.warning(self.getLogMsgPrefix() + " received more bytes than it was expecting for the upload. thisMsg:"+str(thisMessageDataLen)+"; so far:"+str(self.UploadBytesReceivedSoFar) + "; expected:"+str(self.KnownFullStreamUploadSizeBytes))
 
         # Make sure the array has been allocated and it's still large enough.
         if self.UploadBuffer is None or thisMessageDataLen + self.UploadBytesReceivedSoFar > len(self.UploadBuffer):
@@ -601,12 +610,13 @@ class WebStreamHttpHelper:
             oldBuffer = self.UploadBuffer
 
             # Allocate the new buffer
-            self.UploadBuffer = bytearray(newBufferSizeBytes)
+            self.UploadBuffer = Buffer(bytearray(newBufferSizeBytes))
 
             # Copy over anything that existed before
             if oldBuffer is not None:
                 # This will copy the old buffer into the front of the new buffer.
-                self.UploadBuffer[0:len(oldBuffer)] = oldBuffer
+                # The underlying buffer should already be a bytearray, since we just set it.
+                self.UploadBuffer.ForceAsByteArray()[0:len(oldBuffer)] = oldBuffer
 
         # We are ready to copy the new data now.
         # Get a slice of the buffer to avoid a the copy, since we copy on the next step anyways.
@@ -614,30 +624,34 @@ class WebStreamHttpHelper:
 
         # Now that we have the original size of the body back, check to make sure it's not too much.
         if self.KnownFullStreamUploadSizeBytes is not None and len(buf) + self.UploadBytesReceivedSoFar > self.KnownFullStreamUploadSizeBytes:
-            self.Logger.warn(self.getLogMsgPrefix() + " received more bytes than it was expecting for the upload. thisMsg:"+str(len(buf))+"; so far:"+str(self.UploadBytesReceivedSoFar) + "; expected:"+str(self.KnownFullStreamUploadSizeBytes))
+            self.Logger.warning(self.getLogMsgPrefix() + " received more bytes than it was expecting for the upload. thisMsg:"+str(len(buf))+"; so far:"+str(self.UploadBytesReceivedSoFar) + "; expected:"+str(self.KnownFullStreamUploadSizeBytes))
             raise Exception("Too many bytes received for http upload buffer")
 
         # Append the data into the main buffer.
         pos = self.UploadBytesReceivedSoFar
-        self.UploadBuffer[pos:pos+len(buf)] = buf
+
+        # Force the underlying buffer to be a bytearray and copy.
+        ba = self.UploadBuffer.ForceAsByteArray()
+        ba[pos:pos+len(buf)] = buf
         self.UploadBytesReceivedSoFar += len(buf)
 
 
     # A helper, given a web stream message returns it's data buffer, decompressed if needed.
-    def decompressBufferIfNeeded(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bytearray:
+    def decompressBufferIfNeeded(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> Buffer:
         # Get the compression type.
         compressionType = webStreamMsg.DataCompression()
-        dataByteArray = webStreamMsg.DataAsByteArray()
+        dataByteArray:bytearray = webStreamMsg.DataAsByteArray() #pyright: ignore[reportAssignmentType]
+        dataBuffer = Buffer(dataByteArray)
         if compressionType is DataCompression.DataCompression.None_:
-            return dataByteArray
+            return dataBuffer
         # It's compressed, decompress it.
-        return Compression.Get().Decompress(self.CompressionContext, dataByteArray, webStreamMsg.OriginalDataSize(), webStreamMsg.IsDataTransmissionDone(), compressionType)
+        return Compression.Get().Decompress(self.CompressionContext, dataBuffer, webStreamMsg.OriginalDataSize(), webStreamMsg.IsDataTransmissionDone(), compressionType)
 
 
-    def checkForNotModifiedCacheAndUpdateResponseIfSo(self, sentHeaders, hwHttpResult:HttpRequest.Result):
+    def checkForNotModifiedCacheAndUpdateResponseIfSo(self, sentHeaders:Dict[str, str], httpResult:HttpResult) -> None:
         # Check if the sent headers have any conditional http headers.
-        requestEtag = None
-        requestModifiedDate = None
+        requestEtag:Optional[str] = None
+        requestModifiedDate:Optional[str] = None
         for key in sentHeaders:
             keyLower = key.lower()
             if keyLower == "if-modified-since":
@@ -653,9 +667,9 @@ class WebStreamHttpHelper:
             return
 
         # Look through the response headers
-        responseEtag = None
-        responseModifiedDate = None
-        headers = hwHttpResult.Headers
+        responseEtag:Optional[str]  = None
+        responseModifiedDate:Optional[str]  = None
+        headers = httpResult.Headers
         for key in headers:
             keyLower = key.lower()
             if keyLower == "etag":
@@ -686,37 +700,37 @@ class WebStreamHttpHelper:
             return
 
         # Convert the response.
-        self.updateResponseFor304(hwHttpResult)
+        self.updateResponseFor304(httpResult)
 
 
-    def updateResponseFor304(self, hwHttpResult:HttpRequest.Result):
-        self.Logger.info(f"Converting request for {hwHttpResult.Url} {hwHttpResult.StatusCode} to a 304.")
+    def updateResponseFor304(self, httpResult:HttpResult) -> None:
+        self.Logger.info(f"Converting request for {httpResult.Url} {httpResult.StatusCode} to a 304.")
         # First of all, update the status code.
-        hwHttpResult.StatusCode = 304
+        httpResult.StatusCode = 304
         # Next, if this was a cached result or a result that has a full body buffer, we need to clear it.
-        hwHttpResult.ClearFullBodyBuffer()
+        httpResult.ClearFullBodyBuffer()
         # Remove any headers we don't want to send. Including some of these seems to trip up some browsers.
         # However, there are some we must send...
         # Quote - Note that the server generating a 304 response MUST generate any of the following header fields that would have been sent in a 200 (OK) response to the same request: Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
         #         https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/If-None-Match
-        removeHeaders = []
-        for key in hwHttpResult.Headers:
+        removeHeaders:List[str] = []
+        for key in httpResult.Headers:
             keyLower = key.lower()
             if keyLower == "content-length":
                 removeHeaders.append(key)
             if keyLower == "content-type":
                 removeHeaders.append(key)
         for key in removeHeaders:
-            del hwHttpResult.Headers[key]
+            del httpResult.Headers[key]
 
 
-    def getLogMsgPrefix(self):
+    def getLogMsgPrefix(self) -> str:
         return "Web Stream http ["+str(self.Id)+"] "
 
 
     # Based on the content-type header, this determines if we would apply compression or not.
     # Returns true or false
-    def shouldCompressBody(self, contentTypeLower:str, httpResult:HttpRequest.Result, contentLengthOpt:int):
+    def shouldCompressBody(self, contentTypeLower:Optional[str], httpResult:HttpResult, contentLengthOpt:Optional[int]) -> bool:
         # Compression isn't too expensive in terms of cpu cost but for text, it drastically
         # cuts the size down (ike a 75% reduction.) So we are quite liberal with our compression.
 
@@ -751,7 +765,16 @@ class WebStreamHttpHelper:
     # Reads data from the response body, puts it in a data vector, and returns the offset.
     # If the body has been fully read, this should return ogLen == 0, len = 0, and offset == None
     # The read style depends on the presence of the boundary string existing.
-    def readContentFromBodyAndMakeDataVector(self, builderContext:MsgBuilderContext, hwHttpResult:HttpRequest.Result, boundaryStr_opt, shouldCompress, contentTypeLower_NoneIfNotKnown, contentLength_NoneIfNotKnown, responseHandlerContext):
+    def readContentFromBodyAndMakeDataVector(
+                self,
+                builderContext:MsgBuilderContext,
+                httpResult:HttpResult,
+                boundaryStr:Optional[str],
+                shouldCompress:bool,
+                contentTypeLower:Optional[str],
+                contentLength:Optional[int],
+                responseHandlerContext:Optional[Any]
+            ) -> Tuple[int, int, Optional[int]]:
         # This is the max size each body read will be. Since we are making local calls, most of the time we will always get this full amount as long as theres more body to read.
         # This size is a little under the max read buffer on the server, allowing the server to handle the buffers with no copies.
         #
@@ -765,47 +788,57 @@ class WebStreamHttpHelper:
 
         # If we are going to compress this read, use a much higher number. Since most of what we compress is text,
         # and that text usually compresses down to 25% of the og size, we will use a x4 multiplier.
-        # We do want to make sure this value isn't too big, because we don't want to allocate a huge buffer on low memory systems.
+        # We do want to make sure this value isn't too big, because we dont want to allocate a huge buffer on low memory systems.
         if shouldCompress:
             defaultBodyReadSizeBytes = defaultBodyReadSizeBytes * 4
 
         # Finally check if we know the content length of the request. If we do, we will set the buffer to be exactly that value.
         # This is a lot more efficient, because we only allocate a buffer the exact size we need for the request.
         # But we want to limit the max size of the buffer, so we don't allocate a huge buffer for a large request.
-        if contentLength_NoneIfNotKnown is not None and contentLength_NoneIfNotKnown < defaultBodyReadSizeBytes:
-            defaultBodyReadSizeBytes = contentLength_NoneIfNotKnown
+        if contentLength is not None and contentLength < defaultBodyReadSizeBytes:
+            defaultBodyReadSizeBytes = contentLength
 
         # Some requests like snapshot requests will already have a fully read body. In this case we use the existing body buffer instead of reading from the body.
-        finalDataBuffer = None
-        finalDataBufferMv_CanBeNone = None
+        # Important! If the NeedsRelease flag is set we must release the buffer after we are done so the underlying buffer can be used on the next pass.
+        # BUT not all buffers are owned by us, for example quick cam buffers, so we can't release everything.
+        finalDataBufferNeedsReleased = False
+        finalDataBuffer:BufferOrNone = None
         try:
             bodyReadStartSec = time.time()
             if self.IsUsingFullBodyBuffer:
                 # In this case, the entire buffer and size are known, so we get them all in one go.
-                finalDataBuffer = hwHttpResult.FullBodyBuffer
+                finalDataBuffer = httpResult.FullBodyBuffer
             elif self.IsUsingCustomBodyStreamCallbacks:
                 # In this case we just call this callback, and send whatever it sends. Note that even if this is a boundary stream, we just send back what it sends.
                 # If None is returned, we are done.
-                finalDataBuffer = hwHttpResult.GetCustomBodyStreamCallback()
+                callback = httpResult.GetCustomBodyStreamCallback
+                if callback is None:
+                    raise Exception("The custom body stream callback returned None, but we are trying to read the body.")
+                finalDataBuffer = callback()
             else:
                 # If the boundary string exist and is not empty, we will use it to try to read the data.
                 # Unless the self.ChunkedBodyHasNoContentLengthHeaders flag has been set, which indicate we have read the body has chunks
                 # and failed to find any content length headers. In that case, we will just read fixed sized chunks.
-                if self.ChunkedBodyHasNoContentLengthHeaders is False and boundaryStr_opt is not None and len(boundaryStr_opt) != 0:
+                if self.ChunkedBodyHasNoContentLengthHeaders is False and boundaryStr is not None and len(boundaryStr) != 0:
                     # Try to read a single boundary chunk
-                    readLength = self.readStreamChunk(hwHttpResult, boundaryStr_opt)
+                    readLength = self.readStreamChunk(httpResult, boundaryStr)
                     # If we get a length, we have a buffer to use.
                     if readLength != 0:
+                        if self.BodyReadTempBuffer is None:
+                            raise Exception("The body read temp buffer is None, but we are trying to read the body.")
                         # We create a memory view from the buffer, which is a zero copy operation and zero copy slicing.
-                        # This allows us to pass the buffer around without copying it, but we do have to be sure to release the
-                        # memory views when we are done.
-                        finalDataBufferMv_CanBeNone = memoryview(self.BodyReadTempBuffer)
-                        finalDataBuffer = finalDataBufferMv_CanBeNone[0:readLength]
+                        # This allows us to pass the buffer around without copying it, but we do have to be sure to release the memory views when we are done.
+                        # This first memoryview is created and destroyed here using the with block.
+                        with memoryview(self.BodyReadTempBuffer.Get()) as mv:
+                            # NOTE this slice ALSO CREATES A MEMORY VIEW, which is then owned by the buffer, so it needs to be released.
+                            mvSlice = mv[0:readLength]
+                            finalDataBuffer = Buffer(mvSlice)
+                            finalDataBufferNeedsReleased = True
                 else:
-                    if self.UnknownBodyChunkReadContext is not None or (responseHandlerContext is None and self.shouldDoUnknownBodyChunkRead(contentTypeLower_NoneIfNotKnown, contentLength_NoneIfNotKnown)):
+                    if self.UnknownBodyChunkReadContext is not None or (responseHandlerContext is None and self.shouldDoUnknownBodyChunkRead(contentTypeLower, contentLength)):
                         # According to the HTTP 1.1 spec, if there's no content length and no boundary string, then the body is chunk based transfer encoding.
                         # Note that once we do on read as an unknown body size chunk read, we need to always do it, since there's a thread reading the body.
-                        finalDataBuffer = self.doUnknownBodyChunkRead(hwHttpResult)
+                        finalDataBuffer = self.doUnknownBodyChunkRead(httpResult)
                     else:
                         # If there is no boundary string, but we know the content length, it's safe to just read.
                         # This will block until either the full defaultBodyReadSizeBytes is read or the full request has been received.
@@ -815,12 +848,12 @@ class WebStreamHttpHelper:
                         if responseHandlerContext:
                             # We have to be careful with the size, because on some platforms (like the K1) whatever size we pass it will try to allocate
                             # into one buffer. If we know the context length, us it. Otherwise, set something that's reasonably large.
-                            if contentLength_NoneIfNotKnown is not None:
-                                defaultBodyReadSizeBytes = contentLength_NoneIfNotKnown
+                            if contentLength is not None:
+                                defaultBodyReadSizeBytes = contentLength
                             else:
                                 # Use a 2mb buffer.
                                 defaultBodyReadSizeBytes = 1024 * 1024 * 2
-                        finalDataBuffer = self.doBodyRead(hwHttpResult, defaultBodyReadSizeBytes)
+                        finalDataBuffer = self.doBodyRead(httpResult, defaultBodyReadSizeBytes)
 
             # Keep track of read times.
             thisBodyReadTimeSec = time.time() - bodyReadStartSec
@@ -836,12 +869,13 @@ class WebStreamHttpHelper:
             # Before we do any compression, check if there is a response handler context, meaning there's a response handler that
             # might want to edit the body buffer before it's compressed.
             if responseHandlerContext:
-                if contentLength_NoneIfNotKnown is not None and len(finalDataBuffer) != contentLength_NoneIfNotKnown:
+                if contentLength is not None and len(finalDataBuffer) != contentLength:
                     self.Logger.error("We detected the read of the web request response handler message, but the buffer size doesn't match the content length.")
                 else:
                     # If we have the compat handler, give it the buffer before we finalize the size, as it might want to edit the buffer.
-                    if Compat.HasWebRequestResponseHandler():
-                        finalDataBuffer = Compat.GetWebRequestResponseHandler().HandleResponse(responseHandlerContext, hwHttpResult, finalDataBuffer)
+                    webResponseHandler = Compat.GetWebRequestResponseHandler()
+                    if webResponseHandler is not None:
+                        finalDataBuffer = webResponseHandler.HandleResponse(responseHandlerContext, httpResult, finalDataBuffer) #pyright: ignore[reportArgumentType]
                     # Important! If the response handler has edited the buffer, we need to update the content length to match the new size.
                     # This is safe to do because currently we always read the entire buffer for a responseHandlerContext into one buffer, thus there's only one read, and this is the read.
                     # The function that calls readContentFromBodyAndMakeDataVector will correct the content header length in the main class, but we must update the encryption context
@@ -852,12 +886,12 @@ class WebStreamHttpHelper:
             originalBufferSize = len(finalDataBuffer)
 
             # Check to see if this was a full body buffer, if it was already compressed.
-            if hwHttpResult.BodyBufferCompressionType != DataCompression.DataCompression.None_:
+            if httpResult.BodyBufferCompressionType != DataCompression.DataCompression.None_:
                 # The full body buffer was already compressed and set, so update the other compression values.
-                originalBufferSize = hwHttpResult.BodyBufferPreCompressSize
+                originalBufferSize = httpResult.BodyBufferPreCompressSize
                 if self.CompressionType is not None:
-                    raise Exception(f"The BodyBufferCompressionType tried to be set but the compression was already set! It is {self.CompressionType} and now tried to be {hwHttpResult.BodyBufferCompressionType}")
-                self.CompressionType = hwHttpResult.BodyBufferCompressionType
+                    raise Exception(f"The BodyBufferCompressionType tried to be set but the compression was already set! It is {self.CompressionType} and now tried to be {httpResult.BodyBufferCompressionType}")
+                self.CompressionType = httpResult.BodyBufferCompressionType
 
             # Otherwise, check if we should compress
             elif shouldCompress:
@@ -880,28 +914,33 @@ class WebStreamHttpHelper:
             finalDataBufferSizeBytes = len(finalDataBuffer)
             builderContext.CreateBuilder(finalDataBufferSizeBytes)
 
-            return (originalBufferSize, len(finalDataBuffer), builderContext.Builder.CreateByteVector(finalDataBuffer))
+            builder = builderContext.Builder
+            if builder is None:
+                raise Exception("The builder is None, but we are trying to create a flatbuffer message.")
+            return (originalBufferSize, len(finalDataBuffer), builder.CreateByteVector(finalDataBuffer)) #pyright: ignore[reportArgumentType, reportUnknownMemberType]
         finally:
-            # If we used a memory view, release it.
-            # This also means that the finalDataBuffer is a memory view.
-            if finalDataBufferMv_CanBeNone is not None:
-                finalDataBuffer.release()
-                finalDataBufferMv_CanBeNone.release()
+            # If we own the final data buffer, we must call release.
+            # This is because sometimes it's a memory view, and the view needs to be released before
+            # The underlying buffer is used in the next data read.
+            # BUT some buffers (like those from Quick Cam or Slipstream) are shared and we CANT release them or they will break
+            # other threaded clients using them.
+            if finalDataBufferNeedsReleased and finalDataBuffer is not None:
+                finalDataBuffer.Release()
 
 
     # Reads a single chunk from the http response.
     # This function uses the BodyReadTempBuffer to store the data.
     # Returns the read size, 0 if the body read is complete.
-    def readStreamChunk(self, hwHttpResult:HttpRequest.Result, boundaryStr):
+    def readStreamChunk(self, httpResult:HttpResult, boundaryStr:str) -> int:
         frameSize = 0
         headerSize = 0
         foundContentLength = False
 
         # If the temp array isn't setup, do it now.
         if self.BodyReadTempBuffer is None:
-            self.BodyReadTempBuffer = bytearray(10*1024)
+            self.BodyReadTempBuffer = Buffer(bytearray(10*1024))
 
-        # Note. Webcam streams have content-length headers in each chunk. However, the standard
+        # Note. OctoPrint webcam streams have content-length headers in each chunk. However, the standard
         # says it's not required. So if we can find them use them, but if not we will set the
         # ChunkedBodyHasNoContentLengthHeaders so that future body reads don't attempt to find the headers again.
 
@@ -919,7 +958,7 @@ class WebStreamHttpHelper:
                 # we accidentally read two boundary messages at once.
                 # 3/24/24 - After a lot of testing, it seems most times we get the full headers in 120 chars.
                 # So we will target that much, hoping we can do one read and get them.
-                headerBuffer = self.doBodyRead(hwHttpResult, 120)
+                headerBuffer = self.doBodyRead(httpResult, 120)
 
                 # If this returns 0, the body read is complete
                 if headerBuffer is None:
@@ -927,13 +966,14 @@ class WebStreamHttpHelper:
                     return tempBufferFilledSize
 
                 # Add the header buffer to the temp output
-                self.BodyReadTempBuffer[tempBufferFilledSize:tempBufferFilledSize+len(headerBuffer)] = headerBuffer
+                ba = self.BodyReadTempBuffer.ForceAsByteArray()
+                ba[tempBufferFilledSize:tempBufferFilledSize+len(headerBuffer)] = headerBuffer
                 tempBufferFilledSize += len(headerBuffer)
 
                 # Convert the entire buffer read so far into a string for parsing.
                 # We must use the decode function here, not just str(), because in py3 str() will make a "ToString" the object,
                 # and not actually return us the contents of the buffer as a string.
-                headerStr = self.BodyReadTempBuffer[:tempBufferFilledSize].decode(errors="ignore")
+                headerStr = ba[:tempBufferFilledSize].decode(errors="ignore")
 
                 # Validate the headers starts with what we expect.
                 # According the the RFC, the boundary should start with the boundary string or '--' + boundary string.
@@ -946,7 +986,7 @@ class WebStreamHttpHelper:
                         outputStr = headerStr
                         if len(outputStr) > 40:
                             outputStr = outputStr[:40]
-                        self.Logger.warn("We read a web stream body frame, but it didn't start with the expected boundary header. expected:'"+boundaryStr+"' got:^^"+outputStr+"^^")
+                        self.Logger.warning("We read a web stream body frame, but it didn't start with the expected boundary header. expected:'"+boundaryStr+"' got:^^"+outputStr+"^^")
                     self.MissingBoundaryWarningCounter += 1
 
                 # Find out how long the headers are. The \r\n\r\n sequence ends the headers.
@@ -1003,7 +1043,7 @@ class WebStreamHttpHelper:
 
         # Read the remainder of the chunk.
         if toRead > 0:
-            data = self.doBodyRead(hwHttpResult, toRead)
+            data = self.doBodyRead(httpResult, toRead)
 
             # If we hit the end of the body, return how much we read already.
             if data is None:
@@ -1011,10 +1051,11 @@ class WebStreamHttpHelper:
 
             # Warn if twe didn't read it all
             if len(data) != toRead:
-                self.Logger.warn(self.getLogMsgPrefix()+" while reading a boundary chunk, doBodyRead didn't return the full size we requested.")
+                self.Logger.warning(self.getLogMsgPrefix()+" while reading a boundary chunk, doBodyRead didn't return the full size we requested.")
 
             # Copy this data into the temp buffer
-            self.BodyReadTempBuffer[tempBufferFilledSize:tempBufferFilledSize+len(data)] = data
+            ba = self.BodyReadTempBuffer.ForceAsByteArray()
+            ba[tempBufferFilledSize:tempBufferFilledSize+len(data)] = data.Get()
             tempBufferFilledSize += len(data)
 
         # Update our read rate. This is a metric we send along in the stream if the it's a multipart stream, to know how fast we are reading it.
@@ -1032,7 +1073,7 @@ class WebStreamHttpHelper:
             # Dump the counter value into the main stored value. This will be picked up by the message creation process and sent to the server.
             # Note if this spins multiple times, it will be zeroed out. That would mean there's a more than 1s gap in reading.
             if isFirstIncrement is False and self.MultipartReadsPerSecond == 0:
-                self.Logger.warn("Multipart read per second stats hit a period where 0 reads happened for more than second.")
+                self.Logger.warning("Multipart read per second stats hit a period where 0 reads happened for more than second.")
             self.MultipartReadsPerSecond = self.MissingBoundaryWarningCounter
             self.MissingBoundaryWarningCounter = 0
             isFirstIncrement = False
@@ -1044,10 +1085,10 @@ class WebStreamHttpHelper:
         return tempBufferFilledSize
 
 
-    def doBodyRead(self, hwHttpResult:HttpRequest.Result, readSize:int):
+    def doBodyRead(self, httpResult:HttpResult, readSize:int) -> BufferOrNone:
         try:
             # Ensure there's an actual requests lib Response object to read from
-            response = hwHttpResult.ResponseForBodyRead
+            response = httpResult.ResponseForBodyRead
             if response is None:
                 raise Exception("doBodyRead was called with a result that has not Response object to read from.")
 
@@ -1066,7 +1107,7 @@ class WebStreamHttpHelper:
 
             # If we got a data buffer return it.
             if data is not None and len(data) > 0:
-                return data
+                return Buffer(data)
 
             # Data will return b"" (aka empty buffer) when...
             #   1) The stream is closed and all of the data is consumed
@@ -1075,8 +1116,8 @@ class WebStreamHttpHelper:
             content = response.content
             if len(content) > 0:
                 if len(content) > readSize:
-                    self.Logger.warn("Http request has non-streamed content but it's larger than the requested readSize. Returning anyways.")
-                return content
+                    self.Logger.warning("Http request has non-streamed content but it's larger than the requested readSize. Returning anyways.")
+                return Buffer(content)
 
             # Otherwise we are done, return None to end the stream.
             return None
@@ -1095,7 +1136,7 @@ class WebStreamHttpHelper:
             # There doesn't seem to be an exception type for this one, so we will just catch it like this.
             if "IncompleteRead" in str(e):
                 # Don't do the entire sentry exception print, since it's too long.
-                self.Logger.warn("doBodyRead failed with an IncompleteRead, so the stream is done.")
+                self.Logger.warning("doBodyRead failed with an IncompleteRead, so the stream is done.")
                 return None
             Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doBodyRead. Ending body read.", e)
             return None
@@ -1106,8 +1147,12 @@ class WebStreamHttpHelper:
             if self.Logger.isEnabledFor(logging.DEBUG):
                 self.Logger.debug(f"{self.getLogMsgPrefix()}Starting chunk read thread.")
 
+            context = self.UnknownBodyChunkReadContext
+            if context is None:
+                raise Exception("doUnknownBodyChunkReadThread was called with a None context.")
+
             # Get the Request response object.
-            response = self.UnknownBodyChunkReadContext.HwHttpResult.ResponseForBodyRead
+            response = context.HttpResult.ResponseForBodyRead
             if response is None:
                 raise Exception("doUnknownBodyChunkReadThread was called with a result that has not Response object to read from.")
 
@@ -1120,12 +1165,17 @@ class WebStreamHttpHelper:
             gen = response.raw.stream(amt=None)
             for i in gen:
                 # When we have a new buffer, add it to the list under lock.
-                with self.UnknownBodyChunkReadContext.BufferLock:
-                    self.UnknownBodyChunkReadContext.BufferList.append(i)
+                with context.BufferLock:
+                    context.BufferList.append(i)
                     # Call set under lock, to ensure the other thread doesn't clear it without us seeing it.
-                    self.UnknownBodyChunkReadContext.BufferDataReadyEvent.set()
+                    context.BufferDataReadyEvent.set()
 
             # When the loop exits, the body read is complete and the stream is closed.
+
+        except urllib3.exceptions.HTTPError as e:
+            # These happen for a variety of reasons, including the stream being closed.
+            # Don't send it to Sentry.
+            self.Logger.info(f"{self.getLogMsgPrefix()} HTTPError exception thrown in doUnknownBodyChunkReadThread, ending read. {str(e)}")
 
         except Exception as e:
             # If the web stream is already closed, don't bother logging the exception.
@@ -1134,19 +1184,21 @@ class WebStreamHttpHelper:
             if self.IsClosed is False:
                 Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodyChunkReadThread", e)
         finally:
-            # Ensure we always set this flag, so the web stream will know the body read is done.
-            self.UnknownBodyChunkReadContext.ReadComplete = True
+            context = self.UnknownBodyChunkReadContext
+            if context is not None:
+                # Ensure we always set this flag, so the web stream will know the body read is done.
+                context.ReadComplete = True
 
-            # Set the event to break the stream read wait, so it will shutdown.
-            # Call set under lock, to ensure the other thread doesn't clear it without us seeing it.
-            with self.UnknownBodyChunkReadContext.BufferLock:
-                self.UnknownBodyChunkReadContext.BufferDataReadyEvent.set()
+                # Set the event to break the stream read wait, so it will shutdown.
+                # Call set under lock, to ensure the other thread doesn't clear it without us seeing it.
+                with context.BufferLock:
+                    context.BufferDataReadyEvent.set()
 
-            try:
-                if self.Logger.isEnabledFor(logging.DEBUG):
-                    self.Logger.debug(f"{self.getLogMsgPrefix()}Exiting chunk read thread.")
-            except Exception:
-                pass
+                try:
+                    if self.Logger.isEnabledFor(logging.DEBUG):
+                        self.Logger.debug(f"{self.getLogMsgPrefix()}Exiting chunk read thread.")
+                except Exception:
+                    pass
 
 
     # This function should be used if there's no content length and there's no boundary string.
@@ -1165,11 +1217,11 @@ class WebStreamHttpHelper:
     # There's still a problem with stream, which is it will block until the next chunk is ready. But for us, once we have data, we want to send it. Thus we must spin off a thread to do
     # the stream reading, and then transfer the buffer. Also stream() is a generator, so it can't be re-entered.
     #
-    def doUnknownBodyChunkRead(self, hwHttpResult:HttpRequest.Result):
+    def doUnknownBodyChunkRead(self, httpResult:HttpResult) -> BufferOrNone:
 
         # Even though we read complete chunks as they come in, we might want to buffer smaller chunks up
         # before sending them so the compression and stream is more efficient.
-        # This does need to be small, because we wan't reading this min time period back to back,
+        # This does need to be small, because we want reading this min time period back to back,
         # we are reading a chunk, doing all of the send logic, and then spinning back to here.
         # So if we set this at exactly 16.6 for a 60fps stream, for example, we will fall behind.
         minBufferBuildTimeSec = 0.010 # 10ms
@@ -1181,13 +1233,14 @@ class WebStreamHttpHelper:
         # If this is the first time, setup the unknown body read info.
         # Once this is defined, this body read method must be used for the rest of the request.
         if self.UnknownBodyChunkReadContext is None:
-            self.UnknownBodyChunkReadContext = UnknownBodyChunkReadContext(hwHttpResult)
-            self.UnknownBodyChunkReadContext.Thread = threading.Thread(target=self.doUnknownBodyChunkReadThread)
-            self.UnknownBodyChunkReadContext.Thread.start()
+            context = UnknownBodyChunkReadContext(httpResult)
+            context.Thread = threading.Thread(target=self.doUnknownBodyChunkReadThread)
+            self.UnknownBodyChunkReadContext = context
+            context.Thread.start()
 
         try:
             startSec = time.time()
-            chunkBufferList = None
+            chunkBufferList:Optional[List[bytes]] = None
 
             # Since we will always sleep for at least the min time, there's no need to do work until the min time is meet.
             # If we did do the loop, we would just end up spinning and sleeping again.
@@ -1227,7 +1280,6 @@ class WebStreamHttpHelper:
                 # This will return when there's new chunks ready, ReadComplete is set, or it hits a timeout.
                 self.UnknownBodyChunkReadContext.BufferDataReadyEvent.wait(maxChunkReadTimeSec)
 
-
             # If we broke out of the loop and we have no chunks to send, we are done.
             if chunkBufferList is None:
                 return None
@@ -1235,7 +1287,7 @@ class WebStreamHttpHelper:
             # Append all of the chunks together and return the buffer!
             # Optimize for the single chunk scenario.
             if len(chunkBufferList) == 1:
-                return chunkBufferList[0]
+                return Buffer(chunkBufferList[0])
 
             # Find the final buffer length.
             totalLength = sum(len(b) for b in chunkBufferList)
@@ -1254,7 +1306,7 @@ class WebStreamHttpHelper:
                 raise Exception(f"Final appended buffer was {len(finalBuffer)} but it should have been {totalLength}")
 
             # Return!
-            return finalBuffer
+            return Buffer(finalBuffer)
 
         except Exception as e:
             Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in doUnknownBodySizeRead. Ending body read.", e)
@@ -1263,7 +1315,7 @@ class WebStreamHttpHelper:
 
     # Based on the content length and the content type, determine if we should do a doUnknownBodySizeRead read.
     # Read doUnknownBodySizeRead about why we need to use it, but since it's not efficient, we only want to use it when we know we should.
-    def shouldDoUnknownBodyChunkRead(self, contentTypeLower_CanBeNone, contentLengthLower_CanBeNone):
+    def shouldDoUnknownBodyChunkRead(self, contentTypeLower:Optional[str], contentLengthLower:Optional[int]) -> bool:
 
         # If this is set, we are already doing a unknown body chunk read, so we must keep doing it.
         if self.UnknownBodyChunkReadContext is not None:
@@ -1271,16 +1323,16 @@ class WebStreamHttpHelper:
 
         # If there's a known content length, there's no need to do this, because the normal read will fill the requested buffer size
         # but return the remainder subset immediately when the full buffer is read.
-        if contentLengthLower_CanBeNone is not None:
+        if contentLengthLower is not None:
             return False
 
         # If we didn't get a content type, default to true since we don't know what this is.
-        if contentTypeLower_CanBeNone is None:
+        if contentTypeLower is None:
             return True
 
         # mjpegstreamer doesn't return a content type for snapshots (which is annoying) so if we know the content is a single image, don't stream it, allow the full
         # buffer read to read it in one bit.
-        if contentTypeLower_CanBeNone == "image/jpeg":
+        if contentTypeLower == "image/jpeg":
             return False
 
         # Otherwise, default to true
@@ -1289,7 +1341,7 @@ class WebStreamHttpHelper:
 
     # To speed up page load, we will defer lower pri requests while higher priority requests
     # are executing.
-    def checkForDelayIfNotHighPri(self):
+    def checkForDelayIfNotHighPri(self) -> None:
         # This isn't used at all right now.
         pass
         # Allow anything above Normal priority to always execute
@@ -1297,6 +1349,7 @@ class WebStreamHttpHelper:
         #     return
         # # Otherwise, we want to block for a bit if there's a high pri stream processing.
         # self.WebStream.BlockIfHighPriStreamActive()
+
 
     # Formatting helper.
     def _FormatFloat(self, value:float) -> str:
@@ -1306,14 +1359,14 @@ class WebStreamHttpHelper:
 # Used to capture the context of the unknown body read thread.
 class UnknownBodyChunkReadContext:
 
-    def __init__(self, hwHttpResult:HttpRequest.Result) -> None:
-        self.HwHttpResult = hwHttpResult
-        self.Thread:threading.Thread = None
+    def __init__(self, httpResult:HttpResult) -> None:
+        self.HttpResult = httpResult
+        self.Thread:Optional[threading.Thread] = None
         self.BufferLock = threading.Lock()
         self.BufferDataReadyEvent = threading.Event()
 
         # We use a list so we can efficiently append all of the pending buffers at once when they are being sent.
-        self.BufferList = []
+        self.BufferList:List[bytes] = []
 
         # Set to true when the read is done either from the end of the body or an error.
         # Once true, it will never read again, but we do need to process the BufferList

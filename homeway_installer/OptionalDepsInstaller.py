@@ -3,6 +3,7 @@ import time
 import subprocess
 import threading
 import multiprocessing
+from typing import Optional, Tuple
 
 from homeway.homeway.compression import Compression
 
@@ -15,8 +16,10 @@ from .Context import Context
 class OptionalDepsInstaller:
 
     # If there's an installer thread, it will be stored here.
-    _InstallThread:threading.Thread = None
-    _ThreadStatus:str = None
+    _InstallThread:Optional[threading.Thread] = None
+    _ThreadStatus:Optional[str] = None
+    # Tracks whether zstandard pip install succeeded (True/False) or None if not attempted yet
+    _ZstandardInstallStatus:Optional[bool] = None
 
 
     # Tries to install zstandard and ffmpeg, but this won't fail if the install fails.
@@ -44,7 +47,7 @@ class OptionalDepsInstaller:
         # Wait for everything to be done.
         Logger.Info("Finishing system dependencies install. This might take a moment...")
         start = time.time()
-        lastThreadStatus = None
+        lastThreadStatus:Optional[str] = None
         while time.time() - start < timeoutSec:
             # Sleep, then check if the thread is done.
             time.sleep(2.0)
@@ -83,14 +86,20 @@ class OptionalDepsInstaller:
             Logger.Debug("Installing zstandard, this might take a moment...")
             OptionalDepsInstaller._ThreadStatus = "Installing zstandard system libs..."
             startSec = time.time()
-            (returnCode, stdOut, stdError) = Util.RunShellCommand("sudo apt-get install zstd -y", False)
+            result_tuple:Tuple[int, str, str] = Util.RunShellCommand("sudo apt-get install zstd -y", False)
+            (returnCode, stdOut, stdError) = result_tuple
             Logger.Debug(f"Zstandard apt install result. Code: {returnCode}, StdOut: {stdOut}, StdErr: {stdError}")
 
             # Now try to install the PY package.
             # NOTE: Use the same logic as we do in the Compression class.
             # Only allow blocking up to 20 seconds, so we don't hang the installer too long.
             OptionalDepsInstaller._ThreadStatus = "Installing zstandard python libs..."
-            result = subprocess.run([sys.executable, '-m', 'pip', 'install', Compression.ZStandardPipPackageString], timeout=30.0, check=False, capture_output=True)
+            result: subprocess.CompletedProcess[bytes] = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', Compression.ZStandardPipPackageString],
+                timeout=30.0,
+                check=False,
+                capture_output=True,
+            )
             Logger.Debug(f"Zstandard PIP install result. Code: {result.returncode}, StdOut: {result.stdout}, StdErr: {result.stderr}, Time: {time.time()-startSec}")
             OptionalDepsInstaller._ZstandardInstallStatus = True
             OptionalDepsInstaller._ThreadStatus = "Zstandard install complete"
