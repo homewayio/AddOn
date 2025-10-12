@@ -93,8 +93,9 @@ class SageHost:
                 name=serverName,
                 port=SageHost.c_ServerPort,
             )
+            self.Logger.info(f"Zeroconf registration complete. Name: {serverName}, Port: {SageHost.c_ServerPort}")
         except Exception as e:
-            Sentry.OnException("Zeroconf Error", e)
+            Sentry.OnException("Zeroconf failed to setup.", e)
 
         if self.Fabric is None or self.FiberManager is None or self.HomeContext is None or self.SageHistory is None:
             self.Logger.error("SageHost is not properly initialized, cannot start wyoming server.")
