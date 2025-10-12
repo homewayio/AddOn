@@ -11,12 +11,16 @@ LABEL \
 
 # Copy our PY requirements and install them.
 COPY requirements.txt /
+
+# Install build dependencies before Python packages so native wheels (e.g. aiohttp, zstandard) compile successfully.
+# Note we don't install PY 3 so it doesn't exit and we don't accidentally use it instead of the base image python.
+# hadolint ignore=DL3018,DL3019,DL3059
+RUN apk add --no-cache zstd python3-dev gcc zlib-dev musl-dev libffi-dev g++ openssl-dev cargo make
+
+RUN pip install --upgrade pip setuptools wheel Cython
 RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
-# Install the optional pacakges for zstandard compression. The extra packages are required for the zstandard python pip install to build.
-# Note we don't isntall PY 3 so it doesn't exit and we don't accitentally use it instaed of the base image python.
-# hadolint ignore=DL3018,DL3019,DL3059
-RUN apk add zstd python3-dev gcc zlib-dev musl-dev libffi-dev
+# Install the optional packages for zstandard compression. The extra packages are required for the zstandard python pip install to build.
 # THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
 RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
 
