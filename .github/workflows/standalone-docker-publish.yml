@@ -61,6 +61,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: 🔏 Install Cosign
+        uses: sigstore/cosign-installer@v3.6.0
+
+      - name: 🔏 Sign Docker Hub image
+        if: steps.push.outputs.digest
+        env:
+          COSIGN_YES: "true"
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          cosign sign "docker.io/homewayio/homeway@${{ steps.push.outputs.digest }}"
+
       # This isn't working, so it's disabled for now.
       # - name: Generate artifact attestation
       #   uses: actions/attest-build-provenance@v1

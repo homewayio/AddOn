@@ -8,6 +8,9 @@ build_from:
   armhf: "homeassistant/armhf-base-python"
   armv7: "homeassistant/armv7-base-python"
   i386: "homeassistant/i386-base-python"
+cosign:
+  identity: "https://github.com/homewayio/add-on/.+"
+  base_identity: "https://github.com/home-assistant/docker-base/.+"
 labels:
   org.opencontainers.image.title: "Homeway.io - Free, Private, And Secure Remote Access For Home Assistant"
   org.opencontainers.image.description: "Free, Private, And Secure Remote Access For Home Assistant"

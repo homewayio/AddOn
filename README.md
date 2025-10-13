@@ -50,3 +50,12 @@ Feel free to fork, hack, slash, and PR our code! Homeway is made for the communi
 ### Related Open-Source Projects
 
 [Homeway Website Core](https://www.npmjs.com/package/homeway-site-core)
+
+## Image signing trust chain
+
+Our GitHub Actions release flow uses the Home Assistant builder to build and cosign the add-on image. To keep the trust chain intact you must set the `identity` for the add-on image and the `base_identity` for the base image in [`homeway/build.yaml`](homeway/build.yaml).
+
+- **Add-on identity** – Use the OpenID Connect subject issued to your repository. For GitHub-hosted add-ons this follows the pattern `https://github.com/<owner>/<repo>/.+`. You can confirm it by running `cosign verify --certificate-oidc-issuer=https://token.actions.githubusercontent.com <your image>` on any image you have already signed and reading the `Subject` from the returned certificate.
+- **Base identity** – Verify the signature on the base image you build from to learn who signs it. For the official Home Assistant base-python images (for example `homeassistant/amd64-base-python`) the signer’s subject matches `https://github.com/home-assistant/docker-base/.+`, so we pin that in the build configuration to ensure the base layer is trusted before your add-on is built on top of it.
+
+These checks allow the builder action to verify both the upstream base image and the final add-on image, preserving the provenance chain all the way from Home Assistant’s base layers to your published add-on.
