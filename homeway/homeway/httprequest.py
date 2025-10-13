@@ -104,9 +104,10 @@ class HttpRequest:
         if path is None:
             raise Exception("Http request has no path field in open message.")
         pathType = httpInitialContext.PathType()
+        apiTarget = httpInitialContext.ApiTarget()
 
         # Make the common call.
-        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data)
+        return HttpRequest.MakeHttpCall(logger, path, pathType, method, headers, data, apiTarget=apiTarget)
 
 
     # allowRedirects should be false for all proxy calls. If it's true, then the content returned might be from a redirected URL and the actual URL will be incorrect.
