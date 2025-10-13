@@ -258,8 +258,10 @@ class SageHandler(AsyncEventHandler, ISageHandler):
                 url = f"http://{self.DevLocalHomewayServerAddress}/api/sage/getmodels"
 
             # Since this is important, we have some retry logic.
+            # We have to explicitly set the headers because the lib will advertise it can handle gzip, deflate, and zstd, but zstd
+            # wont work on arm.
             attempt = 0
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(headers={"Accept-Encoding": "gzip, deflate"}) as session:
                 while True:
                     attempt += 1
                     serviceInfo:Optional[Info] = None

@@ -35,9 +35,9 @@ RUN ${VENV_DIR}/bin/python -m pip install --upgrade pip
 COPY ./ ${REPO_DIR}/
 RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q -r ${REPO_DIR}/homeway/requirements.txt
 
-# Install the optional pacakges for zstandard compression.
+# Install the optional packages for zstandard compression.
 # THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
-RUN apk add zstd
+RUN apk add --no-cache zstd
 RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
 
 # For docker, we use our homeway_standalone_docker host to handle the runtime setup and launch of the serivce.
