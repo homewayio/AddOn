@@ -14,7 +14,6 @@ COPY requirements.txt /
 
 # Install build dependencies before Python packages so native wheels (e.g. aiohttp, zstandard) compile successfully.
 # Note we don't install PY 3 so it doesn't exit and we don't accidentally use it instead of the base image python.
-# hadolint ignore=DL3018,DL3019,DL3059
 RUN apk add --no-cache zstd python3-dev gcc zlib-dev musl-dev libffi-dev g++ openssl-dev cargo make
 
 RUN pip install --upgrade pip setuptools wheel Cython

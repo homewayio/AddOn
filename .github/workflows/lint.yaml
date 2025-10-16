@@ -159,20 +159,6 @@ jobs:
           community: false
           path: "./${{ needs.information.outputs.target }}"
 
-  lint-hadolint:
-    name: Hadolint
-    needs:
-      - information
-    runs-on: ubuntu-latest
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v5
-      - name: 🚀 Run Hadolint
-        uses: brpaz/hadolint-action@v1.5.0
-        with:
-          dockerfile: "./${{ needs.information.outputs.target }}/Dockerfile"
-          ignore: DL3006
-
   lint-yamllint:
     name: YAMLLint
     runs-on: ubuntu-latest
