@@ -226,7 +226,7 @@ class HeaderHelper:
                 logger.warning("GetWebSocketSubProtocols found a null header.")
                 continue
 
-            # Check if it's the protocol headers\
+            # Check if it's the protocol headers
             name = StreamMsgBuilder.BytesToString(header.Key())
             if name is None:
                 logger.warning("GetWebSocketSubProtocols found a header that has a null name.")

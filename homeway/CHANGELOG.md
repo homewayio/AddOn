@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.2.13-17
+## 2.2.13-18
 
 -  🐛 Bug fixes and minor improvements.
 
