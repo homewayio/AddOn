@@ -194,10 +194,10 @@ cat << EOF
 EOF
 log_blank
 log_header    "                    ~~ Homeway.io ~~"
-log_blue      "Free, secure, and private remote access for Home Assistant!"
 log_blank
 log_important "Homeway empowers the Home Assistant community with:"
 log_info      "  - Free Home Assistant Remote Access"
+log_info      "  - Free ChatGPT Powered AI For Home Assistant Assist and Voice Devices"
 log_info      "  - Free Official Home Assistant iOS & Android App Remote Access"
 log_info      "  - Alexa And Google Assistant Integration"
 log_info      "  - Shared Remote Access"
