@@ -121,15 +121,49 @@ class WebServer(IAccountLinkStatusUpdateHandler):
 <html>
 <head><title>Homeway Control</title>
 <style>
-    .pinkButton {
-        background-color: #d870e8;
+    .whiteLink {
+        color: white;
+        text-decoration: none;
+    }
+    .whiteLink:hover {
+        text-decoration: underline;
+    }
+    .blueLink {
+        color: #0C7BFF;
+        text-decoration: none;
+        font-weight: bold;
+    }
+    .subtleText {
+        color: #939BA6;
+    }
+    .featureHolder {
+        display: flex;
+        flex-direction: column;
+        background-color: #282828;
+        border-radius: 5px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    .featureHeader {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .featureDetails {
+        color: #b5becc;
+        margin-bottom: 5px;
+    }
+    .featureButton {
+        font-weight: bold;
+        margin-top:10px;
+        background-color: #3B82F6;
         color: white;
         border-radius: 5px;
-        font-weight: normal; /* Needed for iOS, so the button text isn't bold. */
+        font-weight: bold; /* Needed for iOS, so the button text isn't bold. */
         transition: 0.5s;
         padding: 20px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        padding-top:13px;
+        padding-bottom:13px;
         text-align: center;
         /* Disable select for all buttons */
         user-select: none; /* supported by Chrome and Opera */
@@ -138,82 +172,132 @@ class WebServer(IAccountLinkStatusUpdateHandler):
         -moz-user-select: none; /* Firefox */
         -ms-user-select: none; /* Internet Explorer/Edge */
     }
-    .pinkButton:hover {
-        background-color: #C342D7;
-        cursor: pointer;
-    }
-
-    .blueButton {
-        background-color: #78a4fa;
-        color: white;
-        border-radius: 5px;
-        font-weight: normal; /* Needed for iOS, so the button text isn't bold. */
-        transition: 0.5s;
-        padding: 20px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        text-align: center;
-        /* Disable select for all buttons */
-        user-select: none; /* supported by Chrome and Opera */
-        -webkit-user-select: none; /* Safari */
-        -khtml-user-select: none; /* Konqueror HTML */
-        -moz-user-select: none; /* Firefox */
-        -ms-user-select: none; /* Internet Explorer/Edge */
-    }
-    .blueButton:hover {
+    .featureButton:hover {
         background-color: #547DEB;
         cursor:pointer;
+    }
+    .pinkFeatureButton {
+        background-color: #A855F7;
+    }
+    .featureButton:hover {
+        background-color: #c689ff;
     }
 </style>
 </head>
 <body style="background-color: black; color: white; font-family: Roboto,Noto,Noto Sans,sans-serif;">
 <div style="display: flex; align-content: center; justify-content: center; margin-top: 30px">
-    <div style="background-color:#2A2C30; border-radius: 5px; padding: 25px; min-width: 300px; max-width:450px">
-        <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:30px;">Homeway</div>
+    <div style="background-color:#1C1C1C; border-radius: 5px; padding: 25px; min-width: 300px; max-width:450px">
+        <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+            <div style="display: flex; flex-direction: column; align-items: center;">
+                <img src="https://homeway.io/img/logo_maskable.png" style="width: 70px; border-radius: 10px">
+                <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:10px; margin-top:10px">
+                    <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" class="whiteLink">Homeway</a>
+                </div>
+            </div>
+        </div>
+
         <div style="display: """+ connectingBlockDisplay +""";">
-            <div style="margin-bottom:20px; text-align: center; color:#78a4fa; font-weight: bold;">
-                Connecting To Homeway.io...
+            <div style="display: flex; justify-content: center; align-items: baseline; margin-bottom:5px;">
+                <div style="width:10px; height:10px; background-color:#bcdf5c; border-radius:50%; margin-right:5px;"></div>
+                <div style="margin-bottom:5px; text-align: center; color:#c0dd72; font-weight: bold;">
+                    Connecting To Homeway.io...
+                </div>
             </div>
         </div>
         <div style="display: """+linkAccountBlockDisplay+""";">
-            <div style="margin-bottom:30px">
+            <div style="display: flex; justify-content: center; align-items: baseline; margin-bottom:5px;">
+                <div style="width:10px; height:10px; background-color:#df5c5c; border-radius:50%; margin-right:5px;"></div>
+                <div style="margin-bottom:5px; text-align: center; color:#df5c5c; font-weight: bold;">
+                    Addon No Linked To Account
+                </div>
+            </div>
+            <div style="margin-bottom:10px; text-align: center;">
                 <b>This addon isn't linked to a Homeway account.</b> Click the button below to finish the addon setup.
             </div>
             <div style="display: flex; justify-content: center;" id="linkAccountButton">
-                <div class="pinkButton">
+                <div class="featureButton pinkFeatureButton" style="width: 200px;">
                     Link Your Account Now
                 </div>
             </div>
         </div>
         <div style="display: """+connectedAndReadyBlockDisplay+""";">
-            <div style="margin-bottom:20px; text-align: center; color:#78a4fa; font-weight: bold;">
-                Securely Connected To Homeway.io
-            </div>
-            <div style="margin-bottom:30px">
-                Your secure and private access is ready. You can access your Home Assistant from anywhere via the Homeway dashboard.
-            </div>
-            <div style="display: flex; justify-content: center;" id="goToSageSetup">
-                <div class="pinkButton" style="width:300px">
-                    Sage AI - Free ChatGPT Powered Assistant
+            <div style="display: flex; justify-content: center; align-items: baseline; margin-bottom:5px;">
+                <div style="width:10px; height:10px; background-color:#31C591; border-radius:50%; margin-right:5px;"></div>
+                <div style="margin-bottom:5px; text-align: center; color:#31C591; font-weight: bold;">
+                    Securely Connected
                 </div>
             </div>
-            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAssistantSetup">
-                <div class="blueButton" style="width:300px">
-                    Setup Alexa Or Google Assistant
+
+            <div style="margin-bottom:30px; text-align: center;" class="subtleText">
+                Visit <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" class="blueLink">Homeway.io</a> for secure and private remote access.
+            </div>
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
+                        Sage AI
+                    </div>
+                    <div class="featureDetails">
+                        Free, private, lifelike AI Home Assistant Assist. Including text-to-speech, speech-to-text, and LLM conversational chat integrations.
+                    </div>
+                </div>
+                <div class="pinkFeatureButton featureButton" id="goToSageSetup">
+                    Setup Sage AI Now
                 </div>
             </div>
-            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToAppSetup">
-                <div class="blueButton" style="width:300px">
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
+                        Alexa &amp; Google Assistant
+                    </div>
+                    <div class="featureDetails">
+                        Secure, reliable, no-hassle Alexa &amp; Google Assistant integrations for Home Assistant. Set up in 10 seconds.
+                    </div>
+                </div>
+                <div class="pinkButton featureButton" id="goToAssistantSetup">
+                    Setup Alexa &amp; Google Assistant Now
+                </div>
+            </div>
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
+                        Home Assistant App
+                    </div>
+                    <div class="featureDetails">
+                        Free, secure, &amp; private remote access for the iPhone and Android Home Assistant apps.
+                    </div>
+                </div>
+                <div class="pinkButton featureButton" id="goToAppSetup">
                     Setup Your Home Assistant App
                 </div>
             </div>
-            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToLocalAccessSetup">
-                <div class="blueButton" style="width:300px">
-                    Node-RED, Unraid, AdGuard &amp; More<br/>Remote Access
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
+                        Local Access
+                    </div>
+                    <div class="featureDetails">
+                        Remote access to local LAN services like Node-RED, Unraid, Proxmax, AdGuard, PiHole, &amp; More.
+                    </div>
+                </div>
+                <div class="pinkButton featureButton" id="goToLocalAccessSetup">
+                    Setup Local Access
                 </div>
             </div>
-            <div style="display: flex; justify-content: center; margin-top:20px;" id="goToDashboardButton">
-                <div class="blueButton" style="width:300px">
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
+                        Remote Access
+                    </div>
+                    <div class="featureDetails">
+                        Free, secure, &amp; private remote access to your Home Assistant instance from anywhere in the world.
+                    </div>
+                </div>
+                <div class="pinkButton featureButton" id="goToDashboardButton">
                     Go To Your Homeway Dashboard
                 </div>
             </div>
