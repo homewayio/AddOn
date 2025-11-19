@@ -191,7 +191,8 @@ class WebServer(IAccountLinkStatusUpdateHandler):
             <div style="display: flex; flex-direction: column; align-items: center;">
                 <img src="https://homeway.io/img/logo_maskable.png" style="width: 70px; border-radius: 10px">
                 <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:10px; margin-top:10px">
-                    <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" class="whiteLink">Homeway</a>
+                    <!-- this must target open blank or it won't open properly! -->
+                    <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" target="_blank" class="whiteLink">Homeway</a>
                 </div>
             </div>
         </div>
@@ -205,17 +206,20 @@ class WebServer(IAccountLinkStatusUpdateHandler):
             </div>
         </div>
         <div style="display: """+linkAccountBlockDisplay+""";">
-            <div style="display: flex; justify-content: center; align-items: baseline; margin-bottom:5px;">
+            <div style="display: flex; justify-content: center; align-items: baseline; margin-bottom:4px;">
                 <div style="width:10px; height:10px; background-color:#df5c5c; border-radius:50%; margin-right:5px;"></div>
                 <div style="margin-bottom:5px; text-align: center; color:#df5c5c; font-weight: bold;">
                     Addon No Linked To Account
                 </div>
             </div>
+            <div style="margin-bottom:8px; text-align: center;">
+                <b>This addon isn't linked to a Homeway account.</b>
+            </div>
             <div style="margin-bottom:10px; text-align: center;">
-                <b>This addon isn't linked to a Homeway account.</b> Click the button below to finish the addon setup.
+                Use the button below to finish the addon setup.
             </div>
             <div style="display: flex; justify-content: center;" id="linkAccountButton">
-                <div class="featureButton pinkFeatureButton" style="width: 200px;">
+                <div class="featureButton pinkFeatureButton" style="width: 250px;">
                     Link Your Account Now
                 </div>
             </div>
@@ -229,7 +233,8 @@ class WebServer(IAccountLinkStatusUpdateHandler):
             </div>
 
             <div style="margin-bottom:30px; text-align: center;" class="subtleText">
-                Visit <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" class="blueLink">Homeway.io</a> for secure and private remote access.
+                <!-- this must target open blank or it won't open properly! -->
+                Visit <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" target="_blank" class="blueLink">Homeway.io</a> for secure and private remote access.
             </div>
 
             <div class="featureHolder">
