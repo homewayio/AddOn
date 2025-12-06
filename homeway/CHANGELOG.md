@@ -1,6 +1,14 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.3.0
+
+- 🎉 Introducing Sage 2.0!
+- 🤖 New AI engine make Sage even smarter and lower the latency.
+- 🔈 New life-like voices powered by ElevenLabs.
+- 🗣️ Dramatic speech-to-text accuracy and latency improvements.
+- 🔥 [See our announcement blog post for full details.](https://blog.homeway.io/sage-ai-the-most-advanced-ai-home-assistant-integration/)
+
 ## 2.2.13-19
 
 -  🐛 Bug fixes and minor improvements.
