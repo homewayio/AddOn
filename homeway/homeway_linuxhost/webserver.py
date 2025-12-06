@@ -189,7 +189,8 @@ class WebServer(IAccountLinkStatusUpdateHandler):
     <div style="background-color:#1C1C1C; border-radius: 5px; padding: 25px; min-width: 300px; max-width:450px">
         <div style="display: flex; justify-content: center; margin-bottom: 20px;">
             <div style="display: flex; flex-direction: column; align-items: center;">
-                <img src="https://homeway.io/img/logo_maskable.png" style="width: 70px; border-radius: 10px">
+                <!-- Important! Set the height so the page doesn't shift when the image loads on the refresh loop -->
+                <img src="https://homeway.io/img/logo_maskable.png" height="70" width="70" style="width: 70px; height: 70px;    border-radius: 10px">
                 <div style="display: flex; justify-content: center; font-size: 28px; margin-bottom:10px; margin-top:10px">
                     <!-- this must target open blank or it won't open properly! -->
                     <a href="https://homeway.io/dashboard?ha=1&source=addon_web_ui_link" target="_blank" class="whiteLink">Homeway</a>
