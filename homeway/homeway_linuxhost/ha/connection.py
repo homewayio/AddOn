@@ -7,14 +7,14 @@ from typing import Any, Callable, Dict, Optional
 from homeway.buffer import Buffer
 from homeway.sentry import Sentry
 from homeway.websocketimpl import Client
-from homeway.interfaces import IWebSocketClient, WebSocketOpCode
+from homeway.interfaces import IWebSocketClient, WebSocketOpCode, IHomeAssistantWebSocket
 
 from .eventhandler import EventHandler
 from .serverinfo import ServerInfo
 
 
 # Connects to Home Assistant and manages the connection.
-class Connection:
+class Connection(IHomeAssistantWebSocket):
 
 
     # For debugging, it's too chatty to enable always.
@@ -53,6 +53,18 @@ class Connection:
         t = threading.Thread(target=self.ConnectionThread)
         t.daemon = True
         t.start()
+
+
+    # Allows for any system to send and receive messages to Home Assistant,
+    # since there are some APIs that can only be interacted with via the WS API.
+    # Returns the response dict, or None on failure/timeout.
+    def SendAndReceiveMsg(self, msg:Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return self.SendMsg(msg, waitForResponse=True)
+
+
+    # Gets the Home Assistant version string, or None if not known.
+    def GetHomeAssistantVersionString(self) -> Optional[str]:
+        return self.HaVersionString
 
 
     # Issues the restart command to Home Assistant.
@@ -234,8 +246,8 @@ class Connection:
 
 
     # Sends a message to Home Assistant.
-    # If waitForResponse is True, either the response dict will be returned or False if the message failed or timeout.
-    # If waitForResponse is False, True will be returned if the message was sent, False if it failed.
+    # If waitForResponse is True, either the response dict will be returned or None if the message failed or timeout.
+    # If waitForResponse is False, an empty dict will be returned on success, or None if it failed.
     def SendMsg(self, msg:Dict[str, Any], waitForResponse:bool=False, ignoreConnectionState:bool=False) -> Optional[Dict[str, Any]]:
         # Check the connection state.
         if ignoreConnectionState is False:

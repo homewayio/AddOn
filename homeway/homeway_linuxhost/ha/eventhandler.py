@@ -97,6 +97,16 @@ class EventHandler:
             self.Logger.warning("Event Handler got an event that was missing the event_type.")
             return
 
+        # If we get an entity registry update, we need to refresh the home context.
+        # This can happen for many things, but we know one of them is if a entity is removed or exposed to assistants.
+        if eventType == "entity_registry_updated":
+            # TODO - We also need to send this to the assistant to add or remove the device from their context.
+            # We need to refresh the home context on these events.
+            callback = self.HomeContextCallback
+            if callback is not None:
+                callback()
+            return
+
         # Right now, we only need to look at state changed events.
         if eventType != "state_changed":
             return

@@ -194,6 +194,7 @@ class LinuxHost(IStateChangeHandler):
             # Setup the HA connection object
             haConnection = Connection(self.Logger, self.HaEventHandler)
             haConnection.Start()
+            CommandHandler.Get().RegisterHomeAssistantWebsocketCon(haConnection)
 
             # Set the ha connection object and try to update the config if needed.
             configManager.SetHaConnection(haConnection)

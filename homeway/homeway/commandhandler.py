@@ -6,7 +6,7 @@ import concurrent.futures
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
-from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler, IHomeContext
+from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler, IHomeContext, IHomeAssistantWebSocket
 from .streammsgbuilder import StreamMsgBuilder
 from .httpresult import HttpResult
 from .httprequest import PathTypes, HttpRequest
@@ -83,7 +83,7 @@ class CommandHandler:
         self.ConfigManager:Optional[IConfigManager] = None
         self.HomeContext:Optional[IHomeContext] = None
         self.AccountLinkStatusUpdateHandler:Optional[IAccountLinkStatusUpdateHandler] = None
-
+        self.HaWebSocketCon:Optional[IHomeAssistantWebSocket] = None
 
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager:IConfigManager):
@@ -93,6 +93,11 @@ class CommandHandler:
     # Registers the home context manager, which is needed for some commands.
     def RegisterHomeContext(self, homeContext:IHomeContext):
         self.HomeContext = homeContext
+
+
+    # Registers the Home Assistant WebSocket connection, which is needed for some commands.
+    def RegisterHomeAssistantWebsocketCon(self, haWebSocketCon:IHomeAssistantWebSocket):
+        self.HaWebSocketCon = haWebSocketCon
 
 
     # Get's callbacks when the printer link status changes.
@@ -118,6 +123,23 @@ class CommandHandler:
             if self.ConfigManager is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No config manager.")
             return self.HandleBatchApiRequestsCommand(jsonObj_CanBeNone)
+
+        # Can be used to make any Home Assistant WebSocket API call.
+        if commandPathLower.startswith("ha-websocket-api-call"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            if self.HaWebSocketCon is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
+            return CommandResponse.Success(self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone))
+
+        # Returns the Home Assistant version string, if known.
+        if commandPathLower.startswith("get-ha-version"):
+            if self.HaWebSocketCon is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
+            haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
+            if haVersion is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant version available.")
+            return CommandResponse.Success({"HaVersion": haVersion})
 
         # restart-if-needed - Deprecated 1.0.5 (3/16/2024) for `get-config-status`
         # Returns this addon's status with the config. This works for both container and standalone addons.
@@ -146,9 +168,12 @@ class CommandHandler:
         # Used for Assistant device control
         # This must return the full entity tree.
         if commandPathLower.startswith("get-full-device-and-entity-tree"):
+            forceRefresh = False
+            if jsonObj_CanBeNone is not None:
+                forceRefresh = bool(jsonObj_CanBeNone.get("ForceRefresh", False))
             if self.HomeContext is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
-            allEntities = self.HomeContext.GetFullDeviceAndEntityTree()
+            allEntities = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh)
             if allEntities is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No entities available.")
             return CommandResponse.Success({"floors": allEntities})

@@ -61,9 +61,13 @@ class HomeContext(IHomeContext):
         # Setup the cached data
         self.CacheLock = threading.Lock()
         self.CacheUpdatedEvent = threading.Event()
+
+        # These are sent to Sage to give full home context and live state context
         self.HomeContextResult:Optional[CompressionResult] = None
         self.FullDeviceAndEntityTree:Optional[List[Dict[str, Any]]] = None
-        self.AllowedEntityIds:Optional[Dict[str, str]] = None
+        self.SageLiveStateEntityFilter:Optional[Dict[str, str]] = None
+
+        # This is used to keep track of ALL devices and entities for use by the assistant and other system components.
         self.AssistantDeviceContexts:List[AssistantDeviceContext] = []
 
 
@@ -75,7 +79,7 @@ class HomeContext(IHomeContext):
 
     # Returns the home context, as compressed bytes.
     # Returns None on failure.
-    def GetHomeContext(self) -> Optional[CompressionResult]:
+    def GetSageHomeContext(self) -> Optional[CompressionResult]:
         with self.CacheLock:
             # If we have a cached version, we are good to go.
             if self.HomeContextResult is not None:
@@ -96,21 +100,21 @@ class HomeContext(IHomeContext):
 
 
     # Returns the full floor -> area -> device -> entity tree.
-    def GetFullDeviceAndEntityTree(self) -> Optional[List[Dict[str, Any]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool) -> Optional[List[Dict[str, Any]]]:
         with self.CacheLock:
             # If we have a cached version, we are good to go.
-            if self.FullDeviceAndEntityTree is not None:
+            if self.FullDeviceAndEntityTree is not None and not forceRefresh:
                 return self.FullDeviceAndEntityTree
             self.CacheUpdatedEvent.clear()
 
         # If we don't have a cached version, try to set the worker to go.
         # and then wait on the cache event.
-        self.Logger.info("Home Context doesn't have a device and entity list, trying to force it...")
+        self.Logger.info("Home Context doesn't have a device and entity list or we are forcing a refresh, trying to force it...")
         self.WorkerGoEvent.set()
 
         # Don't wait long, we don't want to block the request.
         # If we don't get something back, the server will just have to wait.
-        self.CacheUpdatedEvent.wait(1.0)
+        self.CacheUpdatedEvent.wait(5.0)
 
         # Return whatever we have or None.
         return self.FullDeviceAndEntityTree
@@ -281,9 +285,9 @@ class HomeContext(IHomeContext):
 
     # Parses the results, builds the output, and sets it.py
     def _HandleAllObjectsResult(self, result:"HomeContextQueryResult"):
-        # We want to summarize the data down to a small structure that the model can easily understand, but it still has
-        # all of the association context.
-        # Floors are the bottom level
+        # We want to summarize the data down to a small structure that the model can easily understand,
+        # and we also use this structure to present the device and entity to the Assistants.
+        # Floors are the root bottom level
         #   Each area can only have one floor
         #      Each each device can only have one area
         #         Each entity can only have one device or area
@@ -301,10 +305,10 @@ class HomeContext(IHomeContext):
 
         # Build the floors - this is the root of all objects, so it must contain all devices and entities even if they don't have an area or floor.
         floors:Dict[str, Any] = {}
-
         # We need to create a "none" floor for areas that don't have a floor or if we failed to find floors.
         # We will always create it now, and prune it later if it's not needed.
-        floors[HomeContext.NoneString] = { "floor_id" : HomeContext.NoneString, "name" : "Unknown" }
+        # We only add the fields that are required to be there.
+        floors[HomeContext.NoneString] = { "floor_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
         floorResults = self._GetResultsFromHaMsg("floors", result.Floors)
 
         if floorResults is not None:
@@ -322,11 +326,11 @@ class HomeContext(IHomeContext):
         # Build the areas.
         # We build these sub dicts so we can easily associate them with the floors and in case something like areas fails, we can still send the floors.
         areas:Dict[str, Any] = {}
-
         # We need to create a "none" area for devices that don't have a area or if we failed to find areas.
         # We will always create it now, and prune it later if it's not needed.
+        # We only add the fields that are required to be there.
         areaId = HomeContext.NoneString
-        area = { "area_id" : areaId, "floor_id" : HomeContext.NoneString, "name" : "Unknown" }
+        area = { "area_id" : areaId, "floor_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
         self._AddToBaseMap(floors, HomeContext.NoneString, "areas", areaId, area)
         areas[areaId] = area
 
@@ -347,11 +351,11 @@ class HomeContext(IHomeContext):
 
         # Build the devices
         devices:Dict[str, Any] = {}
-
         # We need to create a "none" device for entities that don't have a area or if we failed to find areas.
         # We will always create it now, and prune it later if it's not needed.
+        # We only add the fields that are required to be there.
         deviceId = HomeContext.NoneString
-        noneDevice = { "id" : deviceId, "area_id" : HomeContext.NoneString, "name" : "Unknown" }
+        noneDevice = { "id" : deviceId, "area_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
         self._AddToBaseMap(areas, HomeContext.NoneString, "devices", deviceId, noneDevice)
         devices[deviceId] = noneDevice
 
@@ -399,19 +403,14 @@ class HomeContext(IHomeContext):
                 self._CopyPropertyIfExists("platform", e, entity)
                 # It's important to copy this field so we can filter out disabled entities.
                 self._CopyPropertyIfExists("disabled_by", e, entity)
+                # We also need to copy the options so we can filter out entities that shouldn't be exposed.
+                self._CopyPropertyIfExists("options", e, entity)
                 # Set it
                 # Some entities don't have devices, so we add them to the special "none" device under the area.
                 if deviceId is None:
                     deviceId = HomeContext.NoneString
                 self._AddToBaseMap(devices, deviceId, "entities", entityId, entity)
                 entities[entityId] = entity
-
-        # Summarize down the allowed entity ids into a map, we can use for fast lookups with state.
-        allowedEntityLookupMap:Dict[str, Any] = {}
-        for e in entities.values():
-            eId = e.get("entity_id", None)
-            if eId is not None:
-                allowedEntityLookupMap[eId] = True
 
         # Build the labels - Do this as a list directly.
         # For these, they hang out on their own. The areas, devices, and entities will reference them by id, so this just adding context to the id.
@@ -506,6 +505,9 @@ class HomeContext(IHomeContext):
                     entityIndexToRemove:List[int] = []
                     entitiesList:List[Dict[str, Any]] = d.get("entities", [])
                     for i, e in enumerate(entitiesList):
+                        # Important! Be sure to remove the options object to reduce size.
+                        if "options" in e:
+                            del e["options"]
                         if self._IsDisabled(e) or not self._IsExposeToAssistant(e):
                             entityIndexToRemove.append(i)
                     # Remove them in reverse order.
@@ -514,7 +516,18 @@ class HomeContext(IHomeContext):
                 for deviceIndex in deviceIndexToRemove:
                     del a["devices"][deviceIndex]
 
-        # Finally, package them into the final object.
+        # Now that the floorsList list is filtered to things we will send to Sage, we need to make a map
+        # of entity ids that we also want to send to Sage for the live state context.
+        sageLiveStateUpdateEntityFilter:Dict[str, Any] = {}
+        for f in floorsList:
+            for a in f.get("areas", []):
+                for d in a.get("devices", []):
+                    for e in d.get("entities", []):
+                        eId = e.get("entity_id", None)
+                        if eId is not None:
+                            sageLiveStateUpdateEntityFilter[eId] = True
+
+        # Finally, package them into the final object that will be sent to Sage.
         # This is the format that the server expects, so we can't change it.
         homeContext = {
             "floors" : floorsList,
@@ -533,7 +546,7 @@ class HomeContext(IHomeContext):
         # Lock and swap
         with self.CacheLock:
             self.HomeContextResult = compressionResult
-            self.AllowedEntityIds = allowedEntityLookupMap
+            self.SageLiveStateEntityFilter = sageLiveStateUpdateEntityFilter
             self.AssistantDeviceContexts = assistDeviceContexts
             self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
             self.CacheUpdatedEvent.set()
@@ -669,9 +682,9 @@ class HomeContext(IHomeContext):
     def _FilterStateList(self, states:List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
         # No need to take the lock, since this is a read only operation.
-        allowedEntityIdMap = self.AllowedEntityIds
-        if allowedEntityIdMap is None:
-            self.Logger.warning("Home Context - AllowedEntityIds is None, skipping state filter.")
+        allowedEntityIdFilterMap = self.SageLiveStateEntityFilter
+        if allowedEntityIdFilterMap is None:
+            self.Logger.warning("Home Context - SageLiveStateEntityFilter is None, skipping state filter.")
 
         result:List[Dict[str, Any]] = []
         assistActiveEntityId:Optional[str] = None
@@ -693,7 +706,7 @@ class HomeContext(IHomeContext):
                         assistActiveEntityId = entityId
 
             # Ensure it's an allowed entity.
-            if allowedEntityIdMap is not None and entityId not in allowedEntityIdMap:
+            if allowedEntityIdFilterMap is not None and entityId not in allowedEntityIdFilterMap:
                 continue
 
             # Remove the common things that we know are large and we don't need.
