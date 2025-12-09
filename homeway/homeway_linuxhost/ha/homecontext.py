@@ -259,10 +259,10 @@ class HomeContext(IHomeContext):
 
                 # Handle and set the result
                 parse = time.time()
-                self._HandleAllObjectsResult(result)
+                (fullEntitiesCount, entitiesExposedToSageCount) = self._HandleAllObjectsResult(result)
 
                 # Success!
-                self.Logger.debug(f"HomeContext worker finished. Total: {time.time() - start}s - Parse: {time.time() - parse}s")
+                self.Logger.debug(f"HomeContext worker finished. Total: {time.time() - start}s - Parse: {time.time() - parse}s - Full Entities Found: {fullEntitiesCount} - Exposed to Sage: {entitiesExposedToSageCount}")
 
                 # Success!
                 self.MostRecentUpdateSuccess = True
@@ -334,7 +334,7 @@ class HomeContext(IHomeContext):
 
 
     # Parses the results, builds the output, and sets it.py
-    def _HandleAllObjectsResult(self, result:"HomeContextQueryResult"):
+    def _HandleAllObjectsResult(self, result:"HomeContextQueryResult") -> Tuple[int, int]:
         # We want to summarize the data down to a small structure that the model can easily understand,
         # and we also use this structure to present the device and entity to the Assistants.
         # Floors are the root bottom level
@@ -550,6 +550,7 @@ class HomeContext(IHomeContext):
 
         # Finally, for sage, we need to remove any disabled or user selected filtered objects.
         # We also strip out any optional fields that we don't want to send to Sage.
+        entitiesExposedToSageCount = 0
         for f in floorsList:
             areasList:List[Dict[str, Any]] = f.get("areas", [])
             for a in areasList:
@@ -574,6 +575,7 @@ class HomeContext(IHomeContext):
                     # Remove them in reverse order.
                     for index in reversed(entityIndexToRemove):
                         del d["entities"][index]
+                    entitiesExposedToSageCount += len(d.get("entities", []))
                 # Remove them in reverse order.
                 for deviceIndex in reversed(deviceIndexToRemove):
                     del a["devices"][deviceIndex]
@@ -613,6 +615,10 @@ class HomeContext(IHomeContext):
             self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
             self.FullEntityMap = fullEntityMap
             self.CacheUpdatedEvent.set()
+
+        # Note that the full entity count will be 5-10 less than HA, because there are some special entities that don't get IDs and aren't exposed,
+        # like the "Home Assistant" entry in the conversation domain.
+        return len(fullEntityMap), entitiesExposedToSageCount
 
 
     # Add optional entity properties that are needed for the full state, but not for Sage.
