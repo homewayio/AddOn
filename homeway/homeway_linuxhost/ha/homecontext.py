@@ -505,11 +505,13 @@ class HomeContext(IHomeContext):
                     entityIndexToRemove:List[int] = []
                     entitiesList:List[Dict[str, Any]] = d.get("entities", [])
                     for i, e in enumerate(entitiesList):
-                        # Important! Be sure to remove the options object to reduce size.
-                        if "options" in e:
-                            del e["options"]
+                        # Check to see if we need to remove this entity.
                         if self._IsDisabled(e) or not self._IsExposeToAssistant(e):
                             entityIndexToRemove.append(i)
+                        # Important! AFTER we check _IsExposeToAssistant, remove the options field to reduce the size
+                        # of the object, Sage doesn't need to know or care.
+                        if "options" in e:
+                            del e["options"]
                     # Remove them in reverse order.
                     for index in reversed(entityIndexToRemove):
                         del d["entities"][index]
@@ -589,14 +591,15 @@ class HomeContext(IHomeContext):
 
     # Is exposed to assistant
     def _IsExposeToAssistant(self, obj:Dict[str, Any]) -> bool:
-        return True
-        # options = obj.get("options", None)
-        # if options is None:
-        #     return True
-        # conversation = options.get("conversation", None)
-        # if conversation is None:
-        #     return True
-        # return conversation.get("should_expose", True)
+        # To see if this entity is exposed to Sage, we check the "options" -> "conversation" -> "should_expose" field.
+        # This is the same thing HA uses to toggle on and off control for assist.
+        options = obj.get("options", None)
+        if options is None:
+            return True
+        conversation = options.get("conversation", None)
+        if conversation is None:
+            return True
+        return conversation.get("should_expose", True)
 
 
     # Copies a property from a source to a destination if it exists.

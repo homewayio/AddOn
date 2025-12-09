@@ -130,7 +130,8 @@ class CommandHandler:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             if self.HaWebSocketCon is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
-            return CommandResponse.Success(self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone))
+            haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
+            return CommandResponse.Success({"HaVersion": haVersion, "Result": self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone)})
 
         # Returns the Home Assistant version string, if known.
         if commandPathLower.startswith("get-ha-version"):
