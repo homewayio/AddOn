@@ -88,8 +88,24 @@ class IAccountLinkStatusUpdateHandler(ABC):
 
 class IHomeContext(ABC):
 
+    # Gets the full device and entity tree stored in our cache.
     @abstractmethod
     def GetFullDeviceAndEntityTree(self, forceRefresh: bool) -> Optional[List[Dict[str, Any]]]:
+        pass
+
+    # Looks up a full entity dict by its entity ID, or None if not found.
+    @abstractmethod
+    def GetEntityById(self, entityId: str) -> Optional[Dict[str, Any]]:
+        pass
+
+    # Given a device or entity dict and assistant types, this returns true or false if it's exposed or not.
+    @abstractmethod
+    def IsExposeToAssistant(self, obj:Dict[str, Any], checkAlexa:bool=False, checkGoogle:bool=False, checkSage:bool=False) -> bool:
+        pass
+
+    # Given a device or entity dict and assistant types, this returns if it's disabled by the user, integration, or other system.
+    @abstractmethod
+    def IsDisabled(self, obj:Dict[str, Any]) -> bool:
         pass
 
 

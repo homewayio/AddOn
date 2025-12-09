@@ -7,8 +7,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from homeway.sentry import Sentry
 from homeway.httpsessions import HttpSessions
+from homeway.interfaces import IHomeContext
 
 from .serverinfo import ServerInfo
+
 
 # Handles any events from Home Assistant we care about.
 class EventHandler:
@@ -68,6 +70,7 @@ class EventHandler:
 
         # A callback to fire if the home context needs to be updated.
         self.HomeContextCallback:Optional[Callable[[], None]] = None
+        self.HomeContext:Optional[IHomeContext] = None
 
 
     def SetHomewayApiKey(self, key:str) -> None:
@@ -86,6 +89,11 @@ class EventHandler:
     # Called by the HA connection class when HA sends a new state.
     def SetHomeContextCallback(self, callback:Callable[[], None]) -> None:
         self.HomeContextCallback = callback
+
+
+    # Set the home context object, which we use for looking up entity ids.
+    def SetHomeContext(self, homeContext:IHomeContext) -> None:
+        self.HomeContext = homeContext
 
 
     # Called by the HA connection class when HA sends any event.
@@ -130,6 +138,20 @@ class EventHandler:
         if newState_CanBeNone is None and oldState_CanBeNone is None:
             self.Logger.debug("Event Handler got an event that was missing both the new_state and old_state fields.")
             return
+
+        # Now, see if we can find the entity in our home context cache, and if so, see if it's exposed to assistants.
+        # This is important, because it reduces the number of events we need to process and send.
+        if self.HomeContext is not None:
+            fullEntityDict = self.HomeContext.GetEntityById(entityId)
+            if fullEntityDict is not None:
+                # See if it's exposed to either of the assistants we care about here, which is only alexa and google.
+                if self.HomeContext.IsExposeToAssistant(fullEntityDict, checkAlexa=True, checkGoogle=True) is False:
+                    # Not exposed, we ignore this event.
+                    return
+                # Also check if it's disabled.
+                if self.HomeContext.IsDisabled(fullEntityDict):
+                    # Disabled, we ignore this event.
+                    return
 
         # We can combine report state and request sync for assistants into a single API.
         # When a device is added...

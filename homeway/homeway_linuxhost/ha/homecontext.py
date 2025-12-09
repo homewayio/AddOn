@@ -53,6 +53,7 @@ class HomeContext(IHomeContext):
         # Setup our callbacks
         self.HaConnection.SetHomeContextOnConnectedCallback(self._OnNewHaWsConnected)
         self.EventHandler.SetHomeContextCallback(self._OnStateChangedCallback)
+        self.EventHandler.SetHomeContext(self)
 
         # Setup the worker thread
         self.WorkerGoEvent = threading.Event()
@@ -63,9 +64,13 @@ class HomeContext(IHomeContext):
         self.CacheUpdatedEvent = threading.Event()
 
         # These are sent to Sage to give full home context and live state context
-        self.HomeContextResult:Optional[CompressionResult] = None
-        self.FullDeviceAndEntityTree:Optional[List[Dict[str, Any]]] = None
+        self.SageHomeContextResult:Optional[CompressionResult] = None
         self.SageLiveStateEntityFilter:Optional[Dict[str, str]] = None
+
+        # These cache the full device and entity tree for use by the server and other components.
+        self.FullDeviceAndEntityTree:Optional[List[Dict[str, Any]]] = None
+        # This is the same entity that are in the full tree, but just dumped into a map for fast lookups.
+        self.FullEntityMap:Optional[Dict[str, Dict[str, Any]]] = None
 
         # This is used to keep track of ALL devices and entities for use by the assistant and other system components.
         self.AssistantDeviceContexts:List[AssistantDeviceContext] = []
@@ -82,8 +87,8 @@ class HomeContext(IHomeContext):
     def GetSageHomeContext(self) -> Optional[CompressionResult]:
         with self.CacheLock:
             # If we have a cached version, we are good to go.
-            if self.HomeContextResult is not None:
-                return self.HomeContextResult
+            if self.SageHomeContextResult is not None:
+                return self.SageHomeContextResult
             self.CacheUpdatedEvent.clear()
 
         # If we don't have a cached version, try to set the worker to go.
@@ -96,7 +101,7 @@ class HomeContext(IHomeContext):
         self.CacheUpdatedEvent.wait(1.0)
 
         # Return whatever we have or None.
-        return self.HomeContextResult
+        return self.SageHomeContextResult
 
 
     # Returns the full floor -> area -> device -> entity tree.
@@ -170,6 +175,51 @@ class HomeContext(IHomeContext):
         finally:
             self.Logger.debug(f"Home Context GetStates - Total: {time.time() - start}s - Filter: {time.time() - filterTime}s")
         return None, None
+
+
+    # Looks up a full entity dict by its entity ID, or None if not found.
+    def GetEntityById(self, entityId: str) -> Optional[Dict[str, Any]]:
+        # Since this can be used by the state event handler frequently, we use a map for fast lookups.
+        # These entities are the exact same objects that are in the full device and entity tree.
+        with self.CacheLock:
+            if self.FullEntityMap is not None:
+                return self.FullEntityMap.get(entityId, None)
+        return None
+
+
+    # Given a device or entity dict and assistant types, this returns true or false if it's exposed or not.
+    # If multiple assistants are checked, only one must be exposed to return true.
+    def IsExposeToAssistant(self, obj:Dict[str, Any], checkAlexa:bool=False, checkGoogle:bool=False, checkSage:bool=False) -> bool:
+        # We check the options field for the relevant flags.
+        # If if the field is missing, HA defines that as NOT being exposed, we tested this to be sure this is the correct behavior.
+        options = obj.get("options", None)
+        if options is None:
+            # If there are no options, it's not exposed.
+            return False
+        if checkSage:
+            # This is what HA uses to toggle on and off the exposure to the assist agents.
+            if options.get("conversation", {}).get("should_expose", False) is True:
+                return True
+        if checkAlexa:
+            if options.get("cloud.alexa", {}).get("should_expose", False) is True:
+                return True
+        if checkGoogle:
+            if options.get("cloud.google_assistant", {}).get("should_expose", False) is True:
+                return True
+        # Default to false if the options don't exist or they are false.
+        return False
+
+
+    # Given a device or entity dict and assistant types, this returns if it's disabled by the user, integration, or other system.
+    def IsDisabled(self, obj:Dict[str, Any]) -> bool:
+        # We have confirmed that if this field exists, it means the object is disabled.
+        # If it's enabled, this field will not exist.
+        disabled_by = obj.get("disabled_by", None)
+        if disabled_by is not None:
+            #name = obj.get("name", "Unknown")
+            #self.Logger.debug(f"Home Context - Skipping {name} is disabled by {disabled_by}.")
+            return True
+        return False
 
 
     # Fired when a new connection is made to HA.
@@ -401,10 +451,9 @@ class HomeContext(IHomeContext):
                 self._CopyPropertyIfExists("name", e, entity)
                 self._CopyPropertyIfExists("original_name", e, entity)
                 self._CopyPropertyIfExists("platform", e, entity)
-                # It's important to copy this field so we can filter out disabled entities.
-                self._CopyPropertyIfExists("disabled_by", e, entity)
-                # We also need to copy the options so we can filter out entities that shouldn't be exposed.
-                self._CopyPropertyIfExists("options", e, entity)
+                # Now we add all of the properties we want in the full state tree, but we DON'T want to expose to Sage.
+                # The reason is most of these are really large, and Sage doesn't need them.
+                self._AddFullStateOptionalEntityProperties(e, entity)
                 # Set it
                 # Some entities don't have devices, so we add them to the special "none" device under the area.
                 if deviceId is None:
@@ -486,11 +535,21 @@ class HomeContext(IHomeContext):
                             # Break to ensure we only list each device once.
                             break
 
-
         # Make a deep copy of the full tree, which is need for the GetFullDeviceAndEntityTree call.
         fullDeviceAndEntityTree = copy.deepcopy(floorsList)
 
+        # We dump all of the entries in the tree into a map for fast lookups.
+        fullEntityMap:Dict[str, Dict[str, Any]] = {}
+        for f in fullDeviceAndEntityTree:
+            for a in f.get("areas", []):
+                for d in a.get("devices", []):
+                    for e in d.get("entities", []):
+                        eId = e.get("entity_id", None)
+                        if eId is not None:
+                            fullEntityMap[eId] = e
+
         # Finally, for sage, we need to remove any disabled or user selected filtered objects.
+        # We also strip out any optional fields that we don't want to send to Sage.
         for f in floorsList:
             areasList:List[Dict[str, Any]] = f.get("areas", [])
             for a in areasList:
@@ -498,7 +557,8 @@ class HomeContext(IHomeContext):
                 deviceIndexToRemove:List[int] = []
                 devicesList:List[Dict[str, Any]] = a.get("devices", [])
                 for i, d in enumerate(devicesList):
-                    if self._IsDisabled(d) or self._IsExposeToAssistant(d) is False:
+                    # A device can be disabled, but it can't have an assistant exposed state, only entities can.
+                    if self.IsDisabled(d):
                         deviceIndexToRemove.append(i)
                         continue
                     # Make a list of entities to remove.
@@ -506,16 +566,16 @@ class HomeContext(IHomeContext):
                     entitiesList:List[Dict[str, Any]] = d.get("entities", [])
                     for i, e in enumerate(entitiesList):
                         # Check to see if we need to remove this entity.
-                        if self._IsDisabled(e) or not self._IsExposeToAssistant(e):
+                        if self.IsDisabled(e) or not self.IsExposeToAssistant(e, checkSage=True):
                             entityIndexToRemove.append(i)
-                        # Important! AFTER we check _IsExposeToAssistant, remove the options field to reduce the size
-                        # of the object, Sage doesn't need to know or care.
-                        if "options" in e:
-                            del e["options"]
+                        # Important! AFTER we do our checks (that require the fields to be removed)
+                        # ensure we strip out any optional fields that we don't want to send to Sage.
+                        self._RemoveFullStateOptionalEntityProperties(e)
                     # Remove them in reverse order.
                     for index in reversed(entityIndexToRemove):
                         del d["entities"][index]
-                for deviceIndex in deviceIndexToRemove:
+                # Remove them in reverse order.
+                for deviceIndex in reversed(deviceIndexToRemove):
                     del a["devices"][deviceIndex]
 
         # Now that the floorsList list is filtered to things we will send to Sage, we need to make a map
@@ -547,11 +607,35 @@ class HomeContext(IHomeContext):
 
         # Lock and swap
         with self.CacheLock:
-            self.HomeContextResult = compressionResult
+            self.SageHomeContextResult = compressionResult
             self.SageLiveStateEntityFilter = sageLiveStateUpdateEntityFilter
             self.AssistantDeviceContexts = assistDeviceContexts
             self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
+            self.FullEntityMap = fullEntityMap
             self.CacheUpdatedEvent.set()
+
+
+    # Add optional entity properties that are needed for the full state, but not for Sage.
+    # We do this in it's own function to ensure we add and remove them before making the Home Context for Sage.
+    def _AddFullStateOptionalEntityProperties(self, state:Dict[str, Any], dest:Dict[str, Any]) -> None:
+        #
+        # IMPORTANT!! - These must be kept in sync with the _RemoveFullStateOptionalEntityProperties function below!!
+        #
+        # We need this disabled state to do the disabled filtering for Sage in this Home Context.
+        self._CopyPropertyIfExists("disabled_by", state, dest)
+        # We need the options for the Home Context and State Event Handler can filter out entities that don't need to be sent to assistants.
+        self._CopyPropertyIfExists("options", state, dest)
+
+
+    # This should remove ALL OF THE optional entity properties added above!!
+    def _RemoveFullStateOptionalEntityProperties(self, state:Dict[str, Any]) -> None:
+        #
+        # IMPORTANT!! - These must be kept in sync with the _AddFullStateOptionalEntityProperties function above!!
+        #
+        if "disabled_by" in state:
+            del state["disabled_by"]
+        if "options" in state:
+            del state["options"]
 
 
     # Important ID helper
@@ -577,29 +661,6 @@ class HomeContext(IHomeContext):
             base[baseId][baseKey] = {}
         # Add this value to the list.
         base[baseId][baseKey][valueKey] = value
-
-
-
-    # Returns true if the object is disabled.
-    def _IsDisabled(self, obj:Dict[str, Any]) -> bool:
-        if "disabled_by" in obj and obj["disabled_by"] is not None:
-            # name = obj.get("name", "Unknown")
-            # self.Logger.debug(f"Home Context - Skipping {name} is disabled by {obj['disabled_by']}.")
-            return True
-        return False
-
-
-    # Is exposed to assistant
-    def _IsExposeToAssistant(self, obj:Dict[str, Any]) -> bool:
-        # To see if this entity is exposed to Sage, we check the "options" -> "conversation" -> "should_expose" field.
-        # This is the same thing HA uses to toggle on and off control for assist.
-        options = obj.get("options", None)
-        if options is None:
-            return True
-        conversation = options.get("conversation", None)
-        if conversation is None:
-            return True
-        return conversation.get("should_expose", True)
 
 
     # Copies a property from a source to a destination if it exists.
