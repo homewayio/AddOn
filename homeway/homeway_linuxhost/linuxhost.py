@@ -202,6 +202,7 @@ class LinuxHost(IStateChangeHandler):
             # Setup and start the home context
             homeContext = HomeContext(self.Logger, haConnection, self.HaEventHandler)
             homeContext.Start()
+            CommandHandler.Get().RegisterHomeContext(homeContext)
 
             # Setup the sage sub system, it won't be started until the primary connection is established.
             sagePrefix = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)

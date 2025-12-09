@@ -1,6 +1,6 @@
 from enum import Enum
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .buffer import Buffer
 from .httpresult import HttpResult
@@ -83,6 +83,13 @@ class IAccountLinkStatusUpdateHandler(ABC):
 
     @abstractmethod
     def OnAccountLinkStatusUpdate(self, isLinked:bool) -> None:
+        pass
+
+
+class IHomeContext(ABC):
+
+    @abstractmethod
+    def GetFullDeviceAndEntityTree(self) -> Optional[List[Dict[str, Any]]]:
         pass
 
 

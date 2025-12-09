@@ -6,7 +6,7 @@ import concurrent.futures
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
-from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler
+from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler, IHomeContext
 from .streammsgbuilder import StreamMsgBuilder
 from .httpresult import HttpResult
 from .httprequest import PathTypes, HttpRequest
@@ -81,12 +81,18 @@ class CommandHandler:
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         self.ConfigManager:Optional[IConfigManager] = None
+        self.HomeContext:Optional[IHomeContext] = None
         self.AccountLinkStatusUpdateHandler:Optional[IAccountLinkStatusUpdateHandler] = None
 
 
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager:IConfigManager):
         self.ConfigManager = configManager
+
+
+    # Registers the home context manager, which is needed for some commands.
+    def RegisterHomeContext(self, homeContext:IHomeContext):
+        self.HomeContext = homeContext
 
 
     # Get's callbacks when the printer link status changes.
@@ -136,6 +142,16 @@ class CommandHandler:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No account link update handler.")
             self.AccountLinkStatusUpdateHandler.OnAccountLinkStatusUpdate(jsonObj_CanBeNone["IsLinked"])
             return CommandResponse.Success()
+
+        # Used for Assistant device control
+        # This must return the full entity tree.
+        if commandPathLower.startswith("get-full-device-and-entity-tree"):
+            if self.HomeContext is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
+            allEntities = self.HomeContext.GetFullDeviceAndEntityTree()
+            if allEntities is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No entities available.")
+            return CommandResponse.Success({"floors": allEntities})
 
         # Unknown command
         return CommandResponse.Error(CommandHandler.c_CommandError_UnknownCommand, "The command path didn't match any known commands.")
