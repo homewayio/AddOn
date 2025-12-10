@@ -149,13 +149,13 @@ class EventHandler:
         if entityId == "sun.sun":
             return
 
-        # Now, see if we can find the entity in our home context cache, and if so, see if it's exposed to assistants.
-        # This is important, because it reduces the number of events we need to process and send.
+        # This is important, check if the entity is exposed to assistants.
+        # This is because we only want to send events for entities that are exposed to assistants.
         # BUT - We don't want to check if this is a removal, since the entity won't be in the home context anymore.
-        # If this is a removal newState_CanBeNone will be None. We always send it to both, to ensure they remove it if they had it.
-        # Also note that removal here means it's removed from HA, not just unexposed. So we can send it to everyone for removal.
+        # For a removal newState_CanBeNone will be None. We will send to both alexa and google, they will handle ignoring it if needed.
         isUpdateForAlexa = True
         isUpdateForGoogle = True
+        # Check if this is not a removal.
         if newState_CanBeNone is not None:
             if self.HomeContext is not None:
                 fullEntityDict = self.HomeContext.GetEntityById(entityId)
@@ -190,9 +190,7 @@ class EventHandler:
 
         # If there was a item change, we need to refresh the home context.
         if isAddRemoveOrNameChange:
-            callback = self.HomeContextCallback
-            if callback is not None:
-                callback()
+            self._FireHomeContextUpdateCallback()
 
         # If this is just a state change, see if we care about it.
         if isAddRemoveOrNameChange is False:
@@ -225,9 +223,7 @@ class EventHandler:
     def _HandleEntityRegistryUpdatedEvent(self, eventRoot:Dict[str, Any], haVersion:Optional[str]) -> None:
         # For any entity registry updated event, we just refresh the home context.
         # This is because many things can change that we care about, like exposure to assistants.
-        callback = self.HomeContextCallback
-        if callback is not None:
-            callback()
+        self._FireHomeContextUpdateCallback()
 
         # Get the required info.
         dataDict = eventRoot.get("data", {})
@@ -280,14 +276,12 @@ class EventHandler:
                 # We need to get the live state of the entity, so we need to use the HA WebSocket connection.
                 # We need the live state to get the attributes, which includes the friendly name and device details require for device add.
                 # We can only do this by getting the state of all entities, since there's no way to filter by entity id.
-                response = self.HaWebSocketCon.SendAndReceiveMsg({
-                    "type":"get_states",
-                })
+                response = self.HaWebSocketCon.SendAndReceiveMsg({"type":"get_states"})
                 if response is None or "success" not in response or response["success"] is not True or "result" not in response:
                     self.Logger.warning("Entity Registry Updated Event received, but failed to get entity states from the HA WebSocket connection. Ignoring event.")
                     return
                 result = response["result"]
-                # Find the entity we care about.
+                # Look through all of the results to find the one we care about.
                 foundEntityState:Optional[Dict[str, Any]] = None
                 for entity in result:
                     searchEntityId = entity.get("entity_id", None)
@@ -298,18 +292,15 @@ class EventHandler:
                     self.Logger.warning(f"Entity Registry Updated Event received, but entity {entityId} not found in HA states. Ignoring event.")
                     return
 
-                # We found it's current state.
-                #self.Logger.debug(f"Entity Registry Updated Event lookup result:\r\n{json.dumps(foundEntityState, indent=2)}")
-
+                # Finally, we can send the events for the assistants that changed exposure.
                 if changeToAlexa is not None:
-                    # Now we need to make an event for Alexa.
                     isExposedToAlexa = changeToAlexa
                     # If this is now exposed, we set the new state, otherwise it's None and we set the old state.
                     newState_CanBeNone = foundEntityState if isExposedToAlexa else None
                     oldState_CanBeNone = None if isExposedToAlexa else foundEntityState
                     e = self._GetSendEventAndValidate(entityId, True, False, haVersion, newState_CanBeNone, oldState_CanBeNone)
                     if e is not None:
-                        self.Logger.info(f"Sending Alexa Device Add/Remove For Alexa: Is Exposed: {isExposedToAlexa}")
+                        self.Logger.info(f"Sending Entity Exposure Add/Remove For Alexa. Entity: {entityId}, Is Exposed: {isExposedToAlexa}")
                         self._QueueSendEvent(entityId, e, forceSend=True)
                     else:
                         self.Logger.warning(f"Entity Registry Updated Event {entityId} for Alexa generated no send payload, likely missing friendly name. Ignoring event for Alexa.")
@@ -321,7 +312,7 @@ class EventHandler:
                     oldState_CanBeNone = None if isExposedToGoogle else foundEntityState
                     e = self._GetSendEventAndValidate(entityId, False, True, haVersion, newState_CanBeNone, oldState_CanBeNone)
                     if e is not None:
-                        self.Logger.info(f"Sending Google Device Add/Remove For Google: Is Exposed: {isExposedToGoogle}")
+                        self.Logger.info(f"Sending Entity Exposure Add/Remove For Google Home. Entity: {entityId}, Is Exposed: {isExposedToGoogle}")
                         self._QueueSendEvent(entityId, e, forceSend=True)
                     else:
                         self.Logger.warning(f"Entity Registry Updated Event {entityId} for Google generated no send payload, likely missing friendly name. Ignoring event for Google.")
@@ -332,6 +323,7 @@ class EventHandler:
 
 
     # This handles creating the event format we send for all event types, like state change updates and exposure changes.
+    # The event must be targeted at one OR BOTH assistants to handle.
     def _GetSendEventAndValidate(self, entityId:str, isUpdateForAlexa:bool, isUpdateForGoogle:bool, haVersion:Optional[str]=None, newState:Optional[Dict[str, Any]]=None, oldState:Optional[Dict[str, Any]]=None) -> Optional[Dict[str, Any]]:
         sendEvent:Dict[str, Any] = {
             "EntityId": entityId,
@@ -353,20 +345,21 @@ class EventHandler:
             _removeIfInDict(state, "last_changed")
             _removeIfInDict(state, "last_updated")
         def _validateHasRequiredFields(d:Dict[str, Any]) -> bool:
-            # Sometimes during startup we get messages without friendly names.
-            # We need the friendly names to talk with both Alexa and Google, so we just ignore them.
-            # The updates are usually for offline devices anyways, maybe that's why they don't have names?
+            # Attributes are required because it contains device info that we need to build
+            # the correct attributes for the assistant device.
             a = d.get("attributes", None)
             if a is None:
                 return False
+            # The assistants require a friendly name to be present.
+            # But we need to handle this exactly the same way as Home Assistant does, which is if there's no
+            # friendly name we take the entity id and remove the underscores.
             name = a.get("friendly_name", None)
             if name is None or len(name) == 0:
-                # We do the same logic home assistant does here, if there's no friendly name we take the entity id and remove the underscores.
-                parts = entityId.split(".")
-                if len(parts) != 2:
-                    self.Logger.warning(f"Entity {entityId} is missing a friendly name and has an invalid entity id format. Ignoring event.")
+                if self.HomeContext is None:
                     return False
-                name = parts[1].replace("_", " ")
+                name = self.HomeContext.MakeFriendlyNameFromEntityId(entityId)
+                if name is None or len(name) == 0:
+                    return False
                 a["friendly_name"] = name
             return True
         # If there's a new state, add it.
@@ -423,6 +416,12 @@ class EventHandler:
             self.SendEvents.append(sendEvent)
             # Set the event to wake up the thread, if it's not already.
             self.ThreadEvent.set()
+
+
+    def _FireHomeContextUpdateCallback(self) -> None:
+        callback = self.HomeContextCallback
+        if callback is not None:
+            callback()
 
 
     def _StateChangeSender(self):

@@ -242,6 +242,17 @@ class HomeContext(IHomeContext):
         return False
 
 
+    # This logic needs to be the same as it's done in Home Assistant, to make sure the name matches.
+    # Some entities don't have a friendly name, but it's required for us to send to the assistants.
+    def MakeFriendlyNameFromEntityId(self, entityId:str) -> Optional[str]:
+        # We do the same logic home assistant does here, if there's no friendly name we take the entity id and remove the underscores.
+        parts = entityId.split(".")
+        if len(parts) != 2 or len(parts[1]) == 0:
+            self.Logger.warning(f"Entity {entityId} is missing a friendly name and has an invalid entity id format.")
+            return None
+        return parts[1].replace("_", " ")
+
+
     # Fired when a new connection is made to HA.
     def _OnNewHaWsConnected(self):
         # Ask the worker to refresh.
@@ -379,8 +390,8 @@ class HomeContext(IHomeContext):
         # We will always create it now, and prune it later if it's not needed.
         # We only add the fields that are required to be there.
         floors[HomeContext.NoneString] = { "floor_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
-        floorResults = self._GetResultsFromHaMsg("floors", result.Floors)
 
+        floorResults = self._GetResultsFromHaMsg("floors", result.Floors)
         if floorResults is not None:
             for f in floorResults:
                 # Create our object and get the important ids.
@@ -453,6 +464,7 @@ class HomeContext(IHomeContext):
                 devices[deviceId] = device
 
         # Build the entities
+        # There's no need to build a none entity, since it's the leaf nodes of the tree.
         entities:Dict[str, Any] = {}
         entityResults = self._GetResultsFromHaMsg("entity", result.Entities)
         if entityResults is not None:
@@ -495,7 +507,8 @@ class HomeContext(IHomeContext):
                 # Set it
                 labelsList.append(label)
 
-        # Now that we have the full list of objects, we can prune any of  the none objects that aren't used.
+        # Now that we have the full list of objects, we can prune any of the none objects that aren't used.
+        # We need to do this in reverse order, so start with devices, then areas, then floors.
         for f in floors.values():
             areas:Dict[str, Any] = f.get("areas", {})
             for a in areas.values():
@@ -536,7 +549,7 @@ class HomeContext(IHomeContext):
                         # Convert the entities to a list.
                         d["entities"] = list(d.get("entities", {}).values())
 
-        # To build the live context object, we need to keep track of the context of the assist devices
+        # To build the live context object, we need to keep track of the context of the assist devices.
         assistDeviceContexts:List[AssistantDeviceContext] = []
         for f in floorsList:
             areasList:List[Dict[str, Any]] = f.get("areas", [])
@@ -568,8 +581,11 @@ class HomeContext(IHomeContext):
                         if eId is not None:
                             fullEntityMap[eId] = e
 
-        # Finally, for sage, we need to remove any disabled or user selected filtered objects.
-        # We also strip out any optional fields that we don't want to send to Sage.
+        # Important! - Now we must strip out the extra data we need for the full tree but don't want to send to Sage.
+        # This includes:
+        #   - Disabled devices and entities
+        #   - Entities that are not exposed to Sage
+        #   - The optional full state properties we added to the entities.
         entitiesExposedToSageCount = 0
         for f in floorsList:
             areasList:List[Dict[str, Any]] = f.get("areas", [])
@@ -629,10 +645,14 @@ class HomeContext(IHomeContext):
 
         # Lock and swap
         with self.CacheLock:
+            # These are the compressed results we send to Sage.
             self.SageHomeContextResult = compressionResult
             self.SageLiveStateEntityFilter = sageLiveStateUpdateEntityFilter
+            # These are the device contexts of any device that's an assist device.
             self.AssistantDeviceContexts = assistDeviceContexts
+            # This is the full device and entity tree for other components that need it.
             self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
+            # This is the full entity map for fast lookups.
             self.FullEntityMap = fullEntityMap
             self.CacheUpdatedEvent.set()
 

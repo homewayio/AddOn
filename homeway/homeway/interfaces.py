@@ -108,6 +108,11 @@ class IHomeContext(ABC):
     def IsDisabled(self, obj:Dict[str, Any]) -> bool:
         pass
 
+    # This logic needs to be the same as it's done in Home Assistant, to make sure the name matches.
+    @abstractmethod
+    def MakeFriendlyNameFromEntityId(self, entityId:str) -> Optional[str]:
+        pass
+
 
 class IHomeAssistantWebSocket(ABC):
 
