@@ -114,7 +114,8 @@ class HomeContext(IHomeContext):
 
         # If we don't have a cached version, try to set the worker to go.
         # and then wait on the cache event.
-        self.Logger.info("Home Context doesn't have a device and entity list or we are forcing a refresh, trying to force it...")
+        if forceRefresh is False:
+            self.Logger.info("Home Context doesn't have a device and entity list, trying to force it...")
         self.WorkerGoEvent.set()
 
         # Don't wait long, we don't want to block the request.
@@ -178,9 +179,28 @@ class HomeContext(IHomeContext):
 
 
     # Looks up a full entity dict by its entity ID, or None if not found.
-    def GetEntityById(self, entityId: str) -> Optional[Dict[str, Any]]:
+    def GetEntityById(self, entityId: str, forceRefresh:bool=False) -> Optional[Dict[str, Any]]:
         # Since this can be used by the state event handler frequently, we use a map for fast lookups.
         # These entities are the exact same objects that are in the full device and entity tree.
+        with self.CacheLock:
+            # If we have a cached version, we are good to go.
+            if self.FullEntityMap is not None and not forceRefresh:
+                entry = self.FullEntityMap.get(entityId, None)
+                if entry is not None:
+                    return entry
+            self.CacheUpdatedEvent.clear()
+
+        # If we don't have a cached version, try to set the worker to go.
+        # and then wait on the cache event.
+        if forceRefresh is False:
+            self.Logger.info(f"Home Context doesn't have a entry for {entityId} and entity list, trying to force it...")
+        self.WorkerGoEvent.set()
+
+        # Don't wait long, we don't want to block the request.
+        # If we don't get something back, the server will just have to wait.
+        self.CacheUpdatedEvent.wait(5.0)
+
+        # Try again to get the refreshed entry.
         with self.CacheLock:
             if self.FullEntityMap is not None:
                 return self.FullEntityMap.get(entityId, None)
@@ -630,6 +650,7 @@ class HomeContext(IHomeContext):
         # We need this disabled state to do the disabled filtering for Sage in this Home Context.
         self._CopyPropertyIfExists("disabled_by", state, dest)
         # We need the options for the Home Context and State Event Handler can filter out entities that don't need to be sent to assistants.
+        # This is also used by the service to check assistant state when it queries for all devices and entities, so it must be included here.
         self._CopyPropertyIfExists("options", state, dest)
 
 

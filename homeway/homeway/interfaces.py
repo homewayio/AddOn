@@ -95,7 +95,7 @@ class IHomeContext(ABC):
 
     # Looks up a full entity dict by its entity ID, or None if not found.
     @abstractmethod
-    def GetEntityById(self, entityId: str) -> Optional[Dict[str, Any]]:
+    def GetEntityById(self, entityId: str, forceRefresh:bool=False) -> Optional[Dict[str, Any]]:
         pass
 
     # Given a device or entity dict and assistant types, this returns true or false if it's exposed or not.
