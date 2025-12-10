@@ -133,7 +133,7 @@ class CommandHandler:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
             haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
             result = self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone)
-            successful = True if result is not None else False
+            successful = result is not None
             return CommandResponse.Success({"Success": successful, "HaVersion": haVersion, "Result": result})
 
         # Returns the Home Assistant version string, if known.
@@ -141,7 +141,7 @@ class CommandHandler:
             if self.HaWebSocketCon is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
             haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
-            successful = True if haVersion is not None else False
+            successful = haVersion is not None
             return CommandResponse.Success({"Success": successful, "HaVersion": haVersion})
 
         # restart-if-needed - Deprecated 1.0.5 (3/16/2024) for `get-config-status`
@@ -178,7 +178,7 @@ class CommandHandler:
             if self.HomeContext is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
             allEntities = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh)
-            successful = True if allEntities is not None else False
+            successful = allEntities is not None
             return CommandResponse.Success({"Success": successful, "Floors": allEntities})
 
         # Unknown command
