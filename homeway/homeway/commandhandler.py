@@ -85,6 +85,7 @@ class CommandHandler:
         self.AccountLinkStatusUpdateHandler:Optional[IAccountLinkStatusUpdateHandler] = None
         self.HaWebSocketCon:Optional[IHomeAssistantWebSocket] = None
 
+
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager:IConfigManager):
         self.ConfigManager = configManager
@@ -131,16 +132,17 @@ class CommandHandler:
             if self.HaWebSocketCon is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
             haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
-            return CommandResponse.Success({"HaVersion": haVersion, "Result": self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone)})
+            result = self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone)
+            successful = True if result is not None else False
+            return CommandResponse.Success({"Success": successful, "HaVersion": haVersion, "Result": result})
 
         # Returns the Home Assistant version string, if known.
         if commandPathLower.startswith("get-ha-version"):
             if self.HaWebSocketCon is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
             haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
-            if haVersion is None:
-                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant version available.")
-            return CommandResponse.Success({"HaVersion": haVersion})
+            successful = True if haVersion is not None else False
+            return CommandResponse.Success({"Success": successful, "HaVersion": haVersion})
 
         # restart-if-needed - Deprecated 1.0.5 (3/16/2024) for `get-config-status`
         # Returns this addon's status with the config. This works for both container and standalone addons.
@@ -169,15 +171,15 @@ class CommandHandler:
         # Used for Assistant device control
         # This must return the full entity tree.
         if commandPathLower.startswith("get-full-device-and-entity-tree"):
+            # Read the optional force refresh arg.
             forceRefresh = False
             if jsonObj_CanBeNone is not None:
                 forceRefresh = bool(jsonObj_CanBeNone.get("ForceRefresh", False))
             if self.HomeContext is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
             allEntities = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh)
-            if allEntities is None:
-                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No entities available.")
-            return CommandResponse.Success({"floors": allEntities})
+            successful = True if allEntities is not None else False
+            return CommandResponse.Success({"Success": successful, "Floors": allEntities})
 
         # Unknown command
         return CommandResponse.Error(CommandHandler.c_CommandError_UnknownCommand, "The command path didn't match any known commands.")
