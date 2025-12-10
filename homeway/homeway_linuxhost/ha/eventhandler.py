@@ -145,6 +145,10 @@ class EventHandler:
             self.Logger.debug(f"Event Handler got an event that was missing both the new_state and old_state fields. {json.dumps(eventRoot, indent=2)}  ")
             return
 
+        # This is a special case, we don't get sun.sun in the list entity command, so we ignore it here.
+        if entityId == "sun.sun":
+            return
+
         # Now, see if we can find the entity in our home context cache, and if so, see if it's exposed to assistants.
         # This is important, because it reduces the number of events we need to process and send.
         # BUT - We don't want to check if this is a removal, since the entity won't be in the home context anymore.
