@@ -118,7 +118,7 @@ class EventHandler:
             return
 
         # Handle state changed events.
-        if eventType != "state_changed":
+        if eventType == "state_changed":
             self._HandleStateChangedEvent(eventRoot, haVersion)
             return
 
@@ -137,7 +137,7 @@ class EventHandler:
             return
         entityId = eventData.get("entity_id", None)
         if entityId is None:
-            # This happens for state changed events that are service broadcasts, which we can ignore.
+            self.Logger.warning("Event Handler got an event that was missing the entity_id field.")
             return
         newState_CanBeNone = eventData.get("new_state", None)
         oldState_CanBeNone = eventData.get("old_state", None)
@@ -152,18 +152,19 @@ class EventHandler:
         # Also note that removal here means it's removed from HA, not just unexposed. So we can send it to everyone for removal.
         isUpdateForAlexa = True
         isUpdateForGoogle = True
-        if newState_CanBeNone is None and self.HomeContext is not None:
-            fullEntityDict = self.HomeContext.GetEntityById(entityId)
-            if fullEntityDict is not None:
-                isUpdateForAlexa     = self.HomeContext.IsExposeToAssistant(fullEntityDict, checkAlexa=True)
-                isUpdateForGoogle = self.HomeContext.IsExposeToAssistant(fullEntityDict, checkGoogle=True)
-                if isUpdateForAlexa is False and isUpdateForGoogle is False:
-                    # Not exposed to either assistant, we ignore this event.
-                    return
-                # Also check if it's disabled.
-                if self.HomeContext.IsDisabled(fullEntityDict):
-                    # Disabled, we ignore this event.
-                    return
+        if newState_CanBeNone is not None:
+            if self.HomeContext is not None:
+                fullEntityDict = self.HomeContext.GetEntityById(entityId)
+                if fullEntityDict is not None:
+                    isUpdateForAlexa  = self.HomeContext.IsExposeToAssistant(fullEntityDict, checkAlexa=True)
+                    isUpdateForGoogle = self.HomeContext.IsExposeToAssistant(fullEntityDict, checkGoogle=True)
+                    if isUpdateForAlexa is False and isUpdateForGoogle is False:
+                        # Not exposed to either assistant, we ignore this event.
+                        return
+                    # Also check if it's disabled.
+                    if self.HomeContext.IsDisabled(fullEntityDict):
+                        # Disabled, we ignore this event.
+                        return
 
         # We can combine report state and request sync for assistants into a single API.
         # When a device is added...
