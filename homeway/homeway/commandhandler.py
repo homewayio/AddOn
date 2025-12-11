@@ -6,7 +6,7 @@ import concurrent.futures
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
-from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler
+from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler, IHomeContext, IHomeAssistantWebSocket
 from .streammsgbuilder import StreamMsgBuilder
 from .httpresult import HttpResult
 from .httprequest import PathTypes, HttpRequest
@@ -81,12 +81,24 @@ class CommandHandler:
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         self.ConfigManager:Optional[IConfigManager] = None
+        self.HomeContext:Optional[IHomeContext] = None
         self.AccountLinkStatusUpdateHandler:Optional[IAccountLinkStatusUpdateHandler] = None
+        self.HaWebSocketCon:Optional[IHomeAssistantWebSocket] = None
 
 
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager:IConfigManager):
         self.ConfigManager = configManager
+
+
+    # Registers the home context manager, which is needed for some commands.
+    def RegisterHomeContext(self, homeContext:IHomeContext):
+        self.HomeContext = homeContext
+
+
+    # Registers the Home Assistant WebSocket connection, which is needed for some commands.
+    def RegisterHomeAssistantWebsocketCon(self, haWebSocketCon:IHomeAssistantWebSocket):
+        self.HaWebSocketCon = haWebSocketCon
 
 
     # Get's callbacks when the printer link status changes.
@@ -113,6 +125,25 @@ class CommandHandler:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No config manager.")
             return self.HandleBatchApiRequestsCommand(jsonObj_CanBeNone)
 
+        # Can be used to make any Home Assistant WebSocket API call.
+        if commandPathLower.startswith("ha-websocket-api-call"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            if self.HaWebSocketCon is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
+            haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
+            result = self.HaWebSocketCon.SendAndReceiveMsg(jsonObj_CanBeNone)
+            successful = result is not None
+            return CommandResponse.Success({"Success": successful, "HaVersion": haVersion, "Result": result})
+
+        # Returns the Home Assistant version string, if known.
+        if commandPathLower.startswith("get-ha-version"):
+            if self.HaWebSocketCon is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
+            haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
+            successful = haVersion is not None
+            return CommandResponse.Success({"Success": successful, "HaVersion": haVersion})
+
         # restart-if-needed - Deprecated 1.0.5 (3/16/2024) for `get-config-status`
         # Returns this addon's status with the config. This works for both container and standalone addons.
         if commandPathLower.startswith("get-config-status"):
@@ -136,6 +167,19 @@ class CommandHandler:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No account link update handler.")
             self.AccountLinkStatusUpdateHandler.OnAccountLinkStatusUpdate(jsonObj_CanBeNone["IsLinked"])
             return CommandResponse.Success()
+
+        # Used for Assistant device control
+        # This must return the full entity tree.
+        if commandPathLower.startswith("get-full-device-and-entity-tree"):
+            # Read the optional force refresh arg.
+            forceRefresh = False
+            if jsonObj_CanBeNone is not None:
+                forceRefresh = bool(jsonObj_CanBeNone.get("ForceRefresh", False))
+            if self.HomeContext is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
+            allEntities = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh)
+            successful = allEntities is not None
+            return CommandResponse.Success({"Success": successful, "Floors": allEntities})
 
         # Unknown command
         return CommandResponse.Error(CommandHandler.c_CommandError_UnknownCommand, "The command path didn't match any known commands.")

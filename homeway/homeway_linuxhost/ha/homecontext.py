@@ -1,5 +1,6 @@
 import json
 import time
+import copy
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from homeway.buffer import Buffer
 from homeway.sentry import Sentry
 from homeway.compression import Compression, CompressionContext, CompressionResult
+from homeway.interfaces import IHomeContext
 
 from .connection import Connection
 from .eventhandler import EventHandler
@@ -22,12 +24,13 @@ class AssistantDeviceContext:
 
 
 # Captures the current context and state of the home in a way that can be sent to the server.
-class HomeContext:
+class HomeContext(IHomeContext):
 
     # The worker will always refresh after this time.
     # Since we only update the state cache for some state changes, this is also the amount of time between
     # full state refreshes.
     WorkerRefreshTimeSec = 60 * 60
+
     WorkerRefreshTimeInFailureModeSec = 60 * 5
 
     # The string that will be used for anything that doesn't have a field.
@@ -50,6 +53,7 @@ class HomeContext:
         # Setup our callbacks
         self.HaConnection.SetHomeContextOnConnectedCallback(self._OnNewHaWsConnected)
         self.EventHandler.SetHomeContextCallback(self._OnStateChangedCallback)
+        self.EventHandler.SetHomeContext(self)
 
         # Setup the worker thread
         self.WorkerGoEvent = threading.Event()
@@ -58,8 +62,17 @@ class HomeContext:
         # Setup the cached data
         self.CacheLock = threading.Lock()
         self.CacheUpdatedEvent = threading.Event()
-        self.HomeContextResult:Optional[CompressionResult] = None
-        self.AllowedEntityIds:Optional[Dict[str, str]] = None
+
+        # These are sent to Sage to give full home context and live state context
+        self.SageHomeContextResult:Optional[CompressionResult] = None
+        self.SageLiveStateEntityFilter:Optional[Dict[str, str]] = None
+
+        # These cache the full device and entity tree for use by the server and other components.
+        self.FullDeviceAndEntityTree:Optional[List[Dict[str, Any]]] = None
+        # This is the same entity that are in the full tree, but just dumped into a map for fast lookups.
+        self.FullEntityMap:Optional[Dict[str, Dict[str, Any]]] = None
+
+        # This is used to keep track of ALL devices and entities for use by the assistant and other system components.
         self.AssistantDeviceContexts:List[AssistantDeviceContext] = []
 
 
@@ -71,11 +84,11 @@ class HomeContext:
 
     # Returns the home context, as compressed bytes.
     # Returns None on failure.
-    def GetHomeContext(self) -> Optional[CompressionResult]:
+    def GetSageHomeContext(self) -> Optional[CompressionResult]:
         with self.CacheLock:
             # If we have a cached version, we are good to go.
-            if self.HomeContextResult is not None:
-                return self.HomeContextResult
+            if self.SageHomeContextResult is not None:
+                return self.SageHomeContextResult
             self.CacheUpdatedEvent.clear()
 
         # If we don't have a cached version, try to set the worker to go.
@@ -88,7 +101,29 @@ class HomeContext:
         self.CacheUpdatedEvent.wait(1.0)
 
         # Return whatever we have or None.
-        return self.HomeContextResult
+        return self.SageHomeContextResult
+
+
+    # Returns the full floor -> area -> device -> entity tree.
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool) -> Optional[List[Dict[str, Any]]]:
+        with self.CacheLock:
+            # If we have a cached version, we are good to go.
+            if self.FullDeviceAndEntityTree is not None and not forceRefresh:
+                return self.FullDeviceAndEntityTree
+            self.CacheUpdatedEvent.clear()
+
+        # If we don't have a cached version, try to set the worker to go.
+        # and then wait on the cache event.
+        if forceRefresh is False:
+            self.Logger.info("Home Context doesn't have a device and entity list, trying to force it...")
+        self.WorkerGoEvent.set()
+
+        # Don't wait long, we don't want to block the request.
+        # If we don't get something back, the server will just have to wait.
+        self.CacheUpdatedEvent.wait(5.0)
+
+        # Return whatever we have or None.
+        return self.FullDeviceAndEntityTree
 
 
     # Does a live query for the current states and returns them as and a the live context as compression results.
@@ -143,6 +178,81 @@ class HomeContext:
         return None, None
 
 
+    # Looks up a full entity dict by its entity ID, or None if not found.
+    def GetEntityById(self, entityId: str, forceRefresh:bool=False) -> Optional[Dict[str, Any]]:
+        # Since this can be used by the state event handler frequently, we use a map for fast lookups.
+        # These entities are the exact same objects that are in the full device and entity tree.
+        with self.CacheLock:
+            # If we have a cached version, we are good to go.
+            if self.FullEntityMap is not None and not forceRefresh:
+                entry = self.FullEntityMap.get(entityId, None)
+                if entry is not None:
+                    return entry
+            self.CacheUpdatedEvent.clear()
+
+        # If we don't have a cached version, try to set the worker to go.
+        # and then wait on the cache event.
+        if forceRefresh is False:
+            self.Logger.info(f"Home Context doesn't have a entry for {entityId} and entity list, trying to force it...")
+        self.WorkerGoEvent.set()
+
+        # Don't wait long, we don't want to block the request.
+        # If we don't get something back, the server will just have to wait.
+        self.CacheUpdatedEvent.wait(5.0)
+
+        # Try again to get the refreshed entry.
+        with self.CacheLock:
+            if self.FullEntityMap is not None:
+                return self.FullEntityMap.get(entityId, None)
+        return None
+
+
+    # Given a device or entity dict and assistant types, this returns true or false if it's exposed or not.
+    # If multiple assistants are checked, only one must be exposed to return true.
+    def IsExposeToAssistant(self, obj:Dict[str, Any], checkAlexa:bool=False, checkGoogle:bool=False, checkSage:bool=False) -> bool:
+        # We check the options field for the relevant flags.
+        # If if the field is missing, HA defines that as NOT being exposed, we tested this to be sure this is the correct behavior.
+        options = obj.get("options", None)
+        if options is None:
+            # If there are no options, it's not exposed.
+            return False
+        if checkSage:
+            # This is what HA uses to toggle on and off the exposure to the assist agents.
+            if options.get("conversation", {}).get("should_expose", False) is True:
+                return True
+        if checkAlexa:
+            if options.get("cloud.alexa", {}).get("should_expose", False) is True:
+                return True
+        if checkGoogle:
+            if options.get("cloud.google_assistant", {}).get("should_expose", False) is True:
+                return True
+        # Default to false if the options don't exist or they are false.
+        return False
+
+
+    # Given a device or entity dict and assistant types, this returns if it's disabled by the user, integration, or other system.
+    def IsDisabled(self, obj:Dict[str, Any]) -> bool:
+        # We have confirmed that if this field exists, it means the object is disabled.
+        # If it's enabled, this field will not exist.
+        disabled_by = obj.get("disabled_by", None)
+        if disabled_by is not None:
+            #name = obj.get("name", "Unknown")
+            #self.Logger.debug(f"Home Context - Skipping {name} is disabled by {disabled_by}.")
+            return True
+        return False
+
+
+    # This logic needs to be the same as it's done in Home Assistant, to make sure the name matches.
+    # Some entities don't have a friendly name, but it's required for us to send to the assistants.
+    def MakeFriendlyNameFromEntityId(self, entityId:str) -> Optional[str]:
+        # We do the same logic home assistant does here, if there's no friendly name we take the entity id and remove the underscores.
+        parts = entityId.split(".")
+        if len(parts) != 2 or len(parts[1]) == 0:
+            self.Logger.warning(f"Entity {entityId} is missing a friendly name and has an invalid entity id format.")
+            return None
+        return parts[1].replace("_", " ")
+
+
     # Fired when a new connection is made to HA.
     def _OnNewHaWsConnected(self):
         # Ask the worker to refresh.
@@ -180,10 +290,10 @@ class HomeContext:
 
                 # Handle and set the result
                 parse = time.time()
-                self._HandleAllObjectsResult(result)
+                (fullEntitiesCount, entitiesExposedToSageCount) = self._HandleAllObjectsResult(result)
 
                 # Success!
-                self.Logger.debug(f"HomeContext worker finished. Total: {time.time() - start}s - Parse: {time.time() - parse}s")
+                self.Logger.debug(f"HomeContext worker finished. Total: {time.time() - start}s - Parse: {time.time() - parse}s - Full Entities Found: {fullEntitiesCount} - Exposed to Sage: {entitiesExposedToSageCount}")
 
                 # Success!
                 self.MostRecentUpdateSuccess = True
@@ -255,10 +365,10 @@ class HomeContext:
 
 
     # Parses the results, builds the output, and sets it.py
-    def _HandleAllObjectsResult(self, result:"HomeContextQueryResult"):
-        # We want to summarize the data down to a small structure that the model can easily understand, but it still has
-        # all of the association context.
-        # Floors are the bottom level
+    def _HandleAllObjectsResult(self, result:"HomeContextQueryResult") -> Tuple[int, int]:
+        # We want to summarize the data down to a small structure that the model can easily understand,
+        # and we also use this structure to present the device and entity to the Assistants.
+        # Floors are the root bottom level
         #   Each area can only have one floor
         #      Each each device can only have one area
         #         Each entity can only have one device or area
@@ -274,8 +384,13 @@ class HomeContext:
         # For the data we keep, try to keep the same names as the HA API uses, so it's easier to understand.
         #
 
-        # Build the floors.
+        # Build the floors - this is the root of all objects, so it must contain all devices and entities even if they don't have an area or floor.
         floors:Dict[str, Any] = {}
+        # We need to create a "none" floor for areas that don't have a floor or if we failed to find floors.
+        # We will always create it now, and prune it later if it's not needed.
+        # We only add the fields that are required to be there.
+        floors[HomeContext.NoneString] = { "floor_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
+
         floorResults = self._GetResultsFromHaMsg("floors", result.Floors)
         if floorResults is not None:
             for f in floorResults:
@@ -288,14 +403,18 @@ class HomeContext:
                 self._CopyPropertyIfExists("name", f, floor)
                 # Set it
                 floors[floorId] = floor
-        else:
-            # If this fails, add an empty floor.
-            floor = { "floor_id" : HomeContext.NoneString, "name" : "Unknown" }
-            floors[HomeContext.NoneString] = floor
 
         # Build the areas.
         # We build these sub dicts so we can easily associate them with the floors and in case something like areas fails, we can still send the floors.
         areas:Dict[str, Any] = {}
+        # We need to create a "none" area for devices that don't have a area or if we failed to find areas.
+        # We will always create it now, and prune it later if it's not needed.
+        # We only add the fields that are required to be there.
+        areaId = HomeContext.NoneString
+        area = { "area_id" : areaId, "floor_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
+        self._AddToBaseMap(floors, HomeContext.NoneString, "areas", areaId, area)
+        areas[areaId] = area
+
         areaResults = self._GetResultsFromHaMsg("areas", result.Areas)
         if areaResults is not None:
             for a in areaResults:
@@ -310,26 +429,26 @@ class HomeContext:
                 # Set it
                 self._AddToBaseMap(floors, floorId, "areas", areaId, area)
                 areas[areaId] = area
-        else:
-            # If this fails, add an empty area.
-            areaId = HomeContext.NoneString
-            area = { "area_id" : areaId, "floor_id" : HomeContext.NoneString, "name" : "Unknown" }
-            self._AddToBaseMap(floors, HomeContext.NoneString, "areas", areaId, area)
-            areas[areaId] = area
 
         # Build the devices
         devices:Dict[str, Any] = {}
+        # We need to create a "none" device for entities that don't have a area or if we failed to find areas.
+        # We will always create it now, and prune it later if it's not needed.
+        # We only add the fields that are required to be there.
+        deviceId = HomeContext.NoneString
+        noneDevice = { "id" : deviceId, "area_id" : HomeContext.NoneString, "name" : HomeContext.NoneString }
+        self._AddToBaseMap(areas, HomeContext.NoneString, "devices", deviceId, noneDevice)
+        devices[deviceId] = noneDevice
+
         deviceResults = self._GetResultsFromHaMsg("devices", result.Devices)
         if deviceResults is not None:
             for d in deviceResults:
-                # Check if the device is disabled, if so, don't expose it.
-                if self._IsDisabled(d):
-                    continue
                 # Create our object and get the important ids
                 device:Dict[str, Any] = { }
                 # Keep the device ID since it can be used for association or for some API calls.
                 deviceId = self._CopyAndGetId("id", d, device)
                 # Some devices don't have areas, that's fine, we also don't need to copy it into the dest object.
+                # If the device doesn't have an area, it will get an areaId of "none".
                 areaId = self._CopyAndGetId("area_id", d, device, copyIntoDst=False, warnIfMissing=False)
                 # Add the rest of the data.
                 self._CopyPropertyIfExists("entry_type", d, device)
@@ -338,37 +457,18 @@ class HomeContext:
                 self._CopyPropertyIfExists("name_by_user", d, device)
                 self._CopyPropertyIfExists("name", d, device)
                 self._CopyPropertyIfExists("labels", d, device, destKey="label_ids")
+                # It's important to copy this field so we can filter out disabled devices.
+                self._CopyPropertyIfExists("disabled_by", d, device)
                 # Set it
-                # Some devices don't have areas, that's fine.
                 self._AddToBaseMap(areas, areaId, "devices", deviceId, device)
                 devices[deviceId] = device
-        else:
-            # If this fails, add an empty device.
-            deviceId = HomeContext.NoneString
-            device = { "id" : deviceId, "area_id" : HomeContext.NoneString, "name" : "Unknown" }
-            self._AddToBaseMap(areas, HomeContext.NoneString, "devices", deviceId, device)
-            devices[deviceId] = device
-
 
         # Build the entities
+        # There's no need to build a none entity, since it's the leaf nodes of the tree.
         entities:Dict[str, Any] = {}
         entityResults = self._GetResultsFromHaMsg("entity", result.Entities)
         if entityResults is not None:
             for e in entityResults:
-                # Important - We always allow assist devices, so the engine has context
-                # on the devices that are active and where it can announce.
-                # So we don't check if they are disabled or exposed.
-                entityId:str = e.get("entity_id", None)
-                if self._IsAssistEntityId(entityId):
-                    self.Logger.debug("Allowing %s because it's an assist.", entityId)
-                else:
-                    # Check if the entity is disabled, if so, don't expose it.
-                    if self._IsDisabled(e):
-                        continue
-                    # Check if it should be exposed to the assistant.
-                    if self._IsExposeToAssistant(e) is False:
-                        continue
-
                 # Create our object and get the important ids
                 entity:Dict[str, Any] = { }
                 # We don't copy this id back into the dest object, because it's a random string that
@@ -383,28 +483,15 @@ class HomeContext:
                 self._CopyPropertyIfExists("name", e, entity)
                 self._CopyPropertyIfExists("original_name", e, entity)
                 self._CopyPropertyIfExists("platform", e, entity)
+                # Now we add all of the properties we want in the full state tree, but we DON'T want to expose to Sage.
+                # The reason is most of these are really large, and Sage doesn't need them.
+                self._AddFullStateOptionalEntityProperties(e, entity)
                 # Set it
-                # Some entities, like scenes and such, don't have a device but can still have an area.
-                # So if there's no device id but there is an area id, add it directly to the area.
-                if (deviceId is None or deviceId == HomeContext.NoneString) and (areaId is not None and areaId != HomeContext.NoneString):
-                    self._AddToBaseMap(areas, areaId, "entities", entityId, entity)
-                else:
-                    # In all other cases, add it to the device. This might associate with a device or it might be unknown.
-                    self._AddToBaseMap(devices, deviceId, "entities", entityId, entity)
+                # Some entities don't have devices, so we add them to the special "none" device under the area.
+                if deviceId is None:
+                    deviceId = HomeContext.NoneString
+                self._AddToBaseMap(devices, deviceId, "entities", entityId, entity)
                 entities[entityId] = entity
-        else:
-            # If this fails, add an empty device.
-            eId = HomeContext.NoneString
-            entity = { "id" : eId, "entity_id" : "unknown.unknown", "device_id" : HomeContext.NoneString }
-            self._AddToBaseMap(devices, HomeContext.NoneString, "entities", eId, entity)
-            entities[eId] = entity
-
-        # Summarize down the allowed entity ids into a map, we can use for fast lookups with state.
-        allowedEntityLookupMap:Dict[str, Any] = {}
-        for e in entities.values():
-            eId = e.get("entity_id", None)
-            if eId is not None:
-                allowedEntityLookupMap[eId] = True
 
         # Build the labels - Do this as a list directly.
         # For these, they hang out on their own. The areas, devices, and entities will reference them by id, so this just adding context to the id.
@@ -420,18 +507,33 @@ class HomeContext:
                 # Set it
                 labelsList.append(label)
 
-        # We can prune any devices that don't have entities.
-        # This can happen if there are no entities exposed to the assistant from the device.
-        # If there are no entities exposed, there's no way to control it or see the state of it, so we might as well remove it.
+        # Now that we have the full list of objects, we can prune any of the none objects that aren't used.
+        # We need to do this in reverse order, so start with devices, then areas, then floors.
         for f in floors.values():
-            for a in f.get("areas", {}).values():
-                idsToRemove:List[str] = []
-                for d in a.get("devices", {}).items():
-                    # If there are no entities, remove the device.
-                    if len(d[1].get("entities", {})) == 0:
-                        idsToRemove.append(d[0])
-                for i in idsToRemove:
-                    del a["devices"][i]
+            areas:Dict[str, Any] = f.get("areas", {})
+            for a in areas.values():
+                devices = a.get("devices", {})
+                if HomeContext.NoneString in devices:
+                    # Check if this none device has any entities.
+                    noneDeviceObj = devices[HomeContext.NoneString]
+                    entities = noneDeviceObj.get("entities", {})
+                    if len(entities) == 0:
+                        # Remove it
+                        del devices[HomeContext.NoneString]
+            # After processing all areas, check if the none area is needed.
+            if HomeContext.NoneString in areas:
+                noneAreaObj = areas[HomeContext.NoneString]
+                devices = noneAreaObj.get("devices", {})
+                if len(devices) == 0:
+                    # Remove it
+                    del areas[HomeContext.NoneString]
+        # After processing all floors, check if the none floor is needed.
+        if HomeContext.NoneString in floors:
+            noneFloorObj = floors[HomeContext.NoneString]
+            areas = noneFloorObj.get("areas", {})
+            if len(areas) == 0:
+                # Remove it
+                del floors[HomeContext.NoneString]
 
         # To reduce size, we can convert the maps to lists, since in the map each object is indexed by it's id and then also self contains it's id.
         floorsList = list(floors.values())
@@ -446,12 +548,8 @@ class HomeContext:
                     for d in a["devices"]:
                         # Convert the entities to a list.
                         d["entities"] = list(d.get("entities", {}).values())
-                # There can also be entities that don't have devices, so they are directly in the area.
-                if "entities" in a:
-                    a["entities"] = list(a.get("entities", {}).values())
 
-
-        # To build the live context object, we need to keep track of the context of the assist devices
+        # To build the live context object, we need to keep track of the context of the assist devices.
         assistDeviceContexts:List[AssistantDeviceContext] = []
         for f in floorsList:
             areasList:List[Dict[str, Any]] = f.get("areas", [])
@@ -470,7 +568,66 @@ class HomeContext:
                             # Break to ensure we only list each device once.
                             break
 
-        # Finally, package them into the final object.
+        # Make a deep copy of the full tree, which is need for the GetFullDeviceAndEntityTree call.
+        fullDeviceAndEntityTree = copy.deepcopy(floorsList)
+
+        # We dump all of the entries in the tree into a map for fast lookups.
+        fullEntityMap:Dict[str, Dict[str, Any]] = {}
+        for f in fullDeviceAndEntityTree:
+            for a in f.get("areas", []):
+                for d in a.get("devices", []):
+                    for e in d.get("entities", []):
+                        eId = e.get("entity_id", None)
+                        if eId is not None:
+                            fullEntityMap[eId] = e
+
+        # Important! - Now we must strip out the extra data we need for the full tree but don't want to send to Sage.
+        # This includes:
+        #   - Disabled devices and entities
+        #   - Entities that are not exposed to Sage
+        #   - The optional full state properties we added to the entities.
+        entitiesExposedToSageCount = 0
+        for f in floorsList:
+            areasList:List[Dict[str, Any]] = f.get("areas", [])
+            for a in areasList:
+                # Make a list of devices to remove.
+                deviceIndexToRemove:List[int] = []
+                devicesList:List[Dict[str, Any]] = a.get("devices", [])
+                for i, d in enumerate(devicesList):
+                    # A device can be disabled, but it can't have an assistant exposed state, only entities can.
+                    if self.IsDisabled(d):
+                        deviceIndexToRemove.append(i)
+                        continue
+                    # Make a list of entities to remove.
+                    entityIndexToRemove:List[int] = []
+                    entitiesList:List[Dict[str, Any]] = d.get("entities", [])
+                    for i, e in enumerate(entitiesList):
+                        # Check to see if we need to remove this entity.
+                        if self.IsDisabled(e) or not self.IsExposeToAssistant(e, checkSage=True):
+                            entityIndexToRemove.append(i)
+                        # Important! AFTER we do our checks (that require the fields to be removed)
+                        # ensure we strip out any optional fields that we don't want to send to Sage.
+                        self._RemoveFullStateOptionalEntityProperties(e)
+                    # Remove them in reverse order.
+                    for index in reversed(entityIndexToRemove):
+                        del d["entities"][index]
+                    entitiesExposedToSageCount += len(d.get("entities", []))
+                # Remove them in reverse order.
+                for deviceIndex in reversed(deviceIndexToRemove):
+                    del a["devices"][deviceIndex]
+
+        # Now that the floorsList list is filtered to things we will send to Sage, we need to make a map
+        # of entity ids that we also want to send to Sage for the live state context.
+        sageLiveStateUpdateEntityFilter:Dict[str, Any] = {}
+        for f in floorsList:
+            for a in f.get("areas", []):
+                for d in a.get("devices", []):
+                    for e in d.get("entities", []):
+                        eId = e.get("entity_id", None)
+                        if eId is not None:
+                            sageLiveStateUpdateEntityFilter[eId] = True
+
+        # Finally, package them into the final object that will be sent to Sage.
         # This is the format that the server expects, so we can't change it.
         homeContext = {
             "floors" : floorsList,
@@ -488,10 +645,44 @@ class HomeContext:
 
         # Lock and swap
         with self.CacheLock:
-            self.HomeContextResult = compressionResult
-            self.AllowedEntityIds = allowedEntityLookupMap
+            # These are the compressed results we send to Sage.
+            self.SageHomeContextResult = compressionResult
+            self.SageLiveStateEntityFilter = sageLiveStateUpdateEntityFilter
+            # These are the device contexts of any device that's an assist device.
             self.AssistantDeviceContexts = assistDeviceContexts
+            # This is the full device and entity tree for other components that need it.
+            self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
+            # This is the full entity map for fast lookups.
+            self.FullEntityMap = fullEntityMap
             self.CacheUpdatedEvent.set()
+
+        # Note that the full entity count will be 5-10 less than HA, because there are some special entities that don't get IDs and aren't exposed,
+        # like the "Home Assistant" entry in the conversation domain.
+        return len(fullEntityMap), entitiesExposedToSageCount
+
+
+    # Add optional entity properties that are needed for the full state, but not for Sage.
+    # We do this in it's own function to ensure we add and remove them before making the Home Context for Sage.
+    def _AddFullStateOptionalEntityProperties(self, state:Dict[str, Any], dest:Dict[str, Any]) -> None:
+        #
+        # IMPORTANT!! - These must be kept in sync with the _RemoveFullStateOptionalEntityProperties function below!!
+        #
+        # We need this disabled state to do the disabled filtering for Sage in this Home Context.
+        self._CopyPropertyIfExists("disabled_by", state, dest)
+        # We need the options for the Home Context and State Event Handler can filter out entities that don't need to be sent to assistants.
+        # This is also used by the service to check assistant state when it queries for all devices and entities, so it must be included here.
+        self._CopyPropertyIfExists("options", state, dest)
+
+
+    # This should remove ALL OF THE optional entity properties added above!!
+    def _RemoveFullStateOptionalEntityProperties(self, state:Dict[str, Any]) -> None:
+        #
+        # IMPORTANT!! - These must be kept in sync with the _AddFullStateOptionalEntityProperties function above!!
+        #
+        if "disabled_by" in state:
+            del state["disabled_by"]
+        if "options" in state:
+            del state["options"]
 
 
     # Important ID helper
@@ -517,27 +708,6 @@ class HomeContext:
             base[baseId][baseKey] = {}
         # Add this value to the list.
         base[baseId][baseKey][valueKey] = value
-
-
-
-    # Returns true if the object is disabled.
-    def _IsDisabled(self, obj:Dict[str, Any]) -> bool:
-        if "disabled_by" in obj and obj["disabled_by"] is not None:
-            #name = obj.get("name", "Unknown")
-            #self.Logger.debug(f"Home Context - Skipping {name} is disabled by {obj['disabled_by']}.")
-            return True
-        return False
-
-
-    # Is exposed to assistant
-    def _IsExposeToAssistant(self, obj:Dict[str, Any]) -> bool:
-        options = obj.get("options", None)
-        if options is None:
-            return True
-        conversation = options.get("conversation", None)
-        if conversation is None:
-            return True
-        return conversation.get("should_expose", True)
 
 
     # Copies a property from a source to a destination if it exists.
@@ -623,9 +793,9 @@ class HomeContext:
     def _FilterStateList(self, states:List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
         # No need to take the lock, since this is a read only operation.
-        allowedEntityIdMap = self.AllowedEntityIds
-        if allowedEntityIdMap is None:
-            self.Logger.warning("Home Context - AllowedEntityIds is None, skipping state filter.")
+        allowedEntityIdFilterMap = self.SageLiveStateEntityFilter
+        if allowedEntityIdFilterMap is None:
+            self.Logger.warning("Home Context - SageLiveStateEntityFilter is None, skipping state filter.")
 
         result:List[Dict[str, Any]] = []
         assistActiveEntityId:Optional[str] = None
@@ -647,7 +817,7 @@ class HomeContext:
                         assistActiveEntityId = entityId
 
             # Ensure it's an allowed entity.
-            if allowedEntityIdMap is not None and entityId not in allowedEntityIdMap:
+            if allowedEntityIdFilterMap is not None and entityId not in allowedEntityIdFilterMap:
                 continue
 
             # Remove the common things that we know are large and we don't need.

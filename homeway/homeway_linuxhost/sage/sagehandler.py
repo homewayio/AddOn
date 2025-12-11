@@ -129,7 +129,7 @@ class SageHandler(AsyncEventHandler, ISageHandler):
 
             # Get the home context, which is all of the entities and their relationships.
             # Also get the current state of all entities exposed.
-            homeContext = self.HomeContext.GetHomeContext()
+            homeContext = self.HomeContext.GetSageHomeContext()
             states, liveContext = self.HomeContext.GetStatesAndLiveContext()
 
             # Make the request.

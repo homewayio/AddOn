@@ -1,6 +1,6 @@
 from enum import Enum
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .buffer import Buffer
 from .httpresult import HttpResult
@@ -83,6 +83,49 @@ class IAccountLinkStatusUpdateHandler(ABC):
 
     @abstractmethod
     def OnAccountLinkStatusUpdate(self, isLinked:bool) -> None:
+        pass
+
+
+class IHomeContext(ABC):
+
+    # Gets the full device and entity tree stored in our cache.
+    @abstractmethod
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool) -> Optional[List[Dict[str, Any]]]:
+        pass
+
+    # Looks up a full entity dict by its entity ID, or None if not found.
+    @abstractmethod
+    def GetEntityById(self, entityId: str, forceRefresh:bool=False) -> Optional[Dict[str, Any]]:
+        pass
+
+    # Given a device or entity dict and assistant types, this returns true or false if it's exposed or not.
+    @abstractmethod
+    def IsExposeToAssistant(self, obj:Dict[str, Any], checkAlexa:bool=False, checkGoogle:bool=False, checkSage:bool=False) -> bool:
+        pass
+
+    # Given a device or entity dict and assistant types, this returns if it's disabled by the user, integration, or other system.
+    @abstractmethod
+    def IsDisabled(self, obj:Dict[str, Any]) -> bool:
+        pass
+
+    # This logic needs to be the same as it's done in Home Assistant, to make sure the name matches.
+    @abstractmethod
+    def MakeFriendlyNameFromEntityId(self, entityId:str) -> Optional[str]:
+        pass
+
+
+class IHomeAssistantWebSocket(ABC):
+
+    # Allows for any system to send and receive messages to Home Assistant,
+    # since there are some APIs that can only be interacted with via the WS API.
+    # Returns the response dict, or None on failure/timeout.
+    @abstractmethod
+    def SendAndReceiveMsg(self, msg:Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        pass
+
+    # Gets the Home Assistant version string, or None if not known.
+    @abstractmethod
+    def GetHomeAssistantVersionString(self) -> Optional[str]:
         pass
 
 
