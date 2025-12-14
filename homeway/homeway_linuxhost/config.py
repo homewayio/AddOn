@@ -24,6 +24,7 @@ class Config:
     HaPortKey = "port"
     HaUseHttps = "use_https"
     HaAccessTokenKey = "access_token"
+    HaEnableRemoteAccess = "enable_remote_access"
 
     # Logging stuff.
     LoggingSection = "logging"
@@ -43,6 +44,7 @@ class Config:
         { "Target": HaPortKey,  "Comment": "This is the port used to connect to Home Assistant."},
         { "Target": HaUseHttps,  "Comment": "True or false if the ip/port requires https."},
         { "Target": HaAccessTokenKey,  "Comment": "Required for standalone addon installs, not required for addon installs. This is the long lived access token used to connect to Home Assistant."},
+        { "Target": HaEnableRemoteAccess,  "Comment": "True or false if remote access is enabled. Assistant and other Homeway features will still work if remote access is disabled."},
         { "Target": LogLevelKey,  "Comment": "The active logging level. Valid values include: DEBUG, INFO, WARNING, or ERROR."},
         { "Target": SagePrefixStringKey,  "Comment": "If set, this will prefix the Sage services names with the given string, which is helpful if you run multiple instances of Homeway. This should not have spaces!."},
     ]
@@ -200,7 +202,6 @@ class Config:
     # If the default value is None, the default will not be written into the config.
     def GetBool(self, section:str, key:str, defaultValue:Optional[bool]) -> Optional[bool]:
         # Use a try catch, so if a user sets an invalid value, it doesn't crash us.
-        result = None
 
         # Convert the default value to a string, if it's not None.
         defaultValueAsStr:Optional[str] = None
@@ -220,7 +221,7 @@ class Config:
                 return True
             raise Exception("Invalid bool value, value was: "+strValue)
         except Exception as e:
-            self.Logger.error(f"Config settings error! {key} failed to get as bool. Value was `{result}`. Resetting to default. "+str(e))
+            self.Logger.error(f"Config settings error! {key} failed to get as bool. Value was `{defaultValueAsStr}`. Resetting to default. "+str(e))
             self.SetStr(section, key, defaultValueAsStr)
             return defaultValue
 

@@ -1,3 +1,4 @@
+import json
 import time
 import logging
 import threading
@@ -9,6 +10,11 @@ from homeway.hostcommon import HostCommon
 from homeway.commandhandler import CommandHandler
 from homeway.interfaces import IAccountLinkStatusUpdateHandler
 from homeway.sentry import Sentry
+from homeway.httprequest import HttpRequest
+from homeway.Proto.AddonTypes import AddonTypes
+
+from .config import Config
+
 
 # Creates a simple web server for users to interact with the plugin from the Home Assistant UI.
 class WebServer(IAccountLinkStatusUpdateHandler):
@@ -16,23 +22,30 @@ class WebServer(IAccountLinkStatusUpdateHandler):
     # A static instance var for the handler class to access this class.
     Instance:"WebServer" = None # type: ignore[reportClassAttributeMissing]
 
-    def __init__(self, logger:logging.Logger, pluginId:str, devConfig:Optional[Dict[str,Any]]) -> None:
+    def __init__(self, logger:logging.Logger, pluginId:str, config:Config, devConfig:Optional[Dict[str,Any]]) -> None:
         WebServer.Instance = self
         self.Logger = logger
         self.PluginId = pluginId
+        self.Config = config
         self.AccountConnected = False
         self.IsPendingStartup = True
         self.webServerThread:Optional[threading.Thread] = None
 
-        # Requests must come from 172.30.32.2 IP, they are authenticated by Home Assistant atomically, cool!
-        self.AllowAllIps = self.GetDevConfigStr(devConfig, "WebServerAllowAllIps") is not None
+        # This indicates if we are running in dev mode.
+        self.RunDevWebServer = self.GetDevConfigContains(devConfig, "RunWebServer")
+
         # We bind to the default docker ips and use port 45120.
         # The default port for Home Assistant is 8099, but that's used already by some more major software.
         self.HostName = "0.0.0.0"
         self.Port = 45120
 
 
-    def Start(self) -> None:
+    def Start(self, addonType:int) -> None:
+        # If we aren't running as an addon and we aren't in dev mode, don't start the web server.
+        if addonType != AddonTypes.HaAddon and self.RunDevWebServer is False:
+            self.Logger.info("Web server not started, not running in HA addon mode.")
+            return
+
         # Start the web server worker thread.
         self.webServerThread = threading.Thread(target=self._WebServerWorker)
         self.webServerThread.start()
@@ -83,20 +96,85 @@ class WebServer(IAccountLinkStatusUpdateHandler):
 
     class WebServerHandler(BaseHTTPRequestHandler):
 
-        def do_GET(self):
+        def _isAllowedIp(self) -> bool:
+            if WebServer.Instance.RunDevWebServer:
+                return True
             # Check if the IP is the authenticated IP from home assistant. If not, deny it.
             # This IP is brokered by Home Assistant, and it does auth checks before forwarding the requests.
-            if WebServer.Instance.AllowAllIps is False:
-                if len(self.client_address) == 0:
-                    WebServer.Instance.Logger.error("Webserver got a request but we can't find the ip. Denying")
-                    self.send_response(401)
+            # Requests must come from 172.30.32.2 IP, they are authenticated by Home Assistant atomically, cool!
+            if len(self.client_address) == 0:
+                WebServer.Instance.Logger.error("Webserver got a request but we can't find the ip. Denying")
+                self.send_response(401)
+                self.end_headers()
+                return False
+            if self.client_address[0] != "172.30.32.2":
+                WebServer.Instance.Logger.error(f"Webserver got a request from an invalid ip [{self.client_address[0]}]. Denying")
+                self.send_response(401)
+                self.end_headers()
+                return False
+            return True
+
+
+        def do_POST(self):
+            # Check if the IP is allowed.
+            if not self._isAllowedIp():
+                self.send_response(401)
+                self.end_headers()
+                return
+
+            # Handle the request.
+            try:
+                # Handle by path
+                pathLower = self.path.lower()
+                if pathLower == "/api/remote_access_enabled":
+                    # Read the post data.
+                    enabled = None
+                    try:
+                        contentLength = int(self.headers['Content-Length'])
+                        postData = self.rfile.read(contentLength)
+                        jsonData = json.loads(postData)
+                        enabled = jsonData.get("enabled", None)
+                        if enabled is None:
+                            raise Exception("Missing enabled field")
+                        enabled = bool(enabled)
+                    except Exception as e:
+                        WebServer.Instance.Logger.error("Failed to parse remote access enabled post data. "+str(e))
+                        self.send_response(400)
+                        self.end_headers()
+                        return
+
+                    # Update the remote access enabled setting.
+                    WebServer.Instance.Logger.info(f"Setting remote access enabled via API to: {str(enabled)}")
+                    HttpRequest.SetRemoteAccessEnabled(enabled)
+                    WebServer.Instance.Config.SetBool(Config.HomeAssistantSection, Config.HaEnableRemoteAccess, enabled)
+
+                    # Return success.
+                    self.send_response(200)
                     self.end_headers()
                     return
-                if self.client_address[0] != "172.30.32.2":
-                    WebServer.Instance.Logger.error(f"Webserver got a request from an invalid ip [{self.client_address[0]}]. Denying")
-                    self.send_response(401)
-                    self.end_headers()
-                    return
+                # If we get here, the path isn't found.
+                self.send_response(404)
+                self.end_headers()
+
+            except Exception as e:
+                WebServer.Instance.Logger.error("Webserver POST exception: "+str(e))
+                self.send_response(500)
+                self.end_headers()
+                return
+
+
+        def do_GET(self):
+
+            # Check if the IP is allowed.
+            if not self._isAllowedIp():
+                self.send_response(401)
+                self.end_headers()
+                return
+
+            # Get if remote access is enabled.
+            remoteAccessEnabledChecked = ""
+            if HttpRequest.GetRemoteAccessEnabled():
+                remoteAccessEnabledChecked = "checked"
 
             # Send the basic HTML
             self.send_response(200)
@@ -182,6 +260,59 @@ class WebServer(IAccountLinkStatusUpdateHandler):
     .featureButton:hover {
         background-color: #c689ff;
     }
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 27px;
+        margin-bottom: 0px;
+        margin-left: 10px;
+    }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #6F6F6F;
+        -webkit-transition: .4s;
+        transition: .4s;
+        border-radius: 34px;
+    }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 19px;
+            width: 19px;
+            left: 5px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%;
+        }
+    /* Can be applied to the "slider" span to show a disable state. */
+    .sliderDisabled:before {
+        background-color: #2A2C30;
+        cursor:not-allowed;
+    }
+    input:checked + .slider {
+        background-color: #7299ff;
+    }
+    input:focus + .slider {
+        box-shadow: 0 0 1px #7299ff;
+    }
+    input:checked + .slider:before {
+        -webkit-transform: translateX(21px);
+        -ms-transform: translateX(21px);
+        transform: translateX(21px);
+    }
 </style>
 </head>
 <body style="background-color: black; color: white; font-family: Roboto,Noto,Noto Sans,sans-serif;">
@@ -239,6 +370,21 @@ class WebServer(IAccountLinkStatusUpdateHandler):
             </div>
 
             <div class="featureHolder">
+               <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div class="featureHeader">Enable Remote Access</div>
+                        <div class="featureDetails">Disabling remote access still allows Sage, Google Home, &amp; Alexa, and other Homeway features to work.</div>
+                    </div>
+                    <div style="padding-right:10px">
+                        <label class="switch switchClass" >
+                            <input type="checkbox" id="enable-remote-access-switch" """+remoteAccessEnabledChecked+""">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+               </div>
+            </div>
+
+            <div class="featureHolder">
                 <div>
                     <div class="featureHeader">
                         Sage AI
@@ -263,6 +409,9 @@ class WebServer(IAccountLinkStatusUpdateHandler):
                 </div>
                 <div class="pinkButton featureButton" id="goToAssistantSetup">
                     Setup Alexa &amp; Google Assistant Now
+                </div>
+                <div class="pinkButton featureButton" id="goToAssistantSetup" style="margin-top:15px;">
+                    Control Exposed Devices
                 </div>
             </div>
 
@@ -319,6 +468,27 @@ class WebServer(IAccountLinkStatusUpdateHandler):
         document.getElementById("goToSageSetup").onclick = (event) => { window.open("https://homeway.io/sage?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAppSetup").onclick = (event) => { window.open("https://homeway.io/app?source=addon_control", '_blank').focus(); };
         document.getElementById("goToLocalAccessSetup").onclick = (event) => { window.open("https://homeway.io/localaccess?source=addon_control", '_blank').focus(); };
+        const remoteSwitch = document.getElementById('enable-remote-access-switch');
+        remoteSwitch.onchange = (event) => {
+            const enabled = remoteSwitch.checked;
+            fetch("/api/remote_access_enabled", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ enabled: enabled })
+            }).then(response => {
+                if (!response.ok) {
+                    alert("Failed to update remote access setting.");
+                    // Revert the switch state
+                    remoteSwitch.checked = !enabled;
+                }
+            }).catch(error => {
+                alert("Error updating remote access setting.");
+                // Revert the switch state
+                remoteSwitch.checked = !enabled;
+            });
+        };
         if("""+connectingTimerBool+""")
         {
             setInterval(()=> {location.reload();}, 1000)
@@ -332,11 +502,9 @@ class WebServer(IAccountLinkStatusUpdateHandler):
 
     # Tries to load a dev config option as a string.
     # If not found or it fails, this return None
-    def GetDevConfigStr(self, devConfig:Optional[Dict[str, str]], value:str) -> Optional[str]:
+    def GetDevConfigContains(self, devConfig:Optional[Dict[str, str]], value:str) -> bool:
         if devConfig is None:
-            return None
+            return False
         if value in devConfig:
-            v = devConfig[value]
-            if v is not None and len(v) > 0 and v != "None":
-                return v
-        return None
+            return True
+        return False

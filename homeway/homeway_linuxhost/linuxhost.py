@@ -106,9 +106,13 @@ class LinuxHost(IStateChangeHandler):
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.
             # We always create the class, but only start the server for the in HA addon.
-            self.WebServer = WebServer(self.Logger, pluginId, devConfig)
-            if self.AddonType is AddonTypes.HaAddon:
-                self.WebServer.Start()
+            self.WebServer = WebServer(self.Logger, pluginId, self.Config, devConfig)
+            self.WebServer.Start(self.AddonType)
+
+            # Set if remote access is enabled from the config.
+            enableRemoteAccess = self.Config.GetBoolRequired(Config.HomeAssistantSection, Config.HaEnableRemoteAccess, True)
+            HttpRequest.SetRemoteAccessEnabled(enableRemoteAccess)
+            self.Logger.info("Remote Access Enabled: %s", str(enableRemoteAccess))
 
             # Unpack any dev vars that might exist
             devLocalHomewayServerAddress = self.GetDevConfigStr(devConfig, "LocalHomewayServerAddress")

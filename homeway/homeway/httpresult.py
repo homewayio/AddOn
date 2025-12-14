@@ -79,6 +79,10 @@ class HttpResult():
     def Redirect(redirectUrl:str, allowRedirectCorrection:bool) -> "HttpResult":
         headers = CaseInsensitiveDict()
         headers["Location"] = redirectUrl
+        # Set these headers to prevent caching of redirects from the Home Assistant PWA
+        headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
+        headers["Pragma"] = "no-cache"
+        headers["Expires"] = "0"
         return HttpResult(302, headers, redirectUrl, False, fullBodyBuffer=Buffer(bytearray()), allowRedirectCorrection=allowRedirectCorrection)
 
 
