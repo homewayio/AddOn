@@ -133,6 +133,13 @@ if __name__ == '__main__':
             time.sleep(5.0)
             sys.exit(1)
 
+        # Check for the remote access enabled var.
+        remoteAccessEnabledStr = os.environ.get("ENABLE_REMOTE_ACCESS", None)
+        if remoteAccessEnabledStr is not None:
+            remoteAccessEnabled = remoteAccessEnabledStr.lower() in ["1", "true", "yes", "on"]
+            logger.info(f"Setting Homeway Remote Access Enabled to: {str(remoteAccessEnabled)}")
+            config.SetBool(Config.HomeAssistantSection, Config.HaEnableRemoteAccess, remoteAccessEnabled)
+
         # Create the rest of the required dirs based in the data dir, since it's persistent.
         localStoragePath = os.path.join(dataPath, "homeway-store")
         CreateDirIfNotExists(localStoragePath)
