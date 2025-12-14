@@ -34,7 +34,8 @@ class HttpResult():
                     fullBodyBuffer:Optional[Buffer]=None,
                     requestLibResponseObj:Optional[requests.Response]=None,
                     customBodyStreamCallback:Optional[Callable[[], Optional[Buffer]]]=None,
-                    customBodyStreamClosedCallback:Optional[Callable[[],None]]=None
+                    customBodyStreamClosedCallback:Optional[Callable[[],None]]=None,
+                    allowRedirectCorrection:bool=True
                     ):
         # Status code isn't a property because some things need to set it externally to the class. (Result.StatusCode = 302)
         self.StatusCode = statusCode
@@ -46,6 +47,7 @@ class HttpResult():
         self._fullBodyBufferPreCompressedSize:int = 0
         self._customBodyStreamCallback = customBodyStreamCallback
         self._customBodyStreamClosedCallback = customBodyStreamClosedCallback
+        self._allowRedirectCorrection:bool = allowRedirectCorrection
 
         # Validate.
         if (self._customBodyStreamCallback is not None and self._customBodyStreamClosedCallback is None) or (self._customBodyStreamCallback is None and self._customBodyStreamClosedCallback is not None):
@@ -70,6 +72,14 @@ class HttpResult():
         headers = CaseInsensitiveDict()
         headers["Content-Length"] = "0"
         return HttpResult(statusCode, headers, url, didFallback, fullBodyBuffer=Buffer(bytearray()))
+
+
+    # Allows for a quick way to create a redirect Result object.
+    @staticmethod
+    def Redirect(redirectUrl:str, allowRedirectCorrection:bool) -> "HttpResult":
+        headers = CaseInsensitiveDict()
+        headers["Location"] = redirectUrl
+        return HttpResult(302, headers, redirectUrl, False, fullBodyBuffer=Buffer(bytearray()), allowRedirectCorrection=allowRedirectCorrection)
 
 
     # Builds a Result object from a requests.Response object.
@@ -129,6 +139,11 @@ class HttpResult():
     @property
     def GetCustomBodyStreamClosedCallback(self) -> Optional[Callable[[], None]]:
         return self._customBodyStreamClosedCallback
+
+
+    @property
+    def GetAllowRedirectCorrection(self) -> bool:
+        return self._allowRedirectCorrection
 
 
     # Note the buffer can be bytes or bytearray object!

@@ -25,6 +25,9 @@ class HttpRequest:
     LocalHttpProxyPort:int = 80
     LocalHttpProxyIsHttps = False
 
+    # Disables remote access, but this still allows for service control like assistants and such.
+    RemoteAccessEnabled:bool = True
+
 
     @staticmethod
     def SetLocalHttpProxyPort(port:int):
@@ -61,6 +64,12 @@ class HttpRequest:
     def GetDirectServiceUseHttps() -> bool  :
         return HttpRequest.DirectServiceIsHttps
 
+    @staticmethod
+    def SetRemoteAccessEnabled(enabled:bool):
+        HttpRequest.RemoteAccessEnabled = enabled
+    @staticmethod
+    def GetRemoteAccessEnabled() -> bool  :
+        return HttpRequest.RemoteAccessEnabled
 
     # Based on the URL passed, this will return PathTypes.Relative or PathTypes.Absolute
     @staticmethod
@@ -139,6 +148,14 @@ class HttpRequest:
                 # Rewrite the path, which is dependent on if we are running in the addon container or standalone.
                 pathOrUrl = serverInfoHandler.GetServerBaseUrl("http") + pathOrUrl
                 pathOrUrlType = PathTypes.Absolute
+        else:
+            # If this isn't a HA core api call, it's a standard remote access call
+            # We need to make sure that remote access is enabled before proceeding.
+            if not HttpRequest.RemoteAccessEnabled:
+                logger.warning("Remote access is disabled, refusing to make the requested HTTP call.")
+                # Disable redirect correction, so we don't get corrected back to this addon subdomain.
+                return HttpResult.Redirect("https://homeway.io/?errorType=remoteAccessDisabled", False)
+
 
         # Next we need to figure out what the URL is. There are two options
         #

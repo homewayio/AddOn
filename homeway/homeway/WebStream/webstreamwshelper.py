@@ -20,6 +20,7 @@ from ..Proto import MessageContext
 from ..Proto import WebSocketDataTypes
 from ..Proto import PathTypes
 from ..Proto import DataCompression
+from ..Proto.HaApiTarget import HaApiTarget
 
 #
 # A helper object that handles websocket request for the web stream system.
@@ -56,6 +57,15 @@ class WebStreamWsHelper:
         if context is None:
             raise Exception("Web stream ws helper got a open message with no http context")
         self.HttpInitialContext = context
+
+        # Get the api target.
+        apiTarget = self.HttpInitialContext.ApiTarget()
+        if apiTarget is None or apiTarget != HaApiTarget.Core:
+            # If we aren't doing a special targeted call, we need to make sure remote access is enabled.
+            if not HttpRequest.RemoteAccessEnabled:
+                self.Logger.warning(self.getLogMsgPrefix()+" refusing to open websocket since remote access is disabled.")
+                self.WebStream.Close()
+                return
 
         # Parse the headers, filter them, and keep them locally.
         # This is required for some clients, since they need to send the X-API-Key header with the API key.

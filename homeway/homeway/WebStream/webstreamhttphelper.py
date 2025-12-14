@@ -294,7 +294,7 @@ class WebStreamHttpHelper:
                     # We have noticed that some proxy servers aren't setup correctly to forward the x-forwarded-for and such headers.
                     # So when the web server responds back with a 301 or 302, the location header might not have the correct hostname, instead an ip like 127.0.0.1.
                     ogLocationHeaderValue = value
-                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders)
+                    hwHttpResult.Headers[name] = HeaderHelper.CorrectLocationResponseHeaderIfNeeded(self.Logger, uri, value, sendHeaders, hwHttpResult)
 
             if ogLocationHeaderValue is not None:
                 # Also set the og location, so the server has it if it needs it.
