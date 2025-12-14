@@ -17,7 +17,7 @@ class EventHandler:
 
     # How long we will wait from the most recent send before we consider it a new first send period.
     # The first event will be sent more quickly, future events will be delayed more and more to prevent spamming.
-    c_SendPeriodWindowSec = 60.0
+    c_SendPeriodWindowSec = 30.0
 
     # Determines how long we will wait from the first request to send a collapsed batch of events.
     # We want this to be quite short, so events are responsive. But long enough to prevent super spamming events.
@@ -25,7 +25,7 @@ class EventHandler:
 
     # How long we will wait from the first request to send in a period a collapsed batch of events.
     # This allows one off changes to be more responsive.
-    c_RequestCollapseDelayTimeSecFirstSend = 0.5
+    c_RequestCollapseDelayTimeSecFirstSend = 0.2
 
     # How often we will reset the dict keeping track of spammy events.
     c_SpammyEntityResetWindowSec = 60.0 * 30 # 30 minutes
@@ -196,15 +196,30 @@ class EventHandler:
         if isAddRemoveOrNameChange is False:
             # For state changes, we only care about a subset of devices. Some types are way to verbose to report.
             # A full list of entity can be found here: https://developers.home-assistant.io/docs/core/entity/
-            if (    entityId.startswith("light.")  is False
-                and entityId.startswith("switch.") is False
-                and entityId.startswith("input_boolean.") is False
-                and entityId.startswith("scene.") is False
-                and entityId.startswith("cover.")  is False
-                and entityId.startswith("fan.")    is False
-                and entityId.startswith("lock.")   is False
-                and entityId.startswith("alarm_control_panel.")   is False
-                and entityId.startswith("climate.")is False):
+            # We changed this from a disallow list because we don't want to block new entity types that are added.
+            # We mostly don't allow any types that aren't supported.
+            # The only exception is sensors, since they can be really chatty and realtime updates aren't super useful.
+            if (
+                   entityId.startswith("ai_task.") is True
+                or entityId.startswith("assist_satellite.") is True
+                or entityId.startswith("calendar.") is True
+                or entityId.startswith("conversation.") is True
+                or entityId.startswith("date.") is True
+                or entityId.startswith("datetime.") is True
+                or entityId.startswith("geo_location.") is True
+                or entityId.startswith("image.") is True
+                or entityId.startswith("image_processing.") is True
+                or entityId.startswith("number.") is True
+                or entityId.startswith("sensor.") is True
+                or entityId.startswith("stt.") is True
+                or entityId.startswith("tag.") is True
+                or entityId.startswith("text.") is True
+                or entityId.startswith("time.") is True
+                or entityId.startswith("tts.") is True
+                or entityId.startswith("update.") is True
+                or entityId.startswith("wake_word.") is True
+                or entityId.startswith("weather.") is True
+            ):
                     # If we are here...
                     #    This is not a entity we always sent.
                     #    There is a new state and old state
@@ -454,10 +469,14 @@ class EventHandler:
                     time.sleep(EventHandler.c_RequestCollapseDelayTimeSecFirstSend)
                 else:
                     # We are in a send period.
-                    # This might happen if the user is changing a lot of things rapidly. To prevent spamming, we want to back off event sends.
+                    # Allow a few events to go through quickly.
                     self.SentCountThisPeriod += 1
-                    self.SentCountThisPeriod = min(self.SentCountThisPeriod, 3)
-                    time.sleep(EventHandler.c_RequestCollapseDelayTimeSec * self.SentCountThisPeriod)
+                    if self.SentCountThisPeriod <= 5:
+                        time.sleep(EventHandler.c_RequestCollapseDelayTimeSecFirstSend)
+                    else:
+                        # This might happen if the user is changing a lot of things rapidly. To prevent spamming, we want to back off event sends.
+                        self.SentCountThisPeriod = min(self.SentCountThisPeriod, 10)
+                        time.sleep(EventHandler.c_RequestCollapseDelayTimeSec * self.SentCountThisPeriod)
 
                 # Ensure we have an API key.
                 if self.HomewayApiKey is None or len(self.HomewayApiKey) == 0:
