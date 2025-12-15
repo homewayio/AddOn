@@ -1,7 +1,11 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.4.0
+## 2.4.6
+
+- ❌ You can now disable remote access while keeping the rest of Homeway's features working! Remote access can be disabled from the Homeway Web UI in Home Assistant.
+
+## 2.4.0 - 2.4.5
 
 - 🤖 Google Home & Alexa device filtering is here!
     - You can now use the same Home Assistant UI as you do with Nabu Casa to expose or un-expose devices to Alexa, Google Home, and Sage.

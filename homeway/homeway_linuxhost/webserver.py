@@ -410,7 +410,7 @@ class WebServer(IAccountLinkStatusUpdateHandler):
                 <div class="pinkButton featureButton" id="goToAssistantSetup">
                     Setup Alexa &amp; Google Assistant Now
                 </div>
-                <div class="pinkButton featureButton" id="goToAssistantSetup" style="margin-top:15px;">
+                <div class="pinkButton featureButton" id="goToAssistantDeviceControl" style="margin-top:15px;">
                     Control Exposed Devices
                 </div>
             </div>
@@ -465,6 +465,7 @@ class WebServer(IAccountLinkStatusUpdateHandler):
         document.getElementById("linkAccountButton").onclick = (event) => { window.open('"""+pluginLinkUrl+"""', '_blank').focus(); };
         document.getElementById("goToDashboardButton").onclick = (event) => { window.open("https://homeway.io/dashboard?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAssistantSetup").onclick = (event) => { window.open("https://homeway.io/assistant?source=addon_control", '_blank').focus(); };
+        document.getElementById("goToAssistantDeviceControl").onclick = (event) => { window.open("https://homeway.io/assistantdevicecontrol?source=addon_control", '_blank').focus(); };
         document.getElementById("goToSageSetup").onclick = (event) => { window.open("https://homeway.io/sage?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAppSetup").onclick = (event) => { window.open("https://homeway.io/app?source=addon_control", '_blank').focus(); };
         document.getElementById("goToLocalAccessSetup").onclick = (event) => { window.open("https://homeway.io/localaccess?source=addon_control", '_blank').focus(); };
