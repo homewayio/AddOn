@@ -60,8 +60,10 @@ class HomeContext(IHomeContext):
         self.WorkerThread = threading.Thread(target=self._Worker)
 
         # Setup the cached data
+        self.CacheVersion = 0
         self.CacheLock = threading.Lock()
         self.CacheUpdatedEvent = threading.Event()
+        self.IsDelayedCacheUpdateThreadRunning = False
 
         # These are sent to Sage to give full home context and live state context
         self.SageHomeContextResult:Optional[CompressionResult] = None
@@ -261,6 +263,33 @@ class HomeContext(IHomeContext):
 
     # Fired when the event handler detects a entity/device/area/whatever was added, removed, or the name changed.
     def _OnStateChangedCallback(self) -> None:
+        # This can be spammy if a lot of changes comm in at the same time.
+        # Some of these might also force a cache refresh, which then means we don't need to do it twice.
+        # So we will use a little delay thread logic to batch up multiple calls.
+        capturedCacheVersion = 0
+        def delayedThread():
+            try:
+                # Wait a little bit to batch up multiple calls.
+                # But we can't wait too long because we want to make sure the state is updated if another
+                # call comes in quickly that needs the update.
+                time.sleep(0.5)
+                # Before we set the event, check that nothing else updated the cache while we were waiting.
+                with self.CacheLock:
+                    if capturedCacheVersion != self.CacheVersion:
+                        # The cache was updated while we were waiting, so no need to do anything.
+                        self.Logger.debug(f"Home Context delayed cache update thread found cache was already updated, skipping refresh. Started at version {capturedCacheVersion}, current version {self.CacheVersion}.")
+                        return
+                # Now that we waited, we can ask the worker to refresh.
+                self.WorkerGoEvent.set()
+            except Exception as e:
+                Sentry.OnException("Home Context delayed cache update thread error", e)
+            finally:
+                self.IsDelayedCacheUpdateThreadRunning = False
+        with self.CacheLock:
+            if self.IsDelayedCacheUpdateThreadRunning is False:
+                capturedCacheVersion = self.CacheVersion
+                self.IsDelayedCacheUpdateThreadRunning = True
+                threading.Thread(target=delayedThread).start()
         # If this happens, we need to update the Home Context.
         self.WorkerGoEvent.set()
 
@@ -645,6 +674,8 @@ class HomeContext(IHomeContext):
 
         # Lock and swap
         with self.CacheLock:
+            # Increment the cache version, so waiters know it was updated.
+            self.CacheVersion += 1
             # These are the compressed results we send to Sage.
             self.SageHomeContextResult = compressionResult
             self.SageLiveStateEntityFilter = sageLiveStateUpdateEntityFilter

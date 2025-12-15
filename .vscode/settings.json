@@ -118,6 +118,7 @@
         "streammsgbuilder",
         "telemetryaccumulator",
         "threaddebug",
+        "threadedqueue",
         "tunables",
         "Unraid",
         "urllib",
