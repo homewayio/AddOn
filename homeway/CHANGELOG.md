@@ -1,16 +1,15 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.4.6
 
-- ❌ You can now disable remote access while keeping the rest of Homeway's features working! Remote access can be disabled from the Homeway Web UI in Home Assistant.
-
-## 2.4.0 - 2.4.5
+## 2.5.0 - 2.4.0
 
 - 🤖 Google Home & Alexa device filtering is here!
     - You can now use the same Home Assistant UI as you do with Nabu Casa to expose or un-expose devices to Alexa, Google Home, and Sage.
     - In a few weeks, you will also be able to expose and un-expose devices directly from the Homeway website!
     - If you already have devices exposed the way you wish, this update will atomically sync your Google Home and Alexa devices to match!
+- 🐛 We fixed the bug that caused the "failed login attempt from localhost" notification!
+- 🛑 You can now disable remote access while keeping the rest of Homeway's features working! Remote access can be disabled from the Homeway Web UI in Home Assistant.
 
 ## 2.3.0
 
