@@ -472,7 +472,8 @@ class WebServer(IAccountLinkStatusUpdateHandler):
         const remoteSwitch = document.getElementById('enable-remote-access-switch');
         remoteSwitch.onchange = (event) => {
             const enabled = remoteSwitch.checked;
-            fetch("/api/remote_access_enabled", {
+            // This must be relative to this page, since the hosted web page in HA is a long path.
+            fetch("api/remote_access_enabled", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
