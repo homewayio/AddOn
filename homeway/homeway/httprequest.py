@@ -146,7 +146,7 @@ class HttpRequest:
                 headers["Authorization"] = f"Bearer {accessToken}"
 
                 # Rewrite the path, which is dependent on if we are running in the addon container or standalone.
-                pathOrUrl = serverInfoHandler.GetServerBaseUrl("http") + pathOrUrl
+                pathOrUrl = serverInfoHandler.GetApiServerBaseUrl("http") + pathOrUrl
                 pathOrUrlType = PathTypes.Absolute
         else:
             # If this isn't a HA core api call, it's a standard remote access call

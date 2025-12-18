@@ -2,13 +2,17 @@ import logging
 from typing import Optional
 import requests
 
+from .serverinfo import ServerInfo
 from .configmanager import ConfigManager
+from ..config import Config
 
 
 class ServerDiscoveryResponse:
-    def __init__(self, port:int, isHttps:bool) -> None:
+    def __init__(self, hostnameOrIp:str, port:int, isHttps:bool, accessToken:Optional[str]) -> None:
+        self.HostnameOrIp = hostnameOrIp
         self.Port = port
         self.IsHttps = isHttps
+        self.AccessToken: Optional[str] = accessToken
 
 
 # Home Assistant can be setup on a number of different ports, it's usually 8123, but it can be different.
@@ -21,10 +25,58 @@ class ServerDiscovery:
         self.HaConfig = configManager
 
 
+    # This logic is important, it inits all of the hostnames we use to the correct values depending on the addon install type.
+    # This must return a config for the addon to continue starting.
+    def GetHomeAssistantServerInfo(self, config:Config) -> ServerDiscoveryResponse:
+
+        # One very special case is if we are running in the Home Assistant addon environment.
+        # When this is true, we have special docker hostnames we can use to connect directly to the Home Assistant core.
+        # This is much more reliable than trying to use the network IP or hostname.
+        specialAddonSupervisorAccessToken = ServerInfo.GetAddonDockerSupervisorAccessToken()
+        if specialAddonSupervisorAccessToken is not None:
+            # In this case, the correct config is:
+            #   API & WS -> http://supervisor/core/api/ (with access token from the environment)
+            #   HTTP Frontend -> http://homeassistant:8123/
+            # The API is handled automatically by the GetApiServerBaseUrl class.
+            # So for here, we need to return the HA frontend server info.
+            self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
+            return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
+
+        # If we are here, we are running standalone, so we need to get the server info from the config.
+        configHomeAssistantIpOrHostname = config.GetStrRequired(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
+        configHomeAssistantPort = config.GetInt(Config.HomeAssistantSection, Config.HaPortKey, 8123)
+        configHomeAssistantUseHttps = config.GetBool(Config.HomeAssistantSection, Config.HaUseHttps, False)
+        configAccessToken = config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
+        if configAccessToken is None:
+            self.Logger.info("No Home Assistant access token found in config or environment.")
+        else:
+            self.Logger.info("Using Home Assistant access token from config.")
+
+        # Try to find the server on the given IP or hostname.
+        discoveryResult = self._SearchForServerDetails(configHomeAssistantIpOrHostname, configHomeAssistantPort, configHomeAssistantUseHttps, configAccessToken)
+        if discoveryResult is not None:
+            self.Logger.info(f"Discovered Home Assistant server at {discoveryResult.HostnameOrIp}:{discoveryResult.Port}, HTTPS: {discoveryResult.IsHttps}")
+            return discoveryResult
+
+        # Report and set defaults.
+        self.Logger.error("Failed to discover Home Assistant server on the given IP or hostname and known ports from the config. We will attempt to use what's in the config.")
+        if configHomeAssistantPort is None:
+            configHomeAssistantPort = 8123
+            self.Logger.info(f"No Home Assistant port specified in config, defaulting to {configHomeAssistantPort}")
+        if configHomeAssistantUseHttps is None:
+            configHomeAssistantUseHttps = False
+            self.Logger.info(f"No Home Assistant HTTPS setting specified in config, defaulting to {configHomeAssistantUseHttps}")
+        return ServerDiscoveryResponse(configHomeAssistantIpOrHostname, configHomeAssistantPort, configHomeAssistantUseHttps, configAccessToken)
+
+
     # This will search for a Home Assistant server on the given IP or hostname.
     # Providing an access code is ideal, because it allows us to ensure that we are connected to the correct server, by using an authed API call.
     # If a port hint is provided, it will be checked first.
-    def SearchForServerPort(self, ipOrHostname:str, accessCode:Optional[str]=None, portHint:Optional[int]=None) -> Optional[ServerDiscoveryResponse]:
+    def _SearchForServerDetails(self, ipOrHostname:str, portHint:Optional[int], forceHttpsOnly:Optional[bool], accessCode:Optional[str]) -> Optional[ServerDiscoveryResponse]:
+
+        # Note! We need to be careful with this discovery process, because if we hit a Home Assistant server valid API but have
+        # no or bad auth, Home Assistant will show a notification to the user, which is annoying.
+        # Since we don't use this path for in HA addon installs, it's less of a concern, but still something to be aware of.
 
         # We will try all of these ports to see if we can find anything.
         # These are listed in the order of ideal to least ideal.
@@ -68,14 +120,16 @@ class ServerDiscovery:
                     return None
                 accessCode = None
 
-            # Look for an http server
-            for port in ports:
-                if self._CheckForHaServer(ipOrHostname, port, accessCode):
-                    return ServerDiscoveryResponse(port, False)
+            # Check if the config allows http, if so, try it first.
+            if forceHttpsOnly is None or forceHttpsOnly is False:
+                # Look for an http server
+                for port in ports:
+                    if self._CheckForHaServer(ipOrHostname, port, accessCode):
+                        return ServerDiscoveryResponse(ipOrHostname, port, False, accessCode)
             # Look for an https server
             for port in ports:
                 if self._CheckForHaServer(ipOrHostname, port, accessCode, True):
-                    return ServerDiscoveryResponse(port, True)
+                    return ServerDiscoveryResponse(ipOrHostname, port, True, accessCode)
 
         # No server found on the given ports.
         return None

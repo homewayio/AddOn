@@ -1,35 +1,48 @@
 {
-    "name": "Homeway Local Dev Container",
-    "image": "ghcr.io/home-assistant/devcontainer:addons",
-    "appPort": ["7123:8123", "7357:4357"],
-    "postStartCommand": "bash devcontainer_bootstrap",
-    "runArgs": ["-e", "GIT_EDITOR=code --wait", "--privileged"],
-    "containerEnv": {
-      "WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}"
-    },
-    "customizations":{
-      "vscode": {
-        "extensions": [
-            "ms-python.python",
-            "ms-python.vscode-pylance",
-            "streetsidesoftware.code-spell-checker",
-            "ms-python.pylint",
-            "shardulm94.trailing-spaces",
-            "esbenp.prettier-vscode"
-        ],
-        "settings": {
-          "terminal.integrated.profiles.linux": {
-            "zsh": {
-              "path": "/usr/bin/zsh"
-            }
-          },
-          "terminal.integrated.defaultProfile.linux": "zsh",
-          "editor.formatOnPaste": false,
-          "editor.formatOnSave": true,
-          "editor.formatOnType": true,
-          "files.trimTrailingWhitespace": true
-        }
+  // From https://github.com/home-assistant/devcontainer/blob/main/addons/devcontainer.json
+  // We added this features to get PY and added some extensions and settings below.
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  "name": "Homeway Local Dev Container",
+  "image": "ghcr.io/home-assistant/devcontainer:2-addons",
+  "appPort": ["7123:8123", "7357:4357"],
+  "postStartCommand": "bash devcontainer_bootstrap",
+  "runArgs": ["-e", "GIT_EDITOR=code --wait", "--privileged"],
+  "workspaceFolder": "/mnt/supervisor/addons/local/${localWorkspaceFolderBasename}",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${containerWorkspaceFolder},type=bind,consistency=cached",
+  "containerEnv": {
+    "WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "streetsidesoftware.code-spell-checker",
+        "ms-python.pylint",
+        "shardulm94.trailing-spaces",
+        "timonwong.shellcheck"
+        // remove this, we don't need it auto formatting "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/usr/bin/zsh"
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "editor.formatOnPaste": false,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "files.trimTrailingWhitespace": true
       }
-    },
-    "mounts": [ "type=volume,target=/var/lib/docker" ]
-  }
+    }
+  },
+  "mounts": [
+    "type=volume,target=/var/lib/docker",
+    "type=volume,target=/mnt/supervisor"
+  ]
+}

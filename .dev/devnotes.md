@@ -3,14 +3,23 @@
 Follow this guide to setup the local docker container and running it.
 https://developers.home-assistant.io/docs/add-ons/testing
 
+If any of this fails, try pulling the new devcontainer.json and task.json files from:
+- https://github.com/home-assistant/devcontainer?tab=readme-ov-file
+
 - Open the project in VS code and the re-open into a dev container
 - When open, Ctrl-Shift-P to open the commands, and then type "Run Task"
 - Select "Start Home Assistant"
-- Go go http://localhost:8123
+- Go to http://localhost:7123
+  - Go to http://localhost:7357/ for the HA supervisor
+- Important!
+  - You must comment out the `image:` var in the addon config or it will pull the image instead of using local code.
+  - If you forget, comment it out, bump the version number, and force an addon update check. Wait until the version number in the HA ui changes.
 - In Home Assistant, go to the addons, select install, and you will see Homeway listed as local.
 - To update after making changes:
-    - bump the version number in the config and comment out the image path.
-    - then in HA refresh the addons, go into the Homeway page, and hit update.
+  - Go the addon page in HA
+  - Stop the addon
+  - Hit rebuild
+  - Restart it.
 
 
 ## Ro Run The Frontend In Dev
@@ -45,23 +54,20 @@ frontend:
 
 ref: https://developers.home-assistant.io/docs/frontend/development/
 
-
-
 ## To Run The Dev Host On A Remote Linux Device
 
 - Clone this repo in on debian based OS.
 - Open VS Code and remote into the <repo root>/homeway/
 - Setup A PY3 virtual environment
-    - python3 -m venv py3venv
-    - source py3venv/bin/activate
+  - python3 -m venv py3venv
+  - source py3venv/bin/activate
 - Install or update the required python libs
-    - pip install -r ./homeway/requirements.txt
+  - pip install -r ./homeway/requirements.txt
 - Create the dir /home/pi/homeway-store
-    - Or edit the dev config for a different path.
+  - Or edit the dev config for a different path.
 - In VS Code, select the "Run And Debug" tab
 - Select Linux Host - Dev
 - Press F5 to run!
-
 
 ## Editing the Dev Host vars
 

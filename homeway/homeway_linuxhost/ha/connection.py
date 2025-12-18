@@ -137,7 +137,7 @@ class Connection(IHomeAssistantWebSocket):
 
                 # Start the web socket connection.
                 # If we got auth from the env var, we running in the add on and use this address.
-                uri = f"{(ServerInfo.GetServerBaseUrl('ws'))}/api/websocket"
+                uri = f"{(ServerInfo.GetApiServerBaseUrl('ws'))}/api/websocket"
                 self.Logger.info(f"{self._getLogTag()} Starting connection to [{uri}]")
                 self.Ws = Client(uri, onWsOpen=self.Opened, onWsData=self._OnData, onWsClose=self.Closed)
 

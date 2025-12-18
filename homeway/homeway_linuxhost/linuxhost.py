@@ -146,43 +146,18 @@ class LinuxHost(IStateChangeHandler):
             configManager = ConfigManager(self.Logger)
             self.WebServer.RegisterForAccountStatusUpdates()
 
-            # Get the Home Assistant server details from the config.
-            homeAssistantIpOrHostname = self.Config.GetStrRequired(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
-            homeAssistantPort = self.Config.GetIntRequired(Config.HomeAssistantSection, Config.HaPortKey, 8123)
-            homeAssistantUseHttps = self.Config.GetBoolRequired(Config.HomeAssistantSection, Config.HaUseHttps, False)
-            accessToken = self.Config.GetStr(Config.HomeAssistantSection, Config.HaAccessTokenKey, None)
-
-            # For port discovery, it's ideal to have the access token, to ensure we found the exact right server.
-            discoveryAccessToken = accessToken
-            if discoveryAccessToken is None:
-                # Try to get the access token from the env which will work if we are running in a container.
-                discoveryAccessToken = ServerInfo.GetAccessToken()
-                if discoveryAccessToken is None:
-                    # This shouldn't really happen.
-                    self.Logger.warning("No access token was found in the config or env.")
-                else:
-                    self.Logger.info("Using HA access token from container env.")
-            else:
-                self.Logger.info("Using HA access token from config.")
-
             # Use the discovery class to find the correct port for Home Assistant.
+            # For addons running in the Home Assistant docker ecosystem, this will return the optimal docker direct resolve hostnames and configs.
             # For standalone plugin installs, the installer will get the port set correctly with the user's help.
-            # In that case, the discovery will use the hint port and instantly find the correct server.
-            # For addon installs, the user might have a custom setup that requires some searching to find the right port.
             serverDiscovery = ServerDiscovery(self.Logger, configManager)
-            result = serverDiscovery.SearchForServerPort(homeAssistantIpOrHostname, discoveryAccessToken, homeAssistantPort)
-            if result is not None:
-                homeAssistantPort = result.Port
-                homeAssistantUseHttps = result.IsHttps
-            else:
-                self.Logger.warning("Server discovery failed to find a port %s, we will just use the default [%s]", homeAssistantIpOrHostname, str(homeAssistantPort))
+            result = serverDiscovery.GetHomeAssistantServerInfo(self.Config)
 
             # Set the final ips, port, and access token.
-            self.Logger.info("Setting up Home Assistant connection to [%s:%s] https:%s", homeAssistantIpOrHostname, str(homeAssistantPort), str(homeAssistantUseHttps))
-            HttpRequest.SetDirectServicePort(homeAssistantPort)
-            HttpRequest.SetDirectServiceAddress(homeAssistantIpOrHostname)
-            HttpRequest.SetDirectServiceUseHttps(homeAssistantUseHttps)
-            ServerInfo.SetServerInfo(homeAssistantIpOrHostname, homeAssistantPort, homeAssistantUseHttps, accessToken)
+            self.Logger.info("Setting up Home Assistant connection to [%s:%s] https:%s", result.HostnameOrIp, str(result.Port), str(result.IsHttps))
+            HttpRequest.SetDirectServicePort(result.Port)
+            HttpRequest.SetDirectServiceAddress(result.HostnameOrIp)
+            HttpRequest.SetDirectServiceUseHttps(result.IsHttps)
+            ServerInfo.SetServerInfo(result.HostnameOrIp, result.Port, result.IsHttps, result.AccessToken)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir, pluginId)

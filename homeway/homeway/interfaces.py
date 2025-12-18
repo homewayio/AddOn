@@ -230,6 +230,7 @@ class IServerInfoHandler(ABC):
     # Returns the full <protocol>://<host or ip>:<port> depending on how the access token is setup, either in the docker container or running independently.
     # Takes a string that must be "http" or "ws" depending on the desired protocol. This can't be an enum since it's used over the compat handler API.
     # The protocol will automatically be converted to https or wss from the insecure mode as needed, determined by the server config.
+    # This only works for API and WS calls, not frontend http calls. When running as an HA addon the http web server is a different path.
     @abstractmethod
-    def GetServerBaseUrl(self, protocol:str) -> str:
+    def GetApiServerBaseUrl(self, protocol:str) -> str:
         pass
