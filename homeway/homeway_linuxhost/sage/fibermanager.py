@@ -270,7 +270,8 @@ class FiberManager(IFiberManager):
         data = requestJson.encode("utf-8")
 
         # Do the operation, wait for the result.
-        result = await self._SendAndReceive(SageOperationTypes.Chat, Buffer(data), createDataContextOffset, onDataStreamReceived, True)
+        # We set the timeout higher for chat, since the LLMs can take a bit longer, especially with multiple function calls.
+        result = await self._SendAndReceive(SageOperationTypes.Chat, Buffer(data), createDataContextOffset, onDataStreamReceived, True, timeoutSec=60.0)
 
         # If the error string or status code is set at any time, we failed, regardless of the mode.
         # Check these before anything else, to ensure they get handled.
