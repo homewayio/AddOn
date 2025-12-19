@@ -166,12 +166,13 @@ class FiberManager(IFiberManager):
     async def Speak(self,
                     text:str,
                     voiceName:Optional[str],
+                    languageCode:Optional[str],
                     streamingDataReceivedCallback:Callable[["SpeakDataResponse"], Awaitable[bool]]
                     ) -> bool:
 
         # Creates the sending data context for the text we want to send.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, SageDataTypesFormats.Json)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json, languageCode=languageCode)
 
         # This onDataStreamReceived will be called each time there's more chunked audio data
         # to stream back.
@@ -225,12 +226,13 @@ class FiberManager(IFiberManager):
                    requestJson:str,
                    homeContext:Optional[CompressionResult],
                    states:Optional[CompressionResult],
-                   liveContext:Optional[CompressionResult]
+                   liveContext:Optional[CompressionResult],
+                   languageCode:Optional[str]
                    ) -> Optional[str]:
 
         # Our data type is a json string.
         def createDataContextOffset(builder:octoflatbuffers.Builder) -> int:
-            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext, states=states, liveContext=liveContext)
+            return self._CreateDataContext(builder, SageDataTypesFormats.Json, homeContext=homeContext, states=states, liveContext=liveContext, languageCode=languageCode)
 
         # We expect the onDataStreamReceived handler to be called once, with the full response.
         class ResponseContext:

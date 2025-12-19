@@ -101,6 +101,7 @@
     "sagehandler",
     "sagehistory",
     "sagehost",
+    "sagelanguage",
     "sagetranscribehandler",
     "serverauth",
     "servercon",

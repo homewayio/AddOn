@@ -22,6 +22,7 @@ from ..ha.homecontext import HomeContext
 
 from .fabric import Fabric
 from .sagehistory import SageHistory
+from .sagelanguage import SageLanguage
 from .fibermanager import FiberManager, SpeakDataResponse
 from .sagetranscribehandler import SageTranscribeHandler
 from .interfaces import ISageHandler
@@ -44,7 +45,7 @@ class SageHandler(AsyncEventHandler, ISageHandler):
 
     # Note this handler is created for each new request flow, like for a full Listen session.
     def __init__(self, logger:logging.Logger, fabric:Fabric, fiberManger:FiberManager, homeContext:HomeContext,
-                   sageHistory:SageHistory, sagePrefix:Optional[str], devLocalHomewayServerAddress:Optional[str],
+                   sageHistory:SageHistory, sageLanguage:SageLanguage, sagePrefix:Optional[str], devLocalHomewayServerAddress:Optional[str],
                    *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.Logger = logger
@@ -53,6 +54,7 @@ class SageHandler(AsyncEventHandler, ISageHandler):
         self.HomeContext = homeContext
         self.SageHistory = sageHistory
         self.SagePrefix = sagePrefix
+        self.SageLanguage = sageLanguage
         self.DevLocalHomewayServerAddress = devLocalHomewayServerAddress
 
         # This is created when the first audio stream starts and is reset when the stream ends.
@@ -86,6 +88,8 @@ class SageHandler(AsyncEventHandler, ISageHandler):
             transcribe = Transcribe.from_event(event)
             if transcribe.language is not None:
                 self.TranscribeLanguage = transcribe.language
+            # Kick the language refresh so it's ready for chat and TTS.
+            self.SageLanguage.Refresh()
             return True
 
         # All speech to text audio is handled by this function.
@@ -132,9 +136,13 @@ class SageHandler(AsyncEventHandler, ISageHandler):
             homeContext = self.HomeContext.GetSageHomeContext()
             states, liveContext = self.HomeContext.GetStatesAndLiveContext()
 
+            # Try to get the conversation language from SageLanguage.
+            # Same as with TTS, the event doesn't have the language, so we have to get it ourselves.
+            languageCode:Optional[str] = self.SageLanguage.GetConversationLanguage()
+
             # Make the request.
             start = time.time()
-            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext, states, liveContext)
+            responseText = await self.FiberManager.Chat(requestJsonStr, homeContext, states, liveContext, languageCode)
 
             # Check the result
             if responseText is None:
@@ -160,6 +168,10 @@ class SageHandler(AsyncEventHandler, ISageHandler):
             voiceName:Optional[str] = None
             if transcript.voice is not None:
                 voiceName = transcript.voice.name
+
+            # Get the TTS language from SageLanguage if possible.
+            # For some reason the STT events have the language, but the TTS don't.
+            languageCode:Optional[str] = self.SageLanguage.GetTtsLanguage()
 
             # Ensure all of the text is joined on one line.
             text = " ".join(transcript.text.strip().splitlines())
@@ -201,7 +213,7 @@ class SageHandler(AsyncEventHandler, ISageHandler):
 
             self.Logger.debug(f"Sage - Synthesize Start - {text}")
             start = time.time()
-            result = await self.FiberManager.Speak(text, voiceName, streamingDataReceivedCallback)
+            result = await self.FiberManager.Speak(text, voiceName, languageCode, streamingDataReceivedCallback)
             self.Logger.debug(f"Sage Synthesize End - {text} - voice: {voiceName} - time: {time.time() - start} - chunks: {synthContext.ChunkCount} - bytes: {synthContext.TotalBytes}")
 
             # If we wrote anything, we need to send the audio stop event.
