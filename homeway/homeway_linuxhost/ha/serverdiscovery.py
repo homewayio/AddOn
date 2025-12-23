@@ -45,7 +45,7 @@ class ServerDiscovery:
                 # Use the expected docker hostnames and ports.
                 webIpOrHostname="homeassistant", webPort=8123,
                 # Force checking using the supervisor API path.
-                apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="supervisor/core/api/",
+                apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="http://supervisor/core/api/",
                 accessCode=specialAddonSupervisorAccessToken,
                 useHttps=False):
                     self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
