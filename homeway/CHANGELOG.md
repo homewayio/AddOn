@@ -2,8 +2,9 @@
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
 
-## 2.5.2 - 2.4.0
+## 2.5.3 - 2.4.0
 
+- 🐛 Fixing a connection bug some users are experiencing.
 - 🤖 Google Home & Alexa device filtering is here!
     - You can now use the same Home Assistant UI as you do with Nabu Casa to expose or un-expose devices to Alexa, Google Home, and Sage.
     - In a few weeks, you will also be able to expose and un-expose devices directly from the Homeway website!

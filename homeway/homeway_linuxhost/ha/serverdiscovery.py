@@ -42,14 +42,15 @@ class ServerDiscovery:
             # The API is handled automatically by the GetApiServerBaseUrl class.
             # So for here, we need to return the HA frontend server info.
             if self._CheckForHaWebAndAPIAccess(
-                # Use the expected docker hostnames and ports.
-                webIpOrHostname="homeassistant", webPort=8123,
-                # Force checking using the supervisor API path.
-                apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="http://supervisor/core/api/",
-                accessCode=specialAddonSupervisorAccessToken,
-                useHttps=False):
-                    self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
-                    return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
+                    # Use the expected docker hostnames and ports.
+                    webIpOrHostname="homeassistant", webPort=8123,
+                    # Force checking using the supervisor API path.
+                    apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="http://supervisor/core/api/",
+                    accessCode=specialAddonSupervisorAccessToken,
+                    useHttps=False
+                ):
+                self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
+                return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
             else:
                 self.Logger.warning("Home Assistant Addon Environment detected, but failed to connect to Home Assistant core via direct docker access. Falling back to config-based discovery.")
 
@@ -137,19 +138,19 @@ class ServerDiscovery:
                 # For these searches, the web and api hostname and port are the same.
                 for port in ports:
                     if self._CheckForHaWebAndAPIAccess(
-                        webIpOrHostname=ipOrHostname, webPort=port,
-                        apiIpOrHostname=ipOrHostname, apiPort=port,
-                        apiFullUrlOverride=None,
-                        accessCode=accessCode, useHttps=False
+                            webIpOrHostname=ipOrHostname, webPort=port,
+                            apiIpOrHostname=ipOrHostname, apiPort=port,
+                            apiFullUrlOverride=None,
+                            accessCode=accessCode, useHttps=False
                         ):
                         return ServerDiscoveryResponse(ipOrHostname, port, False, accessCode)
             # Look for an https server
             for port in ports:
                 if self._CheckForHaWebAndAPIAccess(
-                    webIpOrHostname=ipOrHostname, webPort=port,
-                    apiIpOrHostname=ipOrHostname, apiPort=port,
-                    apiFullUrlOverride=None,
-                    accessCode=accessCode, useHttps=True
+                        webIpOrHostname=ipOrHostname, webPort=port,
+                        apiIpOrHostname=ipOrHostname, apiPort=port,
+                        apiFullUrlOverride=None,
+                        accessCode=accessCode, useHttps=True
                     ):
                     return ServerDiscoveryResponse(ipOrHostname, port, True, accessCode)
 
