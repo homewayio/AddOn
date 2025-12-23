@@ -32,6 +32,8 @@ class ServerDiscovery:
         # One very special case is if we are running in the Home Assistant addon environment.
         # When this is true, we have special docker hostnames we can use to connect directly to the Home Assistant core.
         # This is much more reliable than trying to use the network IP or hostname.
+        # BUT - In some instances it seems the direct docker access via the `homeassistant` hostname can fail or be blocked by configs.
+        # So we still test to make sure we can reach it first.
         specialAddonSupervisorAccessToken = ServerInfo.GetAddonDockerSupervisorAccessToken()
         if specialAddonSupervisorAccessToken is not None:
             # In this case, the correct config is:
@@ -39,8 +41,17 @@ class ServerDiscovery:
             #   HTTP Frontend -> http://homeassistant:8123/
             # The API is handled automatically by the GetApiServerBaseUrl class.
             # So for here, we need to return the HA frontend server info.
-            self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
-            return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
+            if self._CheckForHaWebAndAPIAccess(
+                # Use the expected docker hostnames and ports.
+                webIpOrHostname="homeassistant", webPort=8123,
+                # Force checking using the supervisor API path.
+                apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="supervisor/core/api/",
+                accessCode=specialAddonSupervisorAccessToken,
+                useHttps=False):
+                    self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
+                    return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
+            else:
+                self.Logger.warning("Home Assistant Addon Environment detected, but failed to connect to Home Assistant core via direct docker access. Falling back to config-based discovery.")
 
         # If we are here, we are running standalone, so we need to get the server info from the config.
         configHomeAssistantIpOrHostname = config.GetStrRequired(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
@@ -123,68 +134,89 @@ class ServerDiscovery:
             # Check if the config allows http, if so, try it first.
             if forceHttpsOnly is None or forceHttpsOnly is False:
                 # Look for an http server
+                # For these searches, the web and api hostname and port are the same.
                 for port in ports:
-                    if self._CheckForHaServer(ipOrHostname, port, accessCode):
+                    if self._CheckForHaWebAndAPIAccess(
+                        webIpOrHostname=ipOrHostname, webPort=port,
+                        apiIpOrHostname=ipOrHostname, apiPort=port,
+                        apiFullUrlOverride=None,
+                        accessCode=accessCode, useHttps=False
+                        ):
                         return ServerDiscoveryResponse(ipOrHostname, port, False, accessCode)
             # Look for an https server
             for port in ports:
-                if self._CheckForHaServer(ipOrHostname, port, accessCode, True):
+                if self._CheckForHaWebAndAPIAccess(
+                    webIpOrHostname=ipOrHostname, webPort=port,
+                    apiIpOrHostname=ipOrHostname, apiPort=port,
+                    apiFullUrlOverride=None,
+                    accessCode=accessCode, useHttps=True
+                    ):
                     return ServerDiscoveryResponse(ipOrHostname, port, True, accessCode)
 
         # No server found on the given ports.
         return None
 
 
-    def _CheckForHaServer(self, ipOrHostname:str, port:int, accessCode:Optional[str], useHttps:bool=False, timeoutSec:float=1.0) -> bool:
+    def _CheckForHaWebAndAPIAccess(self,
+                                   webIpOrHostname:str, webPort:int,
+                                   apiIpOrHostname:Optional[str], apiPort:Optional[int],
+                                   apiFullUrlOverride:Optional[str],
+                                   accessCode:Optional[str], useHttps:bool=False, timeoutSec:float=1.0
+                                   ) -> bool:
         try:
-            # Create the base URL for testing
             protocol = "https" if useHttps is True else "http"
-            baseUrl = f"{protocol}://{ipOrHostname}:{port}"
 
             # To start, if we have an access code, we will first try to find the API.
             # If the access code matches, we know this is the right server and it's Home Assistant.
             if accessCode is not None:
+                # Create the base URL for testing
+                apiBaseUrl = f"{protocol}://{apiIpOrHostname}:{apiPort}"
+
                 # Use the basic API path to test if it's there.
                 # This will return a 200 with a simple json response on success.
-                url = f"{baseUrl}/api/"
+                url = f"{apiBaseUrl}/api/"
+                if apiFullUrlOverride is not None:
+                    url = apiFullUrlOverride
+
                 headers = {
                     "Authorization" : f"Bearer {accessCode}",
                     "Content-Type" : "application/json",
                 }
-                self.Logger.debug(f"Searching for the Home Assistant API at {url}...")
+                self.Logger.info(f"Searching for the Home Assistant API at {url}...")
                 try:
                     # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
                     # This is safe to do, because the connection is either going be over localhost or on the local LAN
                     response = requests.get(url, headers=headers, timeout=timeoutSec, verify=False)
                     # If we know we failed, report false.
                     # On success, we want to try the HTML check next.
-                    self.Logger.debug(f"Query result for Home Assistant API at {url}, status code {response.status_code}")
+                    self.Logger.info(f"Query result for Home Assistant API at {url}, status code {response.status_code}")
                     if response.status_code != 200:
                         return False
                 except Exception as e:
                     # Assume the exception is because there's no server on the port.
-                    self.Logger.debug(f"Query result for Home Assistant API at {url}, exception {str(e)}")
+                    self.Logger.info(f"Query result for Home Assistant API at {url}, exception {str(e)}")
                     return False
 
             # If we get here, the API either was successful or there was no access code.
             # In either case, we want to make sure we can get the html page from the found port as well.
+            webBaseUrl = f"{protocol}://{webIpOrHostname}:{webPort}"
             headers = {
                 "Content-Type" : "text/html",
             }
-            self.Logger.debug(f"Searching for Home Assistant HTTP at {baseUrl}...")
+            self.Logger.info(f"Searching for Home Assistant HTTP at {webBaseUrl}...")
             try:
                 # It's important to set verify (verify SSL certs) to false, because if the connection is using https, we aren't using a hostname, so the connection will fail otherwise.
                 # This is safe to do, because the connection is either going be over localhost or on the local LAN
-                response = requests.get(baseUrl, headers=headers, timeout=timeoutSec, verify=False)
-                self.Logger.debug(f"Query result for Home Assistant HTTP at {baseUrl}, status code {response.status_code}")
+                response = requests.get(webBaseUrl, headers=headers, timeout=timeoutSec, verify=False)
+                self.Logger.info(f"Query result for Home Assistant HTTP at {webBaseUrl}, status code {response.status_code}")
                 # On success, we found a good candidate!
                 if response.status_code == 200:
                     return True
             except Exception as e:
-                self.Logger.debug(f"Query result for Home Assistant HTTP at {baseUrl}, exception {str(e)}")
+                self.Logger.info(f"Query result for Home Assistant HTTP at {webBaseUrl}, exception {str(e)}")
                 # Assume the exception is because there's no server on the port.
                 return False
 
         except Exception as e:
-            self.Logger.error(f"Exception while checking for Home Assistant server at port {port}. Error: {str(e)}")
+            self.Logger.error(f"Exception while checking for Home Assistant server at port {apiPort}. Error: {str(e)}")
         return False
