@@ -225,11 +225,11 @@ class ConfigManager(IConfigManager):
             # If safest to just append it to the end of the file.
             with open(configFilePath, 'a', encoding="utf-8") as f:
                 f.writelines(lineEnding)
-                f.writelines("# Added By Homeway to enable proper HTTP support."+lineEnding)
+                f.writelines("# Added By Homeway to enable proper HTTP proxy support."+lineEnding)
                 f.writelines("http:"+lineEnding)
                 f.writelines("  use_x_forwarded_for: true"+lineEnding)
                 f.writelines("  trusted_proxies:"+lineEnding)
-                f.writelines(f"    - {desiredTrustedProxyDockerIp}  "+lineEnding)
+                f.writelines(f"    - {desiredTrustedProxyDockerIp}"+lineEnding)
                 f.writelines( "    - 127.0.0.1"+lineEnding)
                 f.writelines( "    - ::1"+lineEnding)
                 f.writelines(lineEnding)
@@ -307,9 +307,12 @@ class ConfigManager(IConfigManager):
                     break
                 # If we see a line that is not indented enough, we are done.
                 strippedLine = line.lstrip()
-                listIndent = line[:len(line)-len(strippedLine)]
-                if len(listIndent) < len(singleIndent)*2:
+                currentIndent = line[:len(line)-len(strippedLine)]
+                if len(currentIndent) < len(singleIndent)*2:
                     break
+                # Set then when we know we are in the list and it's not set.
+                if listIndent is None:
+                    listIndent = currentIndent
                 # Look for the desired docker IP.
                 if lineLower.find(dockerIpRangePrefix) != -1:
                     # We found the docker IP line, ensure it's correct.
@@ -342,6 +345,7 @@ class ConfigManager(IConfigManager):
         if len(linesToAppendAfterHttpHeader) > 0:
             insertLineNumber = httpSectionLineNumber + 1
             for newLine in linesToAppendAfterHttpHeader:
+                self.Logger.debug(f"ConfigManager._UpdateHttpConfigIfNeeded adding line to http section: `{newLine}`")
                 lines.insert(insertLineNumber, newLine)
                 insertLineNumber += 1
 
@@ -352,6 +356,7 @@ class ConfigManager(IConfigManager):
                 return False
             insertLineNumber = trustedProxiesLineNumber + 1
             for newLine in linesToAppendAfterTrustedProxy:
+                self.Logger.debug(f"ConfigManager._UpdateHttpConfigIfNeeded adding line to trusted_proxies section: `{newLine}`")
                 lines.insert(insertLineNumber, newLine)
                 insertLineNumber += 1
 
@@ -372,10 +377,11 @@ class ConfigManager(IConfigManager):
     def _RestartHomeAssistant_Thread(self, restartInSec:float) -> None:
         try:
             if self.RestartNow is True:
-                self.Logger.info("Restarting Home Assistant now due to critical config change.")
-            else:
-                self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
-                time.sleep(restartInSec)
+                # Don't do this too quick, so HA doesn't restart right after the plugin loads and users might be trying to link.
+                self.Logger.info("Restarting Home Assistant soon due to critical config change.")
+                restartInSec = 10.0
+            self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
+            time.sleep(restartInSec)
 
             # Ensure we still need the restart, there might have been another thread started that did it while we were waiting.
             if self.RestartRequired is False:
