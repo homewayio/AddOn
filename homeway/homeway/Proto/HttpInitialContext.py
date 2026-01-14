@@ -53,15 +53,8 @@ class HttpInitialContext(object):
         return None
 
     # HttpInitialContext
-    def ForwardedForIp(self) -> Optional[str]:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
-
-    # HttpInitialContext
     def Headers(self, j: int) -> Optional[HttpHeader]:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             x = self._tab.Vector(o)
             x += octoflatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
@@ -73,22 +66,29 @@ class HttpInitialContext(object):
 
     # HttpInitialContext
     def HeadersLength(self) -> int:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # HttpInitialContext
     def HeadersIsNone(self) -> bool:
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
     # HttpInitialContext
     def ApiTarget(self):
-        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             return self._tab.Get(octoflatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 1
+
+    # HttpInitialContext
+    def ForwardedForIp(self) -> Optional[str]:
+        o = octoflatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
 
 def HttpInitialContextStart(builder: octoflatbuffers.Builder):
     builder.StartObject(7)
@@ -120,14 +120,8 @@ def HttpInitialContextAddHost(builder: octoflatbuffers.Builder, host: int):
 def AddHost(builder: octoflatbuffers.Builder, host: int):
     HttpInitialContextAddHost(builder, host)
 
-def HttpInitialContextAddForwardedForIp(builder: octoflatbuffers.Builder, forwardedForIp: int):
-    builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(forwardedForIp), 0)
-
-def AddForwardedForIp(builder: octoflatbuffers.Builder, forwardedForIp: int):
-    HttpInitialContextAddForwardedForIp(builder, forwardedForIp)
-
 def HttpInitialContextAddHeaders(builder: octoflatbuffers.Builder, headers: int):
-    builder.PrependUOffsetTRelativeSlot(5, octoflatbuffers.number_types.UOffsetTFlags.py_type(headers), 0)
+    builder.PrependUOffsetTRelativeSlot(4, octoflatbuffers.number_types.UOffsetTFlags.py_type(headers), 0)
 
 def AddHeaders(builder: octoflatbuffers.Builder, headers: int):
     HttpInitialContextAddHeaders(builder, headers)
@@ -139,10 +133,16 @@ def StartHeadersVector(builder, numElems: int) -> int:
     return HttpInitialContextStartHeadersVector(builder, numElems)
 
 def HttpInitialContextAddApiTarget(builder: octoflatbuffers.Builder, apiTarget: int):
-    builder.PrependInt8Slot(6, apiTarget, 1)
+    builder.PrependInt8Slot(5, apiTarget, 1)
 
 def AddApiTarget(builder: octoflatbuffers.Builder, apiTarget: int):
     HttpInitialContextAddApiTarget(builder, apiTarget)
+
+def HttpInitialContextAddForwardedForIp(builder: octoflatbuffers.Builder, forwardedForIp: int):
+    builder.PrependUOffsetTRelativeSlot(6, octoflatbuffers.number_types.UOffsetTFlags.py_type(forwardedForIp), 0)
+
+def AddForwardedForIp(builder: octoflatbuffers.Builder, forwardedForIp: int):
+    HttpInitialContextAddForwardedForIp(builder, forwardedForIp)
 
 def HttpInitialContextEnd(builder: octoflatbuffers.Builder) -> int:
     return builder.EndObject()
