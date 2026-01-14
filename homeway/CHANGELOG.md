@@ -2,7 +2,7 @@
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
 
-## 2.5.3 - 2.4.0
+## 2.5.4 - 2.4.0
 
 - 🐛 Fixing a connection bug some users are experiencing.
 - 🤖 Google Home & Alexa device filtering is here!
