@@ -138,13 +138,16 @@ class SageLanguage:
             pipelines = response.get("result", {}).get("pipelines", [])
             for pipeline in pipelines:
                 # Look for a Homeway TTS pipeline.
-                engine = pipeline.get("tts_engine", "").lower()
-                if engine.find("homeway") != -1:
-                    # If we have a prefix, ensure the engine matches it.
-                    if self.SagePrefix is not None:
-                        prefix = self.SagePrefix.lower()
-                        if engine.lower().find(prefix) == -1:
-                            continue
+                # The tts_engine will be null if it's not be setup by the user yet.
+                engine = pipeline.get("tts_engine", None)
+                if engine is not None:
+                    engineLower = engine.lower()
+                    if engineLower.find("homeway") != -1:
+                        # If we have a prefix, ensure the engine matches it.
+                        if self.SagePrefix is not None:
+                            prefix = self.SagePrefix.lower()
+                            if engineLower.find(prefix) == -1:
+                                continue
 
                     with self.RefreshLock:
                         self.Language = pipeline.get("language")

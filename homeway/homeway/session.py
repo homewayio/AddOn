@@ -242,7 +242,7 @@ class Session(ISession):
             # Build the message
             buffer, msgStartOffsetBytes, msgSizeBytes = StreamMsgBuilder.BuildHandshakeSyn(
                 self.PluginId, self.PrivateKey, self.isPrimarySession, self.PluginVersion,
-                HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIp(),
+                HttpRequest.GetLocalHttpProxyPort(), LocalIpHelper.TryToGetLocalIpOfConnectionTarget(),
                 rasChallenge, rasChallengeKeyVerInt, summonMethod, addonType, receiveCompressionType)
 
             # Send!

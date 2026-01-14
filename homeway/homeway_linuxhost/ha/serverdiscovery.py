@@ -8,11 +8,12 @@ from ..config import Config
 
 
 class ServerDiscoveryResponse:
-    def __init__(self, hostnameOrIp:str, port:int, isHttps:bool, accessToken:Optional[str]) -> None:
+    def __init__(self, hostnameOrIp:str, port:int, isHttps:bool, accessToken:Optional[str], isSpecialHomeAssistantAddonMode:bool = False) -> None:
         self.HostnameOrIp = hostnameOrIp
         self.Port = port
         self.IsHttps = isHttps
         self.AccessToken: Optional[str] = accessToken
+        self.IsSpecialHomeAssistantAddonMode = isSpecialHomeAssistantAddonMode
 
 
 # Home Assistant can be setup on a number of different ports, it's usually 8123, but it can be different.
@@ -47,10 +48,10 @@ class ServerDiscovery:
                     # Force checking using the supervisor API path.
                     apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="http://supervisor/core/api/",
                     accessCode=specialAddonSupervisorAccessToken,
-                    useHttps=False
+                    useHttps=False,
                 ):
                 self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
-                return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken)
+                return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken, isSpecialHomeAssistantAddonMode=True)
             else:
                 self.Logger.warning("Home Assistant Addon Environment detected, but failed to connect to Home Assistant core via direct docker access. Falling back to config-based discovery.")
 

@@ -17,7 +17,7 @@ class StreamMsgBuilder:
                 isPrimarySession:bool,
                 pluginVersion:str,
                 localHttpProxyPort:int,
-                localIp:str,
+                targetLocalIp:str,
                 rsaChallenge:bytes,
                 rasKeyVersionInt:int,
                 summonMethod:int,
@@ -31,9 +31,9 @@ class StreamMsgBuilder:
         pluginIdOffset = builder.CreateString(pluginId) #pyright: ignore[reportUnknownMemberType]
         privateKeyOffset = builder.CreateString(privateKey) #pyright: ignore[reportUnknownMemberType]
         pluginVersionOffset = builder.CreateString(pluginVersion) #pyright: ignore[reportUnknownMemberType]
-        localIpOffset = None
-        if localIp is not None:
-            localIpOffset = builder.CreateString(localIp) #pyright: ignore[reportUnknownMemberType]
+        targetLocalIpOffset = None
+        if targetLocalIp is not None:
+            targetLocalIpOffset = builder.CreateString(targetLocalIp) #pyright: ignore[reportUnknownMemberType]
 
         # Setup the data vectors
         rasChallengeOffset = builder.CreateByteVector(rsaChallenge) #pyright: ignore[reportUnknownMemberType]
@@ -46,8 +46,8 @@ class StreamMsgBuilder:
         HandshakeSyn.AddPluginVersion(builder, pluginVersionOffset)
         HandshakeSyn.AddSummonMethod(builder, summonMethod)
         HandshakeSyn.AddAddonType(builder, addonType)
-        if localIpOffset is not None:
-            HandshakeSyn.AddLocalDeviceIp(builder, localIpOffset)
+        if targetLocalIpOffset is not None:
+            HandshakeSyn.AddLocalDeviceIp(builder, targetLocalIpOffset)
         HandshakeSyn.AddLocalHttpProxyPort(builder, localHttpProxyPort)
         HandshakeSyn.AddRsaChallenge(builder, rasChallengeOffset)
         HandshakeSyn.AddRasChallengeVersion(builder, rasKeyVersionInt)

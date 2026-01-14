@@ -8,6 +8,7 @@ from homeway.hostcommon import HostCommon
 from homeway.telemetry import Telemetry
 from homeway.pingpong import PingPong
 from homeway.homewaycore import Homeway
+from homeway.localip import LocalIpHelper
 from homeway.httprequest import HttpRequest
 from homeway.compression import Compression
 from homeway.httpsessions import HttpSessions
@@ -158,6 +159,9 @@ class LinuxHost(IStateChangeHandler):
             HttpRequest.SetDirectServiceAddress(result.HostnameOrIp)
             HttpRequest.SetDirectServiceUseHttps(result.IsHttps)
             ServerInfo.SetServerInfo(result.HostnameOrIp, result.Port, result.IsHttps, result.AccessToken)
+            # If this isn't running in the special Home Assistant addon mode, set the local IP override.
+            if result.IsSpecialHomeAssistantAddonMode is False:
+                LocalIpHelper.SetConnectionTargetIpOverride(result.HostnameOrIp)
 
             # Init the ping pong helper.
             PingPong.Init(self.Logger, storageDir, pluginId)

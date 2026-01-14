@@ -139,11 +139,11 @@ class WebStreamWsHelper:
                 protocol = "ws://"
                 if HttpRequest.GetLocalHttpProxyIsHttps():
                     protocol = "wss://"
-                uri = protocol + LocalIpHelper.TryToGetLocalIp() + ":" + str(HttpRequest.GetLocalHttpProxyPort()) + path
+                uri = protocol + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetLocalHttpProxyPort()) + path
             elif self.ConnectionAttempt == 3:
                 # Attempt 4 will be to try to connect with the device IP.
                 # This is needed if the server isn't bound to localhost, but only the public IP.
-                uri = "ws://" + LocalIpHelper.TryToGetLocalIp() + ":" + str(HttpRequest.GetDirectServicePort()) + path
+                uri = "ws://" + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetDirectServicePort()) + path
             else:
                 # Report the issue and return False to indicate we aren't trying to connect.
                 self.Logger.info(self.getLogMsgPrefix()+" failed to connect to relative path and has nothing else to try.")

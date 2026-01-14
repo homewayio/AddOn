@@ -287,7 +287,7 @@ class HttpRequest:
 
         # Try to get the local IP of this device and try to use the same ports with it.
         # We build these full URLs after the failures so we don't try to get the local IP on every call.
-        localIp = LocalIpHelper.TryToGetLocalIp()
+        localIp = LocalIpHelper.TryToGetLocalIpOfConnectionTarget()
 
         # We should have a fallbackLocalIpHttpProxySuffix if we are here.
         if fallbackLocalIpHttpProxySuffix is None:
