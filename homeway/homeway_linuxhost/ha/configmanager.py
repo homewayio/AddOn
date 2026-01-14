@@ -31,6 +31,7 @@ class ConfigManager(IConfigManager):
         self.Logger = logger
         self.HaConnection:Optional[Connection] = None
         self.RestartRequired:bool = False
+        self.RestartNow:bool = False
         CommandHandler.Get().RegisterConfigManager(self)
 
 
@@ -125,62 +126,241 @@ class ConfigManager(IConfigManager):
                 self.Logger.warning("UpdateConfigIfNeeded failed to get a config file path.")
                 return
 
-            # Open the file and read.
-            foundGoogleAssistantConfig:bool = False
-            foundAlexaConfig:bool = False
-            with open(configFilePath, 'r', encoding="utf-8") as f:
-                # Look for the starting lines of the configs, since they must be exact.
-                # But remember they will have line endings, so we use startwith.
-                lines = f.readlines()
-                for line in lines:
-                    lineLower = line.lower()
-                    if lineLower.startswith("google_assistant:"):
-                        foundGoogleAssistantConfig = True
-                    if lineLower.startswith("alexa:"):
-                        foundAlexaConfig = True
-
-            if foundGoogleAssistantConfig and foundAlexaConfig:
-                self.Logger.info("Google Assistant and Alexa configs found, no need to add them.")
+            # Try to update the config file.
+            assistantConfigUpdated = self._UpdateAssistantConfigIfNeeded(configFilePath)
+            httpConfigUpdated = self._UpdateHttpConfigIfNeeded(configFilePath)
+            if not assistantConfigUpdated and not httpConfigUpdated:
+                self.Logger.info("No config updates were needed.")
                 return
-
-            # Add which ever is needed.
-            # It's important to get the indents correct, or we will break the config.
-            linesToAppend:List[str] = []
-            lineEnding = "\r\n"
-
-            # Add a new line to start
-            linesToAppend.append(lineEnding)
-
-            if foundAlexaConfig is False:
-                linesToAppend.append("# Added By Homeway to enable Alexa support."+lineEnding)
-                linesToAppend.append("alexa:"+lineEnding)
-                linesToAppend.append("  smart_home:"+lineEnding)
-
-            if foundGoogleAssistantConfig is False:
-                # If we added the alexa config, add a new line to separate them.
-                if foundAlexaConfig is False:
-                    linesToAppend.append(lineEnding)
-                linesToAppend.append("# Added By Homeway to enable Google Assistant support."+lineEnding)
-                linesToAppend.append("google_assistant:"+lineEnding)
-                linesToAppend.append("  project_id: homewayio"+lineEnding)
-                linesToAppend.append("  service_account:"+lineEnding)
-                linesToAppend.append("    private_key: \"nokey\""+lineEnding)
-                linesToAppend.append("    client_email: \"support@homeway.io\""+lineEnding)
-
-            # Add a new line to the end
-            linesToAppend.append(lineEnding)
-
-            # Add the config lines.
-            with open(configFilePath, 'a', encoding="utf-8") as f:
-                f.writelines(linesToAppend)
-
-            self.Logger.info(f"Config file updated with assistant configs. Alexa: {str(foundAlexaConfig is False)}, Google Assistant: {str(foundGoogleAssistantConfig is False)}")
 
             # Start a refresh thread.
             self.RestartRequired = True
             self.RestartHomeAssistant(ConfigManager.c_TimeToIdleSec)
         except Exception as e:
             Sentry.OnException("HomeAssistantConfigManager exception.", e)
+
+
+
+    def _UpdateAssistantConfigIfNeeded(self, configFilePath:str) -> bool:
+        # Open the file and read.
+        foundGoogleAssistantConfig:bool = False
+        foundAlexaConfig:bool = False
+        with open(configFilePath, 'r', encoding="utf-8") as f:
+            # Look for the starting lines of the configs, since they must be exact.
+            # But remember they will have line endings, so we use startwith.
+            lines = f.readlines()
+            for line in lines:
+                lineLower = line.lower()
+                if lineLower.startswith("google_assistant:"):
+                    foundGoogleAssistantConfig = True
+                if lineLower.startswith("alexa:"):
+                    foundAlexaConfig = True
+
+        if foundGoogleAssistantConfig and foundAlexaConfig:
+            self.Logger.info("Google Assistant and Alexa configs found, no need to add them.")
+            return False
+
+        # Add which ever is needed.
+        # It's important to get the indents correct, or we will break the config.
+        linesToAppend:List[str] = []
+        lineEnding = "\r\n"
+
+        # Add a new line to start
+        linesToAppend.append(lineEnding)
+
+        if foundAlexaConfig is False:
+            linesToAppend.append("# Added By Homeway to enable Alexa support."+lineEnding)
+            linesToAppend.append("alexa:"+lineEnding)
+            linesToAppend.append("  smart_home:"+lineEnding)
+
+        if foundGoogleAssistantConfig is False:
+            # If we added the alexa config, add a new line to separate them.
+            if foundAlexaConfig is False:
+                linesToAppend.append(lineEnding)
+            linesToAppend.append("# Added By Homeway to enable Google Assistant support."+lineEnding)
+            linesToAppend.append("google_assistant:"+lineEnding)
+            linesToAppend.append("  project_id: homewayio"+lineEnding)
+            linesToAppend.append("  service_account:"+lineEnding)
+            linesToAppend.append("    private_key: \"nokey\""+lineEnding)
+            linesToAppend.append("    client_email: \"support@homeway.io\""+lineEnding)
+
+        # Add a new line to the end
+        linesToAppend.append(lineEnding)
+
+        # Add the config lines.
+        with open(configFilePath, 'a', encoding="utf-8") as f:
+            f.writelines(linesToAppend)
+
+        self.Logger.info(f"Config file updated with assistant configs. Alexa: {str(foundAlexaConfig is False)}, Google Assistant: {str(foundGoogleAssistantConfig is False)}")
+        return True
+
+
+    def _UpdateHttpConfigIfNeeded(self, configFilePath:str) -> bool:
+        # This one is a bit more tricky, since the user might have the http section already and some of the settings already configured.
+        # We need to add the http section and set use_x_forwarded_for=true and trusted_proxies to include the HA docker IPs.
+        # We also need to make sure the user doesn't already have trusted_proxies set with the wrong IP, or we won't be abel to access the http webserver.
+        lineEnding = "\r\n"
+        dockerIpRangePrefix = "172.30"
+        desiredTrustedProxyDockerIp = "172.30.32.0/23"
+        lines:List[str] = []
+        with open(configFilePath, 'r', encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # Look for the starting lines of the configs, since they must be exact.
+        # But remember they will have line endings, so we use startwith.
+        httpSectionLineNumber:Optional[int] = None
+        lineNumber = 0
+        while lineNumber < len(lines):
+            line = lines[lineNumber]
+            lineLower = line.lower()
+            # Look for the http section.
+            if lineLower.startswith("http:"):
+                httpSectionLineNumber = lineNumber
+                break
+            lineNumber += 1
+
+        # Check if there's an existing http section or not.
+        if httpSectionLineNumber is None:
+            # There is no http section, we need to add it.
+            # If safest to just append it to the end of the file.
+            with open(configFilePath, 'a', encoding="utf-8") as f:
+                f.writelines(lineEnding)
+                f.writelines("# Added By Homeway to enable proper HTTP support."+lineEnding)
+                f.writelines("http:"+lineEnding)
+                f.writelines("  use_x_forwarded_for: true"+lineEnding)
+                f.writelines("  trusted_proxies:"+lineEnding)
+                f.writelines(f"    - {desiredTrustedProxyDockerIp}  "+lineEnding)
+                f.writelines( "    - 127.0.0.1"+lineEnding)
+                f.writelines( "    - ::1"+lineEnding)
+                f.writelines(lineEnding)
+
+            # Return true since we did work.
+            self.Logger.info("Config file updated with new http config section.")
+            return True
+
+        # We now need to look inside the http section to see if the settings are correct.
+        self.Logger.debug("ConfigManager._UpdateHttpConfigIfNeeded Found the http section. "+lines[httpSectionLineNumber].lower())
+        useXForwardedForLineNumber:Optional[int] = None
+        trustedProxiesLineNumber:Optional[int] = None
+        lineNumber = httpSectionLineNumber + 1
+        singleIndent = None
+        while lineNumber < len(lines):
+            line = lines[lineNumber]
+            lineLower = line.lower()
+            # If we see a new section, we are done.
+            if lineLower[0].isalnum():
+                break
+            # Determine the single indent for this config file.
+            if singleIndent is None:
+                strippedLine = line.lstrip()
+                singleIndent = line[:len(line)-len(strippedLine)]
+            # Look for use_x_forwarded_for
+            if lineLower.find("use_x_forwarded_for") != -1:
+                useXForwardedForLineNumber = lineNumber
+            # Look for trusted_proxies
+            if lineLower.find("trusted_proxies") != -1:
+                trustedProxiesLineNumber = lineNumber
+            if useXForwardedForLineNumber is not None and trustedProxiesLineNumber is not None:
+                break
+            lineNumber += 1
+
+        # Default to 2 spaces, the yaml standard, if we couldn't determine it.
+        if singleIndent is None:
+            singleIndent = "  "
+
+        # Ensure the values exist and are correct.
+        hasUpdates = False
+        linesToAppendAfterHttpHeader:List[str] = []
+        linesToAppendAfterTrustedProxy:List[str] = []
+        if useXForwardedForLineNumber is None:
+            # If there is no use_x_forwarded_for line, add it.
+            # We can't append now, or the line numbers will be off.
+            self.Logger.info("Adding config http section use_x_forwarded_for set to true.")
+            linesToAppendAfterHttpHeader.append(f"{singleIndent}use_x_forwarded_for: true{lineEnding}")
+        else:
+            # If the value exists and it's true, we are good.
+            # Otherwise replace the line and mark we have updates.
+            line = lines[useXForwardedForLineNumber]
+            lineLower = line.lower()
+            if lineLower.find("true") == -1:
+                self.Logger.info("Updating config http section use_x_forwarded_for to true.")
+                lines[useXForwardedForLineNumber] = f"{singleIndent}use_x_forwarded_for: true{lineEnding}"
+                hasUpdates = True
+
+        if trustedProxiesLineNumber is None:
+            # If there is no trusted_proxies line, add it and the docker IP.
+            self.Logger.info("Adding config http section trusted_proxies with docker IP.")
+            linesToAppendAfterHttpHeader.append(f"{singleIndent}trusted_proxies:{lineEnding}")
+            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- {desiredTrustedProxyDockerIp}{lineEnding}")
+            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- 127.0.0.1{lineEnding}")
+            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- ::1{lineEnding}")
+        else:
+            # We need to look for the docker IP in the trusted_proxies list.
+            foundDesiredDockerIp:bool = False
+            lineNumber = trustedProxiesLineNumber + 1
+            listIndent = None
+            while lineNumber < len(lines):
+                line = lines[lineNumber]
+                lineLower = line.lower()
+                # If we see a new section, we are done.
+                if lineLower[0].isalnum():
+                    break
+                # If we see a line that is not indented enough, we are done.
+                strippedLine = line.lstrip()
+                listIndent = line[:len(line)-len(strippedLine)]
+                if len(listIndent) < len(singleIndent)*2:
+                    break
+                # Look for the desired docker IP.
+                if lineLower.find(dockerIpRangePrefix) != -1:
+                    # We found the docker IP line, ensure it's correct.
+                    if lineLower.find(desiredTrustedProxyDockerIp) == -1:
+                        # The line is not correct, replace it.
+                        self.Logger.info(f"Updating config http section trusted_proxies to include correct docker IP. Current: `{lineLower}`")
+                        lines[lineNumber] = f"{listIndent}- {desiredTrustedProxyDockerIp}{lineEnding}"
+                        hasUpdates = True
+                        # Set the restart now flag since the http calls might be blocked.
+                        self.RestartNow = True
+                    foundDesiredDockerIp = True
+                    break
+                lineNumber += 1
+
+            if foundDesiredDockerIp is False:
+                # We need to add the docker IP to the trusted_proxies list.
+                self.Logger.info("Adding docker IP to existing trusted_proxies list.")
+                if listIndent is None:
+                    listIndent = singleIndent + singleIndent
+                linesToAppendAfterTrustedProxy.append(f"{listIndent}- {desiredTrustedProxyDockerIp}{lineEnding}")
+                # Set the restart now flag since the http calls might be blocked.
+                self.RestartNow = True
+
+        # If there are no updates, we are good.
+        if hasUpdates is False and len(linesToAppendAfterHttpHeader) == 0 and len(linesToAppendAfterTrustedProxy) == 0:
+            self.Logger.info("HTTP config section found and no updates needed.")
+            return False
+
+        # Append any new lines right after the http section line.
+        if len(linesToAppendAfterHttpHeader) > 0:
+            insertLineNumber = httpSectionLineNumber + 1
+            for newLine in linesToAppendAfterHttpHeader:
+                lines.insert(insertLineNumber, newLine)
+                insertLineNumber += 1
+
+        # Append any new lines right after the trusted_proxies line.
+        if len(linesToAppendAfterTrustedProxy) > 0:
+            if trustedProxiesLineNumber is None:
+                self.Logger.error("Logic error: We have lines to append after trusted_proxies but no trusted_proxies line number.")
+                return False
+            insertLineNumber = trustedProxiesLineNumber + 1
+            for newLine in linesToAppendAfterTrustedProxy:
+                lines.insert(insertLineNumber, newLine)
+                insertLineNumber += 1
+
+        # Write the file back out.
+        with open(configFilePath, 'w', encoding="utf-8") as f:
+            f.writelines(lines)
+
+        self.Logger.info(f"Config file updated with http config. HasUpdates: {str(hasUpdates)}, NewLines: {str(len(linesToAppendAfterHttpHeader) > 0 or len(linesToAppendAfterTrustedProxy) > 0)}")
+        return True
 
 
     def RestartHomeAssistant(self, restartInSec:float) -> None:
@@ -191,8 +371,11 @@ class ConfigManager(IConfigManager):
 
     def _RestartHomeAssistant_Thread(self, restartInSec:float) -> None:
         try:
-            self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
-            time.sleep(restartInSec)
+            if self.RestartNow is True:
+                self.Logger.info("Restarting Home Assistant now due to critical config change.")
+            else:
+                self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
+                time.sleep(restartInSec)
 
             # Ensure we still need the restart, there might have been another thread started that did it while we were waiting.
             if self.RestartRequired is False:
