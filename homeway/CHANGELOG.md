@@ -1,6 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.5.5
+
+- ⚙️ Adding logic to atomically configure the Home Assistant config trusted proxies correctly to ensure Homeway can access Home Assistant.
+- 👤 Adding logic to enable the X-Forwarded-For header for Home Assistant when possible.
 
 ## 2.5.4 - 2.4.0
 
