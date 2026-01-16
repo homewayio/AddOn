@@ -2,10 +2,13 @@ from enum import Enum
 import logging
 from typing import Dict, List, Optional
 
+
 from ..sentry import Sentry
-from ..streammsgbuilder import StreamMsgBuilder
-from ..httprequest import HttpRequest
+from ..compat import Compat
 from ..httpresult import HttpResult
+from ..httprequest import HttpRequest
+from ..streammsgbuilder import StreamMsgBuilder
+
 
 from ..Proto.PathTypes import PathTypes
 from ..Proto.HttpInitialContext import HttpInitialContext
@@ -106,16 +109,19 @@ class HeaderHelper:
             if hostStr is None or len(hostStr) == 0:
                 raise Exception("Http headers found an empty Host in http initial context.")
             sendHeaders[HeaderHelper.c_xForwardedForHostHeaderName] = hostStr
-            # TODO - For now we can't set this, because HA will fail the request if the IP is not in it's trusted proxies.
-            # The HA addon sets the trusted proxies, but we don't know if they are set or not right now, because the system might need to restart
-            # after they are set. So for now, we don't set it. Looking at the HA code, it doesn't seem many things use it.
-            # ip = httpInitialContext.ForwardedForIp()
-            # if ip is None:
-            #     raise Exception("Http headers found no ForwardedForIp in http initial context.")
-            # ipStr = StreamMsgBuilder.BytesToString(ip)
-            # if ipStr is None or len(ipStr) == 0:
-            #     raise Exception("Http headers found an empty ForwardedForIp in http initial context.")
-            # sendHeaders[HeaderHelper.c_xForwardedForForHeaderName] = ipStr
+
+            # We only add the X-Forwarded-For header if the server supports it.
+            # If we try to send it to an HA server not configured to support it, it will reject the request with a 400.
+            # Technically we apply this to all proxied http connection when we really only should apply it to HA, but we can fix that later.
+            serverInfoHandler = Compat.GetServerInfoHandler()
+            if serverInfoHandler is not None and serverInfoHandler.AllowXForwardedForHeader():
+                ip = httpInitialContext.ForwardedForIp()
+                if ip is None:
+                    raise Exception("Http headers found no ForwardedForIp in http initial context.")
+                ipStr = StreamMsgBuilder.BytesToString(ip)
+                if ipStr is None or len(ipStr) == 0:
+                    raise Exception("Http headers found an empty ForwardedForIp in http initial context.")
+                sendHeaders[HeaderHelper.c_xForwardedForForHeaderName] = ipStr
 
 
         # This tells the OctoPrint web server the client is connected to the proxy via the proper protocol.

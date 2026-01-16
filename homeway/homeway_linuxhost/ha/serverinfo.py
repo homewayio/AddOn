@@ -1,10 +1,13 @@
 import os
+import time
 import logging
+import threading
 from typing import Any, Optional, Dict
 
 import requests
 
 from homeway.compat import Compat
+from homeway.sentry import Sentry
 from homeway.interfaces import IServerInfoHandler
 
 # Since ServerInfo is a static class, we need to create a handler for it for the compat class.
@@ -29,6 +32,12 @@ class ServerInfoHandler(IServerInfoHandler):
         return ServerInfo.GetApiServerBaseUrl(protocol)
 
 
+    # Returns if this HA server is setup to allow X-Forwarded-For headers.
+    # Ideally we want to set them, but if the server doesn't support them, HA will reject requests with a 400.
+    def AllowXForwardedForHeader(self) -> bool:
+        return ServerInfo.AllowXForwardedForHeader
+
+
 # A common class for storing the Home Assistant server information
 class ServerInfo:
 
@@ -36,6 +45,7 @@ class ServerInfo:
     ServerPort: int = 0
     ServerUseHttps: bool = False
     UserConfigAccessToken: Optional[str] = None
+    AllowXForwardedForHeader: bool = False
 
 
     @staticmethod
@@ -137,3 +147,79 @@ class ServerInfo:
         except Exception as e:
             logger.warning(f"GetConfigApi failed: {e}")
         return None
+
+
+    # As long as the proxy setup is correct in the HA config, we can use X-Forwarded-For to get the real client IP.
+    # The addon will set the http HA config values correctly, but HA might need to be restarted before they take effect.
+    # If x-forwarded-for is not supported, HA will block the connection with a 400.
+    # This will detect if we can use it and set the SupportsXForwardedForHeader flag accordingly.
+    @staticmethod
+    def DetectXForwardedForHeaderSupportAsync(logger:logging.Logger) -> None:
+        # Run this in a separate thread so we don't block anything.
+        def threadFunc():
+            result = False
+            try:
+                result = ServerInfo._DetectXForwardedForHeaderSupport(logger)
+            except Exception as e:
+                Sentry.OnException("_DetectXForwardedForHeaderSupport exception", e)
+            ServerInfo.AllowXForwardedForHeader = result
+        thread = threading.Thread(target=threadFunc)
+        thread.start()
+
+
+    @staticmethod
+    def _DetectXForwardedForHeaderSupport(logger:logging.Logger) -> bool:
+        start = time.time()
+
+        # Setup the message used when logging about this.
+        notEnabledMsg = "X-Forwarded-For header is NOT enabled on this Home Assistant server, enabling it might improve Homeway functionality. Learn More: https://homeway.io/s/http-config-guide"
+        if ServerInfo.GetAddonDockerSupervisorAccessToken() is not None:
+            notEnabledMsg = "X-Forwarded-For header is not enabled on this Home Assistant server. The addon will automatically enabled this on the next server restart."
+
+        # Test the API endpoint
+        # Use the info from ServerInfo, which must be set by now.
+        apiBaseUrl = ServerInfo.GetApiServerBaseUrl("http")
+        url = f"{apiBaseUrl}/api/"
+        headers = {
+            "X-Forwarded-For" : "8.8.8.8",
+            "Authorization" : f"Bearer {ServerInfo.GetAccessToken()}",
+            "Content-Type" : "application/json",
+        }
+        logger.debug(f"Testing - X-Forwarded-For api support at {url}...")
+        try:
+            response = requests.get(url, headers=headers, timeout=0.5, verify=False)
+            if response.status_code == 400:
+                # 400 is the expected failure code when X-Forwarded-For is not supported.
+                logger.info(notEnabledMsg)
+                return False
+            if response.status_code != 200:
+                logger.info(f"X-Forwarded-For test unexpected status code {response.status_code} at {url}, took {time.time() - start:.3f} sec")
+                return False
+        except Exception as e:
+            Sentry.OnException(f"X-Forwarded-For api test result at {url}", e)
+            return False
+        logger.debug(f"Success - X-Forwarded-For api support at {url}...")
+
+        # Web frontend test.
+        protocol = "https" if ServerInfo.ServerUseHttps is True else "http"
+        baseUrl = f"{protocol}://{ServerInfo.ServerIpOrHostname}:{ServerInfo.ServerPort}"
+        url = f"{baseUrl}/"
+        headers = {
+            "X-Forwarded-For" : "8.8.8.8",
+        }
+        logger.debug(f"Testing - X-Forwarded-For frontend support at {url}...")
+        try:
+            response = requests.get(url, headers=headers, timeout=0.5, verify=False)
+            if response.status_code == 400:
+                # 400 is the expected failure code when X-Forwarded-For is not supported.
+                logger.info(notEnabledMsg)
+                return False
+            if response.status_code != 200:
+                logger.info(f"X-Forwarded-For test unexpected status code {response.status_code} at {url}, took {time.time() - start:.3f} sec")
+                return False
+            # If we get here, both tests passed!
+            logger.info(f"X-Forwarded-For supported by this server and will be used. Took {time.time() - start:.3f} sec")
+            return True
+        except Exception as e:
+            Sentry.OnException(f"X-Forwarded-For frontend test result at {url}", e)
+            return False

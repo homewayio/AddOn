@@ -104,6 +104,9 @@ class Connection(IHomeAssistantWebSocket):
         if callback is not None:
             callback()
 
+        # Finally, update the x-forwarded-for header support state.
+        ServerInfo.DetectXForwardedForHeaderSupportAsync(self.Logger)
+
 
     # Runs the main connection we maintain with Home Assistant.
     def ConnectionThread(self):

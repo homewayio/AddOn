@@ -234,3 +234,10 @@ class IServerInfoHandler(ABC):
     @abstractmethod
     def GetApiServerBaseUrl(self, protocol:str) -> str:
         pass
+
+
+    # Returns if this HA server is setup to allow X-Forwarded-For headers.
+    # Ideally we want to set them, but if the server doesn't support them, HA will reject requests with a 400.
+    @abstractmethod
+    def AllowXForwardedForHeader(self) -> bool:
+        pass
