@@ -36,6 +36,13 @@ class Config:
     SageSection = "sage"
     SagePrefixStringKey = "sage_prefix"
 
+    # WebRTC stuff.
+    WebRtcSection = "webrtc"
+    WebRtcUsernameKey = "username"
+    WebRtcPasswordKey = "password"
+    WebRtcStunServersKey = "stun_servers"
+    WebRtcTurnServersKey = "turn_servers"
+
     # This allows us to add comments into our config.
     # The objects must have two parts, first, a string they target. If the string is found, the comment will be inserted above the target string. This can be a section or value.
     # A string, which is the comment to be inserted.
@@ -46,7 +53,10 @@ class Config:
         { "Target": HaAccessTokenKey,  "Comment": "Required for standalone addon installs, not required for addon installs. This is the long lived access token used to connect to Home Assistant."},
         { "Target": HaEnableRemoteAccess,  "Comment": "True or false if remote access is enabled. Assistant and other Homeway features will still work if remote access is disabled."},
         { "Target": LogLevelKey,  "Comment": "The active logging level. Valid values include: DEBUG, INFO, WARNING, or ERROR."},
-        { "Target": SagePrefixStringKey,  "Comment": "If set, this will prefix the Sage services names with the given string, which is helpful if you run multiple instances of Homeway. This should not have spaces!."},
+        { "Target": WebRtcUsernameKey,  "Comment": "The username used for WebRTC connections. See https://homeway.io/s/webrtc-config for setup details."},
+        { "Target": WebRtcPasswordKey,  "Comment": "The password used for WebRTC connections. See https://homeway.io/s/webrtc-config for setup details."},
+        { "Target": WebRtcStunServersKey,  "Comment": "A list of STUN servers used for WebRTC. See https://homeway.io/s/webrtc-config for setup details."},
+        { "Target": WebRtcTurnServersKey,  "Comment": "A list of TURN servers used for WebRTC. See https://homeway.io/s/webrtc-config for setup details."},
     ]
 
     # The config lib we use doesn't support the % sign, even though it's valid .cfg syntax.

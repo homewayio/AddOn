@@ -70,6 +70,12 @@ class ConfigManager(IConfigManager):
         return False
 
 
+    # Interface function - Returns the path to the Home Assistant config file if it can be found.
+    # Returns None if the config file cannot be found.
+    def GetConfigFilePath(self) -> Optional[str]:
+        return self._GetConfigFilePath(True)
+
+
     # Reads the http port out of the config, if there is one.
     def ReadHttpPort(self) -> Optional[int]:
         try:
@@ -379,6 +385,7 @@ class ConfigManager(IConfigManager):
         try:
             if self.RestartNow is True:
                 # Don't do this too quick, so HA doesn't restart right after the plugin loads and users might be trying to link.
+                # We also want to try to give the webrtc system to allow the HW connection, get the API key, and update the servers if needed.
                 self.Logger.info("Restarting Home Assistant soon due to critical config change.")
                 restartInSec = 10.0
             self.Logger.info(f"Waiting to restart HA for {restartInSec}...")

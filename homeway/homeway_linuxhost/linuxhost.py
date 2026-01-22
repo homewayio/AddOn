@@ -24,6 +24,7 @@ from .logger import LoggerInit
 from .webserver import WebServer
 from .webrequestresponsehandler import WebRequestResponseHandler
 from .ha.configmanager import ConfigManager
+from .ha.webrtcmanager import WebRtcManager
 from .ha.connection import Connection
 from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
@@ -41,6 +42,7 @@ class LinuxHost(IStateChangeHandler):
         self.WebServer:WebServer = None #pyright: ignore[reportAttributeAccessIssue]
         self.HaEventHandler:EventHandler = None #pyright: ignore[reportAttributeAccessIssue]
         self.Sage:SageHost = None #pyright: ignore[reportAttributeAccessIssue]
+        self.WebRtcManager:WebRtcManager = None #pyright: ignore[reportAttributeAccessIssue]
 
         # Indicates if we are running as the Home Assistant addon, or standalone docker or cli.
         self.AddonType = addonType
@@ -184,6 +186,9 @@ class LinuxHost(IStateChangeHandler):
             configManager.SetHaConnection(haConnection)
             configManager.UpdateConfigIfNeeded()
 
+            # Setup the WebRTC manager
+            self.WebRtcManager = WebRtcManager(self.Logger, pluginId, storageDir, self.Config, configManager)
+
             # Setup and start the home context
             homeContext = HomeContext(self.Logger, haConnection, self.HaEventHandler)
             homeContext.Start()
@@ -285,6 +290,9 @@ class LinuxHost(IStateChangeHandler):
 
         # Set the current API key to the custom file server
         CustomFileServer.Get().UpdateAddonConfig(pluginId, apiKey)
+
+        # Let the WebRTC manager know the connection is established.
+        self.WebRtcManager.OnPrimaryConnectionEstablished(apiKey)
 
         # Tell the web server if there's a connect user or not.
         hasConnectedAccount = connectedAccounts is not None and len(connectedAccounts) > 0

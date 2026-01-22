@@ -78,6 +78,10 @@ class IConfigManager(ABC):
     def NeedsRestart(self) -> bool:
         pass
 
+    @abstractmethod
+    def GetConfigFilePath(self) -> Optional[str]:
+        pass
+
 
 class IAccountLinkStatusUpdateHandler(ABC):
 

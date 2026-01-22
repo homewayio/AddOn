@@ -131,6 +131,8 @@
     "virtualenv",
     "visibilitychange",
     "webrequestresponsehandler",
+    "webrtc",
+    "webrtcmanager",
     "webserver",
     "websocketimpl",
     "websockets",

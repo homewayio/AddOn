@@ -1,6 +1,13 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 2.6.0
+
+- 📺 [Adding free WebRTC support!](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
+    - [Checkout our launch blog post for details.](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
+    - We are enabling free STUN and TURN servers for all users.
+- 🐛 Bug fixes and various other improvements.
+
 ## 2.5.5
 
 - ⚙️ Adding logic to atomically configure the Home Assistant config trusted proxies correctly to ensure Homeway can access Home Assistant.
