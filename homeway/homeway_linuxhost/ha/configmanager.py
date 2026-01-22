@@ -109,7 +109,8 @@ class ConfigManager(IConfigManager):
                             self.Logger.warning(f"We found the server_port line, but it's not formatted correctly. We can't parse it. {line}")
                             return None
                         # After the : should only be an int.
-                        parts = lineLower.split(":")
+                        # Use split(":", 1) to only split on the first colon in case there's an inline comment with a colon.
+                        parts = lineLower.split(":", 1)
                         return int(parts[1].strip())
         except Exception as e:
             self.Logger.error(f"Exception in ConfigManager.ReadHttpPort. {e}")

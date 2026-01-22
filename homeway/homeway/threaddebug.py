@@ -34,8 +34,8 @@ class ThreadDebug:
                 trace = ""
                 for filename, lineno, name, line in traceback.extract_stack(stack):
                     parts = filename.split("\\")
-                    if len(parts) == 0:
-                        parts  = filename.split("/")
+                    if len(parts) == 1:
+                        parts = filename.split("/")
                     if len(parts) > 0:
                         trace += f", {parts[len(parts)-1]}:{lineno}={name}:{line}"
                     else:

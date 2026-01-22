@@ -34,6 +34,7 @@ class Fabric:
         # Indicates if the connection is connection and authed.
         self.IsConnected = False
         self.LastSuccessfulConnectSec:float = 0.0
+        self.StateLock = threading.Lock()
 
 
     # Returns if the socket is currently connected.
@@ -67,24 +68,30 @@ class Fabric:
 
     # Closes the connection, if it's open.
     def Close(self) -> None:
-        ws = self.Ws
+        # Use lock to safely read Ws and IsConnected together
+        with self.StateLock:
+            ws = self.Ws
+            isConnected = self.IsConnected
         # If there's an active websocket.
         if ws is not None:
             # And it's connected (don't interrupt the connection process)
-            if self.IsConnected is True:
+            if isConnected is True:
                 ws.Close()
 
 
     # Sends a message using fabric.
     # Returns True on success.
     def SendMsg(self, data:Buffer, dataStartOffsetBytes:int, dataLength:int) -> bool:
+        # Use lock to safely read Ws and IsConnected together to prevent race conditions
+        with self.StateLock:
+            ws = self.Ws
+            isConnected = self.IsConnected
         # Capture and check the websocket.
-        ws = self.Ws
         if ws is None:
             self.Logger.error(f"{self._getLogTag()} message tried to be sent while we have no active socket.")
             return False
         # Check the connection state.
-        if self.IsConnected is False:
+        if isConnected is False:
             self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't connected.")
             return False
 
@@ -101,7 +108,8 @@ class Fabric:
         self.Logger.info(f"{self._getLogTag()} Successfully authed and connected!")
 
         # Set connected, mark the time, and clear the backoff counter.
-        self.IsConnected = True
+        with self.StateLock:
+            self.IsConnected = True
         self.LastSuccessfulConnectSec = time.time()
         self.BackoffCounter = 0
 
@@ -111,8 +119,9 @@ class Fabric:
         while True:
 
             # Reset the state vars
-            self.IsConnected = False
-            self.Ws = None
+            with self.StateLock:
+                self.IsConnected = False
+                self.Ws = None
             self.FiberManager.OnSocketReset()
 
             # Always increment the backoff counter.
@@ -161,10 +170,12 @@ class Fabric:
 
                 # Start the websocket.
                 self.Logger.info(f"{self._getLogTag()} Starting fabric connection to [{uri}]")
-                self.Ws = Client(uri, onWsOpen=self._OnConnected, onWsData=self._OnData, onWsClose=Closed, headers=headers)
+                ws = Client(uri, onWsOpen=self._OnConnected, onWsData=self._OnData, onWsClose=Closed, headers=headers)
+                with self.StateLock:
+                    self.Ws = ws
 
                 # Run until success or failure.
-                self.Ws.RunUntilClosed()
+                ws.RunUntilClosed()
 
                 self.Logger.info(f"{self._getLogTag()} Loop restarting.")
 
