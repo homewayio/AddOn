@@ -221,11 +221,13 @@ class HeaderHelper:
                 continue
             lowerName = name.lower()
 
-            # Right now we only allow a subset of headers. Some headers seem to break the websocket servers, so we only allow the ones
-            # we know we need.
+            # Right now we only allow a subset of headers. Some headers seem to break the websocket servers, so we only allow the ones we know we need.
             if lowerName.startswith("x-api-key"):
                 sendHeaders[name] = value
             elif lowerName == "cookie":
+                sendHeaders[name] = value
+            # The WebRTC Camera integration will break if we don't send this.
+            elif lowerName == "user-agent":
                 sendHeaders[name] = value
 
         return sendHeaders
