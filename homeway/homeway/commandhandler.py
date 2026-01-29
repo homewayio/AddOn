@@ -281,6 +281,11 @@ class CommandHandler:
             start = time.time()
             result:Dict[str, Any] = {}
             try:
+                # The ID is used to match requests and responses.
+                requestId:Optional[int] = request.get("Id", None)
+                if requestId is None:
+                    raise Exception("No 'Id' provided in request.")
+                result["Id"] = int(requestId)
                 # Should be a relative URL string.
                 relativeUrl:Optional[str] = request.get("Url", None)
                 if relativeUrl is None:
