@@ -310,7 +310,7 @@ class Client(IWebSocketClient):
 
     def _SendQueueThread(self):
         try:
-           while True:
+            while True:
                 # Check if closed under lock before blocking on queue
                 with self.isClosedLock:
                     if self.isClosed:
