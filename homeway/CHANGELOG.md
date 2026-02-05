@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.6.1 - 2.6.0
+## 2.6.3 - 2.6.0
 
 - 📺 [Adding free WebRTC support!](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
     - [Checkout our launch blog post for details.](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
