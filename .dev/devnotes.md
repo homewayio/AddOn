@@ -1,4 +1,22 @@
-## To Run Locally In A Home Assistant Container
+
+# Add Development
+
+There are a few ways to dev the app, depending on what you're trying to do. They are listed here in the order of the easiest to dev and use.
+
+1) Dev In Companion Mode On A Separate Linux Host
+  - This works well for most general dev. The only limits are if you need to dev things that are specifically App features, not just general HA API features.
+2) Dev In A Local In A Home Assistant Container
+  - This works well if you need to test App specific features, like the config, UI, web portal UI, etc.
+3) Dev In A Local HA Server
+  - This works well if you need to run the App in the real App mode in HA, but long lived for harder to debug bugs.
+
+## Dev In Companion Mode On A Separate Linux Host
+
+1) Install the Homeway App in companion mode and connect it to HA as normal.
+2) Use VS Code to SSH into the host, setup the homeway github repo as the root, us F5 debugging to run the companion.
+
+
+## Dev In A Local In A Home Assistant Container
 
 Follow this guide to setup the local docker container and running it.
 https://developers.home-assistant.io/docs/add-ons/testing
@@ -22,7 +40,20 @@ If any of this fails, try pulling the new devcontainer.json and task.json files 
   - Restart it.
 
 
-## Ro Run The Frontend In Dev
+## Dev In A Local HA Server
+
+- Setup Samaba on the HA Server
+- Copy the Homeway folder into the add-ons root
+- Update the config.yaml
+  - Name, slug, ingress_port, comment out the docker image, bump the version
+- Go to HA -> Apps -> Install
+- Install the dev addon.
+- Party!
+
+
+# Legacy Guides
+
+## To Run The Frontend In Dev
 
 - Clone the frontend repo
 - Open in vscode, select run in a dev container
@@ -53,28 +84,3 @@ frontend:
 - Go to `http://localhost:8123/`
 
 ref: https://developers.home-assistant.io/docs/frontend/development/
-
-## To Run The Dev Host On A Remote Linux Device
-
-- Clone this repo in on debian based OS.
-- Open VS Code and remote into the <repo root>/homeway/
-- Setup A PY3 virtual environment
-  - python3 -m venv py3venv
-  - source py3venv/bin/activate
-- Install or update the required python libs
-  - pip install -r ./homeway/requirements.txt
-- Create the dir /home/pi/homeway-store
-  - Or edit the dev config for a different path.
-- In VS Code, select the "Run And Debug" tab
-- Select Linux Host - Dev
-- Press F5 to run!
-
-## Editing the Dev Host vars
-
-- Update the vars in the ./vscode/launch.json file.
-
-## For PY 3
-
-- Use `python3 -m venv py3venv` to create an environment in the current dir
-- Use `source py3venv/bin/activate` to activate
-- Pip install deps from the setup.py file

@@ -37,10 +37,11 @@ ports_description:
   "11027/tcp": "Homeway's Sage Assist Wyoming Protocol"
 
 # Add some config options for user to control the addon.
+# These options are defined in the schema section below, and the translations for them are in the en.yaml file, which gives them pretty names.
 options:
-  debug_level: "info"
+  log_level: "info"
 schema:
-  debug_level: "str?"
+  log_level: list(debug|info|warning|error)?
 
 # Allows the addon to make home assistant authed API calls to the core.
 homeassistant_api: true

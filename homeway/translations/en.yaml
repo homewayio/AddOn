@@ -1,0 +1,6 @@
+---
+configuration:
+  log_level:
+    name: Log Level
+    description: >-
+      The log level to use for the app. Defaults to info, but debug is helpful for troubleshooting.

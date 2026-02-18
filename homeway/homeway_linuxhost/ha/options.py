@@ -1,10 +1,11 @@
+import os
 import json
 from typing import Any, Dict, Optional
 
 from homeway.sentry import Sentry
 
 # Helps manage the Home Assistant config file, that's exposed to the user.
-# This is only used for the addon version, the other versions use the config file.\
+# This is only used for the addon version, the other versions use the config file.
 # If the options file doesn't exist, the Get function will return the default value.
 class Options:
 
@@ -15,40 +16,33 @@ class Options:
     # config.yml settings and shows up in the HA UI.
     c_HomeAssistantOptionsConfigFilepath = "/data/options.json"
 
-    # Static instance
-    _Instance:Optional["Options"] = None
-
-
-    def __init__(self) -> None:
-        self._Options:Dict[str, Any] = {}
-        self._LoadOptions()
-
-
-    # Get the static instance of the class.
+    # Get an option from the options file, if possible.
     @staticmethod
-    def Get() -> 'Options':
-        if Options._Instance is None:
-            Options._Instance = Options()
-        return Options._Instance
-
-
-    # Get an option from the options file.
-    def GetOption(self, key:str, default:Optional[str]=None) -> Optional[str]:
+    def GetOption(key:str, default:Optional[str]=None) -> Optional[str]:
         try:
-            val = self._Options.get(key, default)
+            # Try to load the options file, if it doesn't exist or fails to load, we'll just return the default value.
+            options = Options._LoadOptions()
+            if options is None:
+                return default
+            # Try to get the option value.
+            val = options.get(key, default)
             if val is None:
                 return None
             return str(val)
         except Exception as e:
             Sentry.OnException("Failed to get Ha Options key", e)
-            return default
+        return default
 
 
-    def _LoadOptions(self) -> None:
+    @staticmethod
+    def _LoadOptions() -> Optional[Dict[str, Any]]:
         # The file might not exist if we aren't running as the addon or other cases.
         # This is loaded before the logger.
         try:
+            if not os.path.exists(Options.c_HomeAssistantOptionsConfigFilepath):
+                return None
             with open(Options.c_HomeAssistantOptionsConfigFilepath, "r", encoding="utf-8") as f:
-                self._Options = json.load(f)
+                return json.load(f)
         except Exception as e:
             Sentry.OnException("Failed to load the options file", e)
+        return None

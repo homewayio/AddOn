@@ -5,6 +5,7 @@ import logging.handlers
 from typing import Optional
 
 from homeway.websocketimpl import Client
+from .ha.options import Options
 
 from .config import Config
 
@@ -26,6 +27,16 @@ class LoggerInit:
         logLevel = config.GetStrIfInAcceptableList(Config.LoggingSection, Config.LogLevelKey, "INFO", possibleValueList)
         # GetStrIfInAcceptableList does a case insensitive check, so we need to make sure the logging case is correct.
         logLevel = logLevel.upper()
+
+        # If we are running in addon mode, get the log level from the HA options, which can be set by the user in the UI.
+        haLogLevel = Options.GetOption(Options.LoggerLevel, logLevel)
+        if haLogLevel is not None:
+            haLogLevel = haLogLevel.upper()
+            if haLogLevel in possibleValueList:
+                print("HA options log level "+haLogLevel+" is overriding config log level "+logLevel)
+                logLevel = haLogLevel
+            else:
+                print("HA options log level "+haLogLevel+" is not valid, using config log level "+logLevel)
 
         # Check the environment variable for the log level.
         if any(os.getenv(name) is not None for name in ("DEBUG", "-DEBUG", "debug", "-debug")):
