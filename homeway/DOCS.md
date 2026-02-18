@@ -4,7 +4,7 @@ Free, secure, and private advanced cloud features for Home Assistant. Made by th
 
 ## First Time Setup
 
-1) Install the Homeway app using our step-by-step [Getting Started guide.](https://homeway.io/getstarted?source=addon_docs)
+1) Install the Homeway app using our step-by-step [Getting Started Guide.](https://homeway.io/getstarted?source=addon_docs)
 2) Be sure to enable the following toggles for the Homeway app
     - Start on boot: Enabled
     - Watchdog: Enabled
@@ -19,19 +19,34 @@ Free, secure, and private advanced cloud features for Home Assistant. Made by th
 
 Use the "Open Web UI" button on the Homeway app info tab to access the Homeway app settings UI.
 
-The settings web UI allows you to control app settings like disabling remote access and more.
+The Homeway Settings Web UI allows:
+- Enable or disable remote access, but leave the other Homeway features active.
+- Expose or unexpose devices from Google Home, Alexa, and Sage.
 
-### 🌿 Sage AI - Life-like Voice Assistant For Home Assistant
+
+### 🌿 Sage AI
+
+A free and life-like voice assistant for Home Assistant. Sage AI enables free speech-to-text, text-to-speech, and a hyper-intelligent LLM chat powered by Gemini, ChatGPT, and more.
 
 [Setup Guide](https://homeway.io/sage-settings?source=addon_docs)
 
-### 📱 Home Assistant App Setup
+### 📱 Home Assistant App Remote Access
+
+Homeway enables free remote access for the official Home Assistant iPhone and Android apps.
 
 [Setup Guide](https://homeway.io/app?source=addon_docs)
 
 ### 🤖 Google Home & Alexa Setup
 
+Set up Google Home or Alexa using our worldwide server network for lightning-fast voice control.
+
 [Setup Guide](https://homeway.io/assistant?source=addon_docs)
+
+### 🏠 Local Access
+
+Free and secure remote access to any LAN web service, such as Node-Red, PiHole, AdGuard, Bitwarden, and more!
+
+[Setup Guide](https://homeway.io/local-access?source=addon_docs)
 
 ## Help & Support
 
