@@ -29,12 +29,13 @@ class LoggerInit:
         logLevel = logLevel.upper()
 
         # If we are running in addon mode, get the log level from the HA options, which can be set by the user in the UI.
-        haLogLevel = Options.GetOption(Options.LoggerLevel, logLevel)
+        haLogLevel = Options.GetOption(Options.LoggerLevel, None)
         if haLogLevel is not None:
             haLogLevel = haLogLevel.upper()
             if haLogLevel in possibleValueList:
-                print("HA options log level "+haLogLevel+" is overriding config log level "+logLevel)
-                logLevel = haLogLevel
+                if haLogLevel != logLevel:
+                    print("HA options log level "+haLogLevel+" is overriding config log level "+logLevel)
+                    logLevel = haLogLevel
             else:
                 print("HA options log level "+haLogLevel+" is not valid, using config log level "+logLevel)
 
