@@ -32,7 +32,7 @@ class Client(IWebSocketClient):
     c_MaxSendQueueSizeBytes = 20 * 1024 * 1024
     c_SocketSendBufferBytes = 512 * 1024
     c_SocketReceiveBufferBytes = 512 * 1024
-    c_SendQueueBackpressureLogIntervalSec = 1.0
+    c_SendQueueBackpressureLogIntervalSec = 5.0
 
 
     # Allows us to still enable the websocket debug logs if we want.
