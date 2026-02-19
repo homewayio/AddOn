@@ -107,15 +107,16 @@ class WebStreamHttpHelper:
 
 
     # When close is called, all http operations should be shutdown.
-    # Called by the main socket thread so this should be quick!
+    # IMPORTANT NOTE - This function should not block and must be quick, as it will block the entire main websocket connection.
     def Close(self):
         # Set the flag so all of the looping http operations will stop.
         self.IsClosed = True
 
-        # Important! If we are doing a stream accumulation read, we need to class close on it
+        # Important! If we are doing a stream accumulation read, we need to call close on it
         # to close the http body and let the main executeHttpRequest thread return.
+        # WE CAN NOT BLOCK IN THIS FUNCTION OR THE MAIN WEBSOCKET WILL BE HUNG.
         if self.HttpStreamAccumulationReader is not None:
-            self.HttpStreamAccumulationReader.Close()
+            self.HttpStreamAccumulationReader.CloseAsync()
 
 
     # Called when a new message has arrived for this stream from the server.

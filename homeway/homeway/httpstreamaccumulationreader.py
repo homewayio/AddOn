@@ -81,35 +81,40 @@ class HttpStreamAccumulationReader:
 
     # Must be called to close the stream reader and clean up the thread.
     # NOTE - This will also close the stream body to ensure the read thread exists!
-    def Close(self):
+    # IMPORTANT NOTE - This must not block or the main websocket thread will be blocked.
+    def CloseAsync(self):
         try:
-            self.debugLog("Close called on HttpStreamAccumulationReader.")
+            self.debugLog("CloseAsync called on HttpStreamAccumulationReader.")
 
             # Set the event to break the stream read wait, so it will shutdown.
             # Call set under lock, to ensure the other thread doesn't clear it without us seeing it.
             with self.BufferLock:
                 if self.IsClosed:
-                    self.debugLog("Close called but HttpStreamAccumulationReader is already closed, ignoring this call.")
+                    self.debugLog("CloseAsync called but HttpStreamAccumulationReader is already closed, ignoring this call.")
                     return
                 self.IsClosed = True
                 self.ReadComplete = True
                 self.BufferDataReadyEvent.set()
 
             # We need to make sure the http body is closed to ensure the read thread exits.
-            try:
-                if self.ResponseBody is not None:
-                    self.debugLog("Closing HTTP response body in HttpStreamAccumulationReader.Close.")
-                    self.ResponseBody.raw.close()
-            except Exception as e:
-                self.Logger.info(f"{self.getLogMsgPrefix()} Exception thrown when closing the HTTP response body in HttpStreamAccumulationReader.Close: {str(e)}")
+            # The response body close CAN BLOCK FOR UP TO THE READ TIME OUT (which we set high) SO IT MUST BE CALLED ON A SEPARATE THREAD.
+            # WE CAN NOT BLOCK IN THIS FUNCTION OR THE MAIN WEBSOCKET WILL BE HUNG.
+            def closeBodyWorker():
+                try:
+                    self.debugLog("Calling raw.close() on the response body.")
+                    if self.ResponseBody is not None:
+                        self.ResponseBody.raw.close()
+                    self.debugLog("raw.close() close complete.")
+                except Exception as e:
+                    self.Logger.info(f"{self.getLogMsgPrefix()} Exception thrown when closing the HTTP response body in HttpStreamAccumulationReader.CloseAsync closeBody thread: {str(e)}")
+            closeBodyThread = threading.Thread(target=closeBodyWorker, daemon=True)
+            closeBodyThread.start()
 
-            # We do not want to join the thread because we don't close the HTTP body, and the thread will not return until the body read is done.
+            # We CAN NOT AND DO NOT WANT TO join the thread because we don't close the HTTP body, and the thread will not return until the body read is done.
             # Instead, we just set the IsClosed flag and the event, and let the thread exit when the body read is done.
-
-            self.debugLog("Close completed on HttpStreamAccumulationReader.")
+            self.debugLog("CloseAsync completed on HttpStreamAccumulationReader.")
         except Exception as e:
-            Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in HttpStreamAccumulationReader.Close", e)
-
+            Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in HttpStreamAccumulationReader.CloseAsync", e)
 
 
     # Reads up to the max buffer size, and will always wait for accumulation.

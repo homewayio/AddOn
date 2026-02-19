@@ -66,6 +66,7 @@ class WebStreamImpl(threading.Thread, IWebStream):
             # Set this flag, because we don't need to send a close message if the server already did.
             self.HasSentCloseMessage = True
             # Call close.
+            # This can never block or it will hang the entire main websocket connection.
             self.Close()
         else:
             # Otherwise, put the message into the queue, so the thread will pick it up.
@@ -116,6 +117,7 @@ class WebStreamImpl(threading.Thread, IWebStream):
             self.highPriStreamEnded()
 
         # If we got a ref to the helper, we need to call close on it.
+        # NOTE - It's very important that these don't block or they will block the entire main websocket connection.
         try:
             if localHttpHelper is not None:
                 localHttpHelper.Close()
