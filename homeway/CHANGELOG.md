@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 2.6.4 - 2.6.0
+## 2.6.0 - 2.6.5
 
 - 📺 [Adding free WebRTC support!](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
     - [Checkout our launch blog post for details.](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
@@ -9,6 +9,7 @@
 - 🐛 Bug fixes and various other improvements.
 - 🐞 Bug fix that prevented WebRTC Camera from working.
 - 📝 Fixed a few memory leaks and optimized memory usage.
+- 🐛 Fixed a sneaky bug that would sometimes cause connection loss.
 
 ## 2.5.5
 
