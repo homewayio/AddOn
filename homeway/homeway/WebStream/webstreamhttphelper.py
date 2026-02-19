@@ -844,7 +844,7 @@ class WebStreamHttpHelper:
                             # This does need to be small, because we want reading this min time period back to back, we are reading a chunk, doing all of the send logic, and then spinning back to here.
                             # So if we set this at exactly 16.6 for a 60fps stream, for example, we will fall behind.
                             # So we set the accumulation time to 10ms, which should be small enough to not cause issues.
-                            self.HttpStreamAccumulationReader = HttpStreamAccumulationReader(self.Logger, httpResult, accumulationTimeSec=0.010, maxReturnBufferSizeBytes=self.c_MaxSingleChunkSizeBytes)
+                            self.HttpStreamAccumulationReader = HttpStreamAccumulationReader(self.Logger, self.Id, httpResult, accumulationTimeSec=0.010, maxReturnBufferSizeBytes=self.c_MaxSingleChunkSizeBytes)
                         finalDataBuffer = self.HttpStreamAccumulationReader.Read()
                     else:
                         # If there is no boundary string, but we know the content length, it's safe to just read.

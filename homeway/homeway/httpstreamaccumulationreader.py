@@ -26,9 +26,6 @@ from .sentry import Sentry
 #
 class HttpStreamAccumulationReader:
 
-    # This is only used for logging so it doesn't need to be thread safe.
-    c_UniqueIdCounter = 0
-
     # This is the max size of the pending buffer list. If the pending buffer list exceeds this size, the read thread will block until it goes back down.
     # This is to prevent memory issues if the producer is producing data faster than the consumer can consume it.
     # We need to make sure we think about low memory devices, where we don't want to eat RAM.
@@ -36,8 +33,9 @@ class HttpStreamAccumulationReader:
 
     # After being constructed the reading starts immediately.
     # This class must be disposed of properly to stop the read thread.
-    def __init__(self, logger:logging.Logger, httpResult:HttpResult, accumulationTimeSec:float, maxReturnBufferSizeBytes:Optional[int]=None):
+    def __init__(self, logger:logging.Logger, streamId:int, httpResult:HttpResult, accumulationTimeSec:float, maxReturnBufferSizeBytes:Optional[int]=None):
         self.Logger = logger
+        self.StreamId = streamId
         self.HttpResult = httpResult
         self.AccumulationTimeSec = accumulationTimeSec
 
@@ -59,9 +57,7 @@ class HttpStreamAccumulationReader:
         # Set when this object has been told to close.
         self.IsClosed = False
 
-        # Not thread safe, but we only use this for logging so it's ok.
-        self.LogId = HttpStreamAccumulationReader.c_UniqueIdCounter
-        HttpStreamAccumulationReader.c_UniqueIdCounter += 1
+        # Cache this so we don't have to read each time.
         self.ShouldDebugLog = self.Logger.isEnabledFor(logging.DEBUG)
 
         # Ensure we have something to read
@@ -300,7 +296,7 @@ class HttpStreamAccumulationReader:
 
 
     def getLogMsgPrefix(self) -> str:
-        return f"[HttpStreamAccumulationReader-{self.LogId}]"
+        return f"[HttpStreamAccumulationReader-{self.StreamId}]"
 
 
     # This is the read thread, where the actual reading from the HTTP response happens.
