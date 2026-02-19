@@ -126,6 +126,7 @@
     "sslopt",
     "starport",
     "startwith",
+    "Streamable",
     "streammsgbuilder",
     "telemetryaccumulator",
     "threaddebug",

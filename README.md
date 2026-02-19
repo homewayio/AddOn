@@ -11,7 +11,7 @@ Homeway is a Home Assistant community project aiming to provide free, private, a
 - 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=github_readme) enables lifelike interactions with Home Assistant Assist or Home Assistant Voice devices.
 - 🤖 **Helpful.** [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your Home Assistant.
 - 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme)
-- 📺 **Observable.** Free [WebRTC camera streaming](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/) including both STUN and TURN server access.
+- 📺 **Streamable.** Free [WebRTC camera streaming](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/) including both STUN and TURN server access.
 - 🔒 **Secure.** We offer advanced security features to ensure only you have access.
 - 🔭 **Private.** We don't store your data in our cloud and will never sell or share your information.
 - ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.

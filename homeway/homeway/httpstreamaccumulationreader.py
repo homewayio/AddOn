@@ -57,6 +57,12 @@ class HttpStreamAccumulationReader:
         # Set when this object has been told to close.
         self.IsClosed = False
 
+        # Stats
+        self.OpenedTimeSec = time.time()
+        self.SocketReads = 0
+        self.OctoStreamReads = 0
+        self.TotalBytesRead = 0
+
         # Cache this so we don't have to read each time.
         self.ShouldDebugLog = self.Logger.isEnabledFor(logging.DEBUG)
 
@@ -130,6 +136,9 @@ class HttpStreamAccumulationReader:
             mustReturnAccumulatedBuffers = False
             firstAccumulatedBufferTime = None
             isFirstLoopRun = True
+
+            # Note the read
+            self.OctoStreamReads += 1
 
             # Since we will always sleep for at least the min time, there's no need to do work until the min time is meet.
             # If we did do the loop, we would just end up spinning and sleeping again.
@@ -341,6 +350,10 @@ class HttpStreamAccumulationReader:
                     bufferLen = len(chunk)
                     self.BufferListPendingSize += bufferLen
 
+                    # Update stats.
+                    self.SocketReads += 1
+                    self.TotalBytesRead += len(chunk)
+
                     # This should be impossible due to the read1 size, but sanity check it.
                     if bufferLen > self.MaxReturnBufferSizeBytes:
                         raise Exception(f"The unknown body chunk read thread read a chunk larger than the max single chunk size of {self.MaxReturnBufferSizeBytes} bytes! Read size: {bufferLen} bytes.")
@@ -381,6 +394,8 @@ class HttpStreamAccumulationReader:
                 self.BufferDataReadyEvent.set()
 
             try:
-                self.debugLog("Read thread exited.")
+                runTimeSec = time.time() - self.OpenedTimeSec
+                if self.Logger.isEnabledFor(logging.DEBUG):
+                    self.Logger.debug(f"{self.getLogMsgPrefix()} Read thread exited. Run Time: {runTimeSec:.2f} sec, SocketReads: {self.SocketReads}, OctoStreamReads: {self.OctoStreamReads}, TotalBytesRead: {self.TotalBytesRead/1024.0:.2f} KB")
             except Exception:
                 pass

@@ -1170,9 +1170,30 @@ class WebStreamHttpHelper:
         if contentTypeLower is None:
             return True
 
-        # mjpegstreamer doesn't return a content type for snapshots (which is annoying) so if we know the content is a single image, don't stream it, allow the full
-        # buffer read to read it in one bit.
-        if contentTypeLower == "image/jpeg":
+        # If we know that the content doesn't have to be streaming, it's better to use the non-unknown content size read, because it needs another thread that adds overhead.
+        # So if the content type is something we know won't stream, we don't need to do it.
+        # But we have to be careful, because even things like text/plane is used to do streaming logs in HA.
+        if contentTypeLower.startswith("text/"):
+            # For text, we only allow plain to take the possibly streamable path.
+            if contentTypeLower.find("plain") != -1:
+                return True
+            # All other text don't stream.
+            return False
+
+        if contentTypeLower.startswith("image/"):
+            # For images, only allow gifs to be possibly streamable
+            if contentTypeLower.find("gif") != -1:
+                return True
+            return False
+
+        if contentTypeLower.startswith("application/"):
+            # For application, we allow octet-stream.
+            if contentTypeLower.find("octet-stream") != -1:
+                return True
+            return False
+
+        if contentTypeLower.startswith("font/"):
+            # Never allow fonts to be streamable.
             return False
 
         # Otherwise, default to true
