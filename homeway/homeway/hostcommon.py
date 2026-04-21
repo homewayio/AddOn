@@ -49,5 +49,5 @@ class HostCommon:
         if subdomain is None:
             subdomain = "starport-v1"
         if fullHostString is not None:
-            return f"{fullHostString}/PluginWebsocketConnection"
-        return f"wss://{subdomain}.homeway.io/PluginWebsocketConnection"
+            return f"{fullHostString}/PluginWebsocketConnectionV2"
+        return f"wss://{subdomain}.homeway.io/PluginWebsocketConnectionV2"

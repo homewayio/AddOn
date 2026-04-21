@@ -157,10 +157,10 @@ class Fabric:
                         subdomain = lowestLatencySub
 
                 # Build the full URL, allow the dev config to override it.
-                uri = f"wss://{subdomain}.homeway.io/sage-fabric-websocket"
+                uri = f"wss://{subdomain}.homeway.io/sage-fabric-websocket-v2"
                 if self.DevLocalHomewayServerAddress is not None and len(self.DevLocalHomewayServerAddress) > 0:
                     self.Logger.info(f"{self._getLogTag()} Using dev local server address [{self.DevLocalHomewayServerAddress}]")
-                    uri = f"ws://{self.DevLocalHomewayServerAddress}/sage-fabric-websocket"
+                    uri = f"ws://{self.DevLocalHomewayServerAddress}/sage-fabric-websocket-v2"
 
                 # Setup the headers.
                 headers:Dict[str, str] = {}
