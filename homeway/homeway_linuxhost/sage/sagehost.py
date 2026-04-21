@@ -6,7 +6,7 @@ from functools import partial
 from typing import Optional
 
 from wyoming.server import AsyncServer
-from wyoming.zeroconf import register_server
+from wyoming.zeroconf import HomeAssistantZeroconf
 
 from homeway.sentry import Sentry
 from homeway.interfaces import IHomeAssistantWebSocket
@@ -83,6 +83,7 @@ class SageHost:
         # Setup the server
         self.Logger.info(f"Starting wyoming server on port {SageHost.c_ServerPort}")
         server = AsyncServer.from_uri(f"tcp://0.0.0.0:{SageHost.c_ServerPort}")
+        zeroConfigServer:Optional[HomeAssistantZeroconf] = None
 
         # Setup zeroconf for Home Assistant discovery.
         try:
@@ -93,10 +94,8 @@ class SageHost:
             if self.SagePrefix is not None:
                 serverName = f"{self.SagePrefix}_Homeway_Zeroconf"
                 serverName = serverName.replace(" ", "_")
-            await register_server(
-                name=serverName,
-                port=SageHost.c_ServerPort,
-            )
+            zeroConfigServer = HomeAssistantZeroconf(port=SageHost.c_ServerPort, name=serverName)
+            await zeroConfigServer.register_server()
             self.Logger.info(f"Zeroconf registration complete. Name: {serverName}, Port: {SageHost.c_ServerPort}")
         except Exception as e:
             Sentry.OnException("Zeroconf failed to setup.", e)
