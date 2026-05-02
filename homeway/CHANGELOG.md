@@ -1,11 +1,29 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
+## 3.0.0
+
+- 🧠 [Connect Your AI With The New Remote MCP Server for Home Assistant](https://blog.homeway.io/remote-mcp-server-for-home-assistant/?source=addon_changelog)
+    - Works with all major AI agents and assistants, including Claude, Gemini, ChatGPT, Copilot, Cursor, and more!
+    - Includes fine-grained security controls over what the AI can and can't access, enforced by Homeway's service.
+    - With Homeway’s MCP server, your AI can:
+      - ✅ Understand your home and see the real-time state of your devices
+      - ✅ Control your Home Assistant devices securely
+      - ✅ Help build dashboards, scripts, automations, and more
+      - ✅ Help manage your Home Assistant server and debug issues
+    - Free, private, and secure. (of course)
+    - [Try it now!](https://homeway.io/mcp-settings?source=addon_changelog)
+- 📺 [Free WebRTC Camera Streaming](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/?source=addon_changelog)
+    - Low-latency, end-to-end encrypted camera streaming from your Home Assistant dashboards.
+    - Free STUN and TURN server usage for all users.
+    - No setup required, it will work right now!
+    - [Check out our launch blog post to learn more!](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/?source=addon_changelog)
+- 🐛 Various bug fixes and improvements
+
+
 ## 2.6.0 - 2.6.10
 
-- 📺 [Adding free WebRTC support!](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
-    - [Checkout our launch blog post for details.](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/)
-    - We are enabling free STUN and TURN servers for all users.
+
 - 🐛 Bug fixes and various other improvements.
 - 🐞 Bug fix that prevented WebRTC Camera from working.
 - 📝 Fixed a few memory leaks and optimized memory usage.
