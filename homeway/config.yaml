@@ -47,6 +47,10 @@ schema:
 homeassistant_api: true
 auth_api: true
 
+# Enable the supervisor to manage our addon, logs, backups.
+hassio_role: "manager"
+hassio_api: true
+
 # Defines that instead of HA building the docker image from source, it will be downloaded from our github package repo.
 # For local dev this must be commented out, but it should never be committed that way.
 image: ghcr.io/homewayio/homeway/{arch}
