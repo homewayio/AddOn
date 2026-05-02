@@ -399,9 +399,14 @@ class CommandHandler:
                     raise Exception("No 'Message' provided in request.")
                 if not isinstance(requestMsg, dict):
                     raise Exception("'Message' is not a dictionary.")
+                # Get the optional timeout for this request, default to 10 seconds if not provided.
+                timeoutSec = request.get("TimeoutSec", None)
+                if timeoutSec is None:
+                    timeoutSec = 10.0
+                timeoutSec = float(timeoutSec)
 
                 # Execute the request and get the result.
-                result.update(self._InvokeHaWebsocketApiCall(requestMsg))
+                result.update(self._InvokeHaWebsocketApiCall(requestMsg, timeoutSec))
             except Exception as e:
                 self.Logger.error(f"HandleBatchHaWebsocketApiCallCommand Exception from command: {e}")
                 result["Error"] = "Exception in making websocket API request."
@@ -424,12 +429,12 @@ class CommandHandler:
         return CommandResponse.Success({"Responses":results})
 
 
-    def _InvokeHaWebsocketApiCall(self, msg:Dict[str, Any]) -> Dict[str, Any]:
+    def _InvokeHaWebsocketApiCall(self, msg:Dict[str, Any], timeoutSec:float=10.0) -> Dict[str, Any]:
         if self.HaWebSocketCon is None:
             raise Exception("No Home Assistant WebSocket connection.")
 
         haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
-        result = self.HaWebSocketCon.SendAndReceiveMsg(dict(msg))
+        result = self.HaWebSocketCon.SendAndReceiveMsg(dict(msg), timeoutSec=timeoutSec)
         successful = result is not None
         return {"Success": successful, "HaVersion": haVersion, "Result": result}
 

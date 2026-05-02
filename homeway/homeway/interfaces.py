@@ -137,7 +137,7 @@ class IHomeAssistantWebSocket(ABC):
     # since there are some APIs that can only be interacted with via the WS API.
     # Returns the response dict, or None on failure/timeout.
     @abstractmethod
-    def SendAndReceiveMsg(self, msg:Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def SendAndReceiveMsg(self, msg:Dict[str, Any], timeoutSec:float=10.0) -> Optional[Dict[str, Any]]:
         pass
 
     # Gets the Home Assistant version string, or None if not known.
