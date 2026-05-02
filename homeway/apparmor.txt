@@ -55,6 +55,7 @@ profile homeway flags=(attach_disconnected,mediate_deleted) {
 
     # Access to mapped volumes specified in config.json
     /share/** rw,
+    /homeassistant/{,**} rw,
 
     # Access required for service functionality
     /usr/bin/python3 r,

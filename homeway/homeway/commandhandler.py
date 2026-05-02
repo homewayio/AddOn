@@ -6,7 +6,7 @@ import concurrent.futures
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
-from .interfaces import IConfigManager, IAccountLinkStatusUpdateHandler, IHomeContext, IHomeAssistantWebSocket
+from .interfaces import IConfigManager, IHomeAssistantFileSystem, IAccountLinkStatusUpdateHandler, IHomeContext, IHomeAssistantWebSocket
 from .streammsgbuilder import StreamMsgBuilder
 from .httpresult import HttpResult
 from .httprequest import PathTypes, HttpRequest
@@ -64,6 +64,7 @@ class CommandHandler:
     c_CommandError_ExecutionFailure = 752
     c_CommandError_ResponseSerializeFailure = 753
     c_CommandError_UnknownCommand = 754
+    c_CommandError_PluginTypeNotSupported = 755
 
     _Instance:"CommandHandler" = None #pyright: ignore[reportAssignmentType]
 
@@ -81,6 +82,7 @@ class CommandHandler:
     def __init__(self, logger:logging.Logger):
         self.Logger = logger
         self.ConfigManager:Optional[IConfigManager] = None
+        self.HomeAssistantFileSystem:Optional[IHomeAssistantFileSystem] = None
         self.HomeContext:Optional[IHomeContext] = None
         self.AccountLinkStatusUpdateHandler:Optional[IAccountLinkStatusUpdateHandler] = None
         self.HaWebSocketCon:Optional[IHomeAssistantWebSocket] = None
@@ -89,6 +91,11 @@ class CommandHandler:
     # Registers the config manager, which is need
     def RegisterConfigManager(self, configManager:IConfigManager):
         self.ConfigManager = configManager
+
+
+    # Registers the Home Assistant file system, which is needed for file commands.
+    def RegisterHomeAssistantFileSystem(self, fileSystem:IHomeAssistantFileSystem):
+        self.HomeAssistantFileSystem = fileSystem
 
 
     # Registers the home context manager, which is needed for some commands.
@@ -163,6 +170,28 @@ class CommandHandler:
                     "CanEditConfig" : canEditConfig,
                     "NeedsRestartForAssistantConfigs": needsRestartForAssistantConfigs,
                 })
+
+        # Lists files and folders in the Home Assistant config directory.
+        if commandPathLower.startswith("list-files"):
+            return self.HandleListFilesCommand(jsonObj_CanBeNone)
+
+        # Reads a text file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-read"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandleReadFileCommand(jsonObj_CanBeNone)
+
+        # Adds or overwrites a file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-write"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandleWriteFileCommand(jsonObj_CanBeNone)
+
+        # Removes a file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-delete"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandleDeleteFileCommand(jsonObj_CanBeNone)
 
         # Used to tell the addon that there's an account linked to this addon. Mostly used to update the webserver page.
         if commandPathLower.startswith("update-account-link-status"):
@@ -376,6 +405,74 @@ class CommandHandler:
         return CommandResponse.Success({"Responses":results})
 
 
+    def HandleListFilesCommand(self, jsonArgs_CanBeNone:Optional[Dict[str, Any]]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs_CanBeNone, "Path")
+        if rawPath is None:
+            rawPath = ""
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        rawRecursive = self._GetCommandArg(jsonArgs_CanBeNone, "Recursive")
+        recursive = self._ParseOptionalBool(rawRecursive, True)
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ListFiles(rawPath, recursive))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandleReadFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandleWriteFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        contentBytes, contentError = self._GetFileContentBytes(jsonArgs)
+        if contentError is not None:
+            return contentError
+        if contentBytes is None:
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No file content provided.")
+
+        rawCreateDirectories = self._GetCommandArg(jsonArgs, "CreateDirectories")
+        createDirectories = self._ParseOptionalBool(rawCreateDirectories, True)
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.WriteFile(rawPath, contentBytes, createDirectories))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandleDeleteFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.DeleteFile(rawPath))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
     # Important! This must return the results in the same order as the requests!
     def HandleBatchHaWebsocketApiCallCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
 
@@ -437,6 +534,56 @@ class CommandHandler:
         result = self.HaWebSocketCon.SendAndReceiveMsg(dict(msg), timeoutSec=timeoutSec)
         successful = result is not None
         return {"Success": successful, "HaVersion": haVersion, "Result": result}
+
+
+    def _FileSystemNotSupportedResponse(self) -> CommandResponse:
+        return CommandResponse.Error(CommandHandler.c_CommandError_PluginTypeNotSupported, "This plugin type does not have access to the Home Assistant config file system.")
+
+
+    def _GetFileContentBytes(self, jsonArgs:Dict[str, Any]) -> Tuple[Optional[bytes], Optional[CommandResponse]]:
+        content = self._GetCommandArg(jsonArgs, "Content")
+        if content is not None:
+            if not isinstance(content, str):
+                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Content' must be a string.")
+            return content.encode("utf-8"), None
+
+        data = self._GetCommandArg(jsonArgs, "Data")
+        if data is not None:
+            if not isinstance(data, str):
+                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Data' must be a base64 string.")
+            try:
+                return base64.b64decode(data, validate=True), None
+            except Exception:
+                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Data' must be valid base64.")
+
+        return None, None
+
+
+    def _FileSystemExceptionToCommandResponse(self, e:Exception) -> CommandResponse:
+        if isinstance(e, ValueError):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, str(e))
+        return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, str(e))
+
+
+    def _GetCommandArg(self, jsonArgs_CanBeNone:Optional[Dict[str, Any]], key:str) -> Optional[Any]:
+        if jsonArgs_CanBeNone is None:
+            return None
+        if key in jsonArgs_CanBeNone:
+            return jsonArgs_CanBeNone[key]
+        lowerKey = key.lower()
+        if lowerKey in jsonArgs_CanBeNone:
+            return jsonArgs_CanBeNone[lowerKey]
+        return None
+
+
+    def _ParseOptionalBool(self, value:Optional[Any], defaultValue:bool) -> bool:
+        if value is None:
+            return defaultValue
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ["1", "true", "yes", "on"]
+        return bool(value)
 
 
     def _SerializeCompressionResult(self, compressionResult:Optional[Any]) -> Optional[Dict[str, Any]]:

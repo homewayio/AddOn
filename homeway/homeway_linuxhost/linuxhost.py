@@ -30,6 +30,7 @@ from .ha.eventhandler import EventHandler
 from .ha.serverinfo import ServerInfo
 from .ha.serverdiscovery import ServerDiscovery
 from .ha.homecontext import HomeContext
+from .ha.filesystem import HomeAssistantFileSystem
 from .sage.sagehost import SageHost
 
 
@@ -148,6 +149,10 @@ class LinuxHost(IStateChangeHandler):
             # Setup the Home Assistant config manager
             configManager = ConfigManager(self.Logger)
             self.WebServer.RegisterForAccountStatusUpdates()
+
+            # We only create the file system handler if we're running as the Home Assistant addon, since that's the only time it's supported.
+            if self.AddonType == AddonTypes.HaAddon:
+                CommandHandler.Get().RegisterHomeAssistantFileSystem(HomeAssistantFileSystem(self.Logger))
 
             # Use the discovery class to find the correct port for Home Assistant.
             # For addons running in the Home Assistant docker ecosystem, this will return the optimal docker direct resolve hostnames and configs.

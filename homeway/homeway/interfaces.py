@@ -86,6 +86,25 @@ class IConfigManager(ABC):
         pass
 
 
+class IHomeAssistantFileSystem(ABC):
+
+    @abstractmethod
+    def ListFiles(self, path:str, recursive:bool) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def ReadFile(self, path:str) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def WriteFile(self, path:str, content:bytes, createDirectories:bool) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def DeleteFile(self, path:str) -> Dict[str, Any]:
+        pass
+
+
 class IAccountLinkStatusUpdateHandler(ABC):
 
     @abstractmethod
