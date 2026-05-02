@@ -93,7 +93,7 @@ class IHomeAssistantFileSystem(ABC):
         pass
 
     @abstractmethod
-    def ReadFile(self, path:str) -> Dict[str, Any]:
+    def ReadFile(self, path:str, tailBytes:Optional[int]) -> Dict[str, Any]:
         pass
 
     @abstractmethod

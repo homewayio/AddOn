@@ -431,8 +431,13 @@ class CommandHandler:
         if not isinstance(rawPath, str):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
+        rawTailBytes = self._GetCommandArg(jsonArgs, "TailBytes")
+        tailBytes, tailBytesError = self._ParseOptionalPositiveInt(rawTailBytes, "TailBytes")
+        if tailBytesError is not None:
+            return tailBytesError
+
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath, tailBytes))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 
@@ -584,6 +589,18 @@ class CommandHandler:
         if isinstance(value, str):
             return value.lower() in ["1", "true", "yes", "on"]
         return bool(value)
+
+
+    def _ParseOptionalPositiveInt(self, value:Optional[Any], argName:str) -> Tuple[Optional[int], Optional[CommandResponse]]:
+        if value is None:
+            return None, None
+        try:
+            parsedValue = int(value)
+        except Exception:
+            return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be an integer.")
+        if parsedValue <= 0:
+            return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be greater than zero.")
+        return parsedValue, None
 
 
     def _SerializeCompressionResult(self, compressionResult:Optional[Any]) -> Optional[Dict[str, Any]]:

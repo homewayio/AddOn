@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from homeway.interfaces import IHomeAssistantFileSystem
 
@@ -9,6 +9,9 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
     # The Home Assistant addon maps homeassistant_config here.
     c_HomeAssistantConfigRootPath = "/homeassistant"
+
+    # Cap text file reads to avoid loading very large files into memory or responses.
+    c_MaxReadFileBytes = 50 * 1024 * 1024
 
     # Exact file names or wildcard file extensions denied in every folder under the config root.
     # Extension entries can be written as "*pem" or "*.pem".
@@ -63,7 +66,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         }
 
 
-    def ReadFile(self, path:str) -> Dict[str, Any]:
+    def ReadFile(self, path:str, tailBytes:Optional[int]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(False)
         normalizedPath, targetPath = self._ResolvePath(rootPath, path, False)
         if self._IsDeniedFileName(normalizedPath):
@@ -76,13 +79,29 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         if os.path.isfile(targetPath) is False:
             raise ValueError("'Path' must reference a file.")
 
-        with open(targetPath, "r", encoding="utf-8") as f:
-            text = f.read()
+        fileSize = os.path.getsize(targetPath)
+        maxBytes = HomeAssistantFileSystem.c_MaxReadFileBytes
+        if tailBytes is not None:
+            maxBytes = min(tailBytes, HomeAssistantFileSystem.c_MaxReadFileBytes)
+        isTruncated = fileSize > maxBytes
+        bytesToRead = maxBytes if isTruncated else fileSize
+        readOffset = fileSize - bytesToRead
+        with open(targetPath, "rb") as f:
+            f.seek(readOffset)
+            fileBytes = f.read(bytesToRead)
+
+        if isTruncated:
+            # The tail slice can start mid UTF-8 character, so drop only that partial character if needed.
+            text = fileBytes.decode("utf-8", errors="ignore")
+        else:
+            text = fileBytes.decode("utf-8")
 
         return {
             "Path": self._ToResponseRelativePath(normalizedPath),
             "Text": text,
-            "Size": len(text.encode("utf-8")),
+            "FullFileSize": int(fileSize),
+            "ReadOffset": int(readOffset),
+            "Truncated": isTruncated,
         }
 
 
