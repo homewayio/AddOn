@@ -10,8 +10,21 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     # The Home Assistant addon maps homeassistant_config here.
     c_HomeAssistantConfigRootPath = "/homeassistant"
 
-    # File names in this list are denied in every folder under the config root.
-    c_HomeAssistantConfigDenyList = ["secrets.yaml"]
+    # Exact file names or wildcard file extensions denied in every folder under the config root.
+    # Extension entries can be written as "*pem" or "*.pem".
+    c_HomeAssistantConfigDenyList = [
+        "secrets.yaml",
+        "*pem",
+        "*key",
+        "*crt",
+        "*cer",
+        "*csr",
+        "*der",
+        "*p12",
+        "*pfx",
+        "*jks",
+        "*keystore",
+    ]
 
 
     def __init__(self, logger:logging.Logger, rootPath:str=c_HomeAssistantConfigRootPath) -> None:
@@ -183,11 +196,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         statResult = os.lstat(entryPath)
         relativePath = os.path.relpath(entryPath, rootPath)
         files.append({
-            "Name": entryName,
             "Path": self._ToResponseRelativePath(relativePath),
             "IsDirectory": os.path.isdir(entryPath),
-            "IsFile": os.path.isfile(entryPath),
-            "IsSymlink": os.path.islink(entryPath),
             "Size": int(statResult.st_size),
             "ModifiedTimeSec": int(statResult.st_mtime),
             "HasAccess": self._IsDeniedFileName(entryPath) is False,
@@ -197,8 +207,15 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     def _IsDeniedFileName(self, fileNameOrPath:str) -> bool:
         normalizedPath = fileNameOrPath.replace("\\", "/")
         fileNameLower = os.path.basename(normalizedPath).lower()
-        for deniedFileName in HomeAssistantFileSystem.c_HomeAssistantConfigDenyList:
-            if fileNameLower == deniedFileName.lower():
+        _, fileExtension = os.path.splitext(fileNameLower)
+        fileExtension = fileExtension.lstrip(".")
+        for deniedFileNameOrExtension in HomeAssistantFileSystem.c_HomeAssistantConfigDenyList:
+            deniedValue = deniedFileNameOrExtension.lower()
+            if deniedValue.startswith("*"):
+                deniedExtension = deniedValue.lstrip("*").lstrip(".")
+                if len(deniedExtension) > 0 and fileExtension == deniedExtension:
+                    return True
+            elif fileNameLower == deniedValue:
                 return True
         return False
 
