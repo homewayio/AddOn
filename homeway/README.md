@@ -6,16 +6,17 @@ Homeway is a Home Assistant community project aiming to provide free, private, a
 
 ## Features
 
-- 🚀 **Free.** Remote access to your full Home Assistant from anywhere.
-- 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=addon_readme) enables lifelike interactions with Home Assistant Assist or Home Assistant Voice devices.
-- 🤖 **Helpful.** [Alexa](https://homeway.io/alexa?source=addon_readme) and [Google Assistant](https://homeway.io/googleassistant?source=addon_readme) voice control for your Home Assistant.
+- 🚀 **Free.** Remotely access your Home Assistant from anywhere.
+- 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=addon_readme) powers lifelike interactions with Home Assistant and Home Assistant Voice devices.
+- 🤖 **Helpful.** Use [Alexa](https://homeway.io/alexa?source=addon_readme) and [Google Assistant](https://homeway.io/googleassistant?source=addon_readme) voice control for your home.
 - 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=addon_readme)
-- 📺 **Streamable.** Free [WebRTC camera streaming](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/) including both STUN and TURN server access.
-- 🔒 **Secure.** We offer advanced security features to ensure only you have access.
-- 🔭 **Private.** We don't store your data in our cloud and will never sell or share your information.
-- ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.
-- 🛠️ **Easy.** No maintenance or technical knowledge is required to set up. Your Home Assistant is always online, secure, and ready for you.
-- 🌍 **Community.** Homeway is built for the community by the community. Join our [Discord server](https://discord.gg/zxbvtgU6dq) for discussions, feedback, and more.
+- ⭐ **AI Ready.** Free remote [MCP server](https://blog.homeway.io/remote-mcp-server-for-home-assistant/?source=addon_readme) lets AI bots access and control your Home Assistant from anywhere.
+- 📺 **Streamable.** Free [WebRTC camera streaming,](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/?source=addon_readme) with STUN and TURN access.
+- 🔒 **Secure.** Advanced features ensure only you have access.
+- 🔭 **Private.** We never store, sell, or share your data.
+- ⚡ **Fast.** Worldwide server network delivers low latency and speed.
+- 🛠️ **Easy.** No maintenance or technical knowledge required. Your Home Assistant stays online and secure.
+- 🌍 **Community.** Built by and for the community. Join our [Discord server](https://homeway.io/r/discord?source=addon_readme) for discussions and feedback.
 
 ## Try It Now!
 

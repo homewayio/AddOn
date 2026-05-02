@@ -7,16 +7,17 @@ Homeway is a Home Assistant community project aiming to provide free, private, a
 
 ## Features
 
-- 🚀 **Free.** Remote access to your full Home Assistant from anywhere.
-- 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=github_readme) enables lifelike interactions with Home Assistant Assist or Home Assistant Voice devices.
-- 🤖 **Helpful.** [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your Home Assistant.
+- 🚀 **Free.** Remotely access your Home Assistant from anywhere.
+- 🌿 **Intelligent.** [Sage AI](https://homeway.io/sage-ai?source=github_readme) powers lifelike interactions with Home Assistant and Home Assistant Voice devices.
+- 🤖 **Helpful.** Use [Alexa](https://homeway.io/alexa?source=github_readme) and [Google Assistant](https://homeway.io/googleassistant?source=github_readme) voice control for your home.
 - 📱 **Mobile.** Free remote access for the Official [Home Assistant Android and iOS apps](https://homeway.io/app?source=github_readme)
-- 📺 **Streamable.** Free [WebRTC camera streaming](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/) including both STUN and TURN server access.
-- 🔒 **Secure.** We offer advanced security features to ensure only you have access.
-- 🔭 **Private.** We don't store your data in our cloud and will never sell or share your information.
-- ⚡ **Fast.** Built on a worldwide server network to provide the lowest latency and fastest experience possible.
-- 🛠️ **Easy.** No maintenance or technical knowledge is required to set up. Your Home Assistant is always online, secure, and ready for you.
-- 🌍 **Community.** Homeway is built for the community by the community. Join our [Discord server](https://discord.gg/zxbvtgU6dq) for discussions, feedback, and more.
+- ⭐ **AI Ready.** Free remote [MCP server](https://blog.homeway.io/remote-mcp-server-for-home-assistant/?source=github_readme) lets AI bots access and control your Home Assistant from anywhere.
+- 📺 **Streamable.** Free [WebRTC camera streaming,](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/?source=github_readme) with STUN and TURN access.
+- 🔒 **Secure.** Advanced features ensure only you have access.
+- 🔭 **Private.** We never store, sell, or share your data.
+- ⚡ **Fast.** Worldwide server network delivers low latency and speed.
+- 🛠️ **Easy.** No maintenance or technical knowledge required. Your Home Assistant stays online and secure.
+- 🌍 **Community.** Built by and for the community. Join our [Discord server](https://homeway.io/r/discord?source=github_readme) for discussions and feedback.
 
 ## Try It Now!
 
@@ -37,6 +38,36 @@ If your Home Assistant server doesn't support apps, there are two standalone ins
 
 - [Homeway Standalone CLI](https://homeway.io/getstarted?source=github_readme_cli&standalone=true) - Ideal for installation on the same device running Home Assistant.
 - [Homeway Standalone Docker](https://homeway.io/getstarted?source=github_readme_docker&standalone=true) - Installs anywhere Docker runs!
+
+### Remote MCP Server for Home Assistant
+
+Homeway provides a free, private, and secure remote Model Context Protocol (MCP) server that seamlessly connects your Home Assistant instance with any AI chatbot, agent, or assistant.
+
+Built with advanced, fine-grained security, Homeway puts you in the driver's seat. Easily enable or disable AI access to specific MCP tools so you have absolute control over what your AI can see and do.
+
+Learn more about our [MCP sever for Home Assistant on our blog.](https://blog.homeway.io/remote-mcp-server-for-home-assistant/?source=github_readme_learn_more)
+
+#### Seamlessly Integrates With:
+
+- Claude
+- ChatGPT
+- Google Gemini
+- GitHub Copilot
+- ...and any other MCP-compatible client!
+
+#### Supercharge Your AI:
+By connecting through Homeway, you empower your AI systems to:
+
+- Understand Your Space: Get a complete overview of your home's layout, areas, and connected devices.
+- Monitor in Real-Time: Access live device statuses, states, and configurations.
+- Take Action: Fully control devices (toggle power, operate entities, and adjust settings on the fly).
+- Read & Write: View, create, and modify your Home Assistant dashboards, integrations, scenes, scripts, and automations.
+
+### Free WebRTC Camera Streaming For Home Assistant
+
+Homeway provides free, low latency, end-to-end encrypted WebRTC camera streaming for Home Assistant, including access to STUN and TURN servers! STUN and TURN server are automatically setup by the Homeway app and enable the WebRTC protocol to make a connection to you Home Assistant serve from anywhere. No setup required, just add the Homeway app to Home Assistant and you're ready to stream!
+
+Learn more about our [WebRTC Camera streaming for Home Assistant on our blog.](https://blog.homeway.io/free-webrtc-video-streaming-for-home-assistant/?source=github_readme_learn_more)
 
 ### Feedback & Bugs
 
