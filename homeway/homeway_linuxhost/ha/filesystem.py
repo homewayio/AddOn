@@ -165,7 +165,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
         path = rawPath.replace("\\", "/")
         if path.startswith("/"):
-            raise ValueError("Absolute paths are not allowed.")
+            path = path.lstrip("/")
 
         normalizedPath = os.path.normpath(path)
         if normalizedPath == ".":
