@@ -401,6 +401,20 @@ class WebServer(IAccountLinkStatusUpdateHandler):
             <div class="featureHolder">
                 <div>
                     <div class="featureHeader">
+                        Cloud MCP Server
+                    </div>
+                    <div class="featureDetails">
+                        Connect your AI with Home Assistant for home status, device control, dashboard building, automation writing, and more.
+                    </div>
+                </div>
+                <div class="pinkButton featureButton" id="goToMcpSetup">
+                    Setup Your AI Chatbot Or Agent Now
+                </div>
+            </div>
+
+            <div class="featureHolder">
+                <div>
+                    <div class="featureHeader">
                         Alexa &amp; Google Assistant
                     </div>
                     <div class="featureDetails">
@@ -464,6 +478,7 @@ class WebServer(IAccountLinkStatusUpdateHandler):
     (function() {
         document.getElementById("linkAccountButton").onclick = (event) => { window.open('"""+pluginLinkUrl+"""', '_blank').focus(); };
         document.getElementById("goToDashboardButton").onclick = (event) => { window.open("https://homeway.io/dashboard?source=addon_control", '_blank').focus(); };
+        document.getElementById("goToMcpSetup").onclick = (event) => { window.open("https://homeway.io/mcp-settings?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAssistantSetup").onclick = (event) => { window.open("https://homeway.io/assistant?source=addon_control", '_blank').focus(); };
         document.getElementById("goToAssistantDeviceControl").onclick = (event) => { window.open("https://homeway.io/assistantdevicecontrol?source=addon_control", '_blank').focus(); };
         document.getElementById("goToSageSetup").onclick = (event) => { window.open("https://homeway.io/sage?source=addon_control", '_blank').focus(); };
