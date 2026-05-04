@@ -327,20 +327,20 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         except UnicodeEncodeError as e:
             raise ValueError("'UnifiedDiffPatch' must be valid UTF-8 text.") from e
 
-        patchSet = patch_ng.fromstring(patchBytes)
+        patchSet = patch_ng.fromstring(patchBytes) #pyright: ignore[reportUnknownMemberType]
         if patchSet is False:
             raise ValueError("'UnifiedDiffPatch' must be a valid unified diff.")
-        if len(patchSet.items) != 1:
+        if len(patchSet.items) != 1: #pyright: ignore[reportUnknownMemberType]
             raise ValueError("'UnifiedDiffPatch' must contain exactly one file patch.")
 
-        patchItem = patchSet.items[0]
-        if patchItem.source == b"/dev/null" or patchItem.target == b"/dev/null":
+        patchItem = patchSet.items[0] #pyright: ignore[reportUnknownMemberType]
+        if patchItem.source == b"/dev/null" or patchItem.target == b"/dev/null": #pyright: ignore[reportUnknownMemberType]
             raise ValueError("'UnifiedDiffPatch' must only modify an existing text file.")
         if getattr(patchItem, "mode", None) is not None:
             raise ValueError("'UnifiedDiffPatch' must only modify text and must not rename files.")
         if getattr(patchItem, "filemode", None) is not None:
             raise ValueError("'UnifiedDiffPatch' must only modify text and must not change file modes.")
-        if len(patchItem.hunks) == 0:
+        if len(patchItem.hunks) == 0: #pyright: ignore[reportUnknownMemberType]
             raise ValueError("'UnifiedDiffPatch' must contain at least one hunk.")
 
         targetPathBytes = os.fsencode(targetPath)
