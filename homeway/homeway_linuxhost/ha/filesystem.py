@@ -250,8 +250,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             raise NotADirectoryError("Parent path is not a directory.")
 
 
-    def _NormalizeFileFormat(self, format:str, argName:str) -> str:
-        normalizedFormat = format.strip().lower()
+    def _NormalizeFileFormat(self, formatStr:str, argName:str) -> str:
+        normalizedFormat = formatStr.strip().lower()
         if normalizedFormat not in [HomeAssistantFileSystem.c_FileFormatText, HomeAssistantFileSystem.c_FileFormatData]:
             raise ValueError(f"'{argName}' must be either 'text' or 'data'.")
         return normalizedFormat
