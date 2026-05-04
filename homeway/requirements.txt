@@ -34,6 +34,7 @@ dnspython>=2.6.0
 httpx>=0.28.1
 pyyaml
 configparser
+patch-ng>=1.19.1,<2.0
 wyoming>=1.8.0,<1.9
 zeroconf>=0.136.2,<0.149.0
 sentry-sdk>=2.44.0,<3

@@ -93,11 +93,19 @@ class IHomeAssistantFileSystem(ABC):
         pass
 
     @abstractmethod
-    def ReadFile(self, path:str, tailBytes:Optional[int]) -> Dict[str, Any]:
+    def ReadFile(self, path:str, readType:str, textEncoding:Optional[str], startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
         pass
 
     @abstractmethod
-    def WriteFile(self, path:str, content:bytes, createDirectories:bool) -> Dict[str, Any]:
+    def WriteFile(self, path:str, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str], createParents:bool, override:bool, expectedSha256:Optional[str]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def MoveFile(self, path:str, newPath:str, copy:bool) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def PatchFile(self, path:str, unifiedDiffPatch:str, expectedSha256:Optional[str]) -> Dict[str, Any]:
         pass
 
     @abstractmethod

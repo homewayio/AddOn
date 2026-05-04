@@ -1,6 +1,11 @@
+import base64
+import hashlib
 import os
 import logging
+import shutil
 from typing import Any, Dict, List, Optional, Tuple
+
+import patch_ng
 
 from homeway.interfaces import IHomeAssistantFileSystem
 
@@ -10,8 +15,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     # The Home Assistant addon maps homeassistant_config here.
     c_HomeAssistantConfigRootPath = "/homeassistant"
 
-    # Cap text file reads to avoid loading very large files into memory or responses.
+    # Default read cap to avoid loading very large files into memory or responses when maxBytes is not specified.
     c_MaxReadFileBytes = 50 * 1024 * 1024
+
+    c_FileFormatText = "text"
+    c_FileFormatData = "data"
 
     # Exact file names or wildcard file extensions denied in every folder under the config root.
     # Extension entries can be written as "*pem" or "*.pem".
@@ -66,95 +74,129 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         }
 
 
-    def ReadFile(self, path:str, tailBytes:Optional[int]) -> Dict[str, Any]:
+    def ReadFile(self, path:str, readType:str, textEncoding:Optional[str], startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(False)
-        normalizedPath, targetPath = self._ResolvePath(rootPath, path, False)
-        if self._IsDeniedFileName(normalizedPath):
-            raise PermissionError("Access to this file is denied.")
-
-        if os.path.exists(targetPath) is False:
-            raise FileNotFoundError("File does not exist.")
-        if os.path.islink(targetPath):
-            raise PermissionError("Refusing to read a symbolic link.")
-        if os.path.isfile(targetPath) is False:
-            raise ValueError("'Path' must reference a file.")
+        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
+        readType = self._NormalizeFileFormat(readType, "ReadType")
+        if readType == HomeAssistantFileSystem.c_FileFormatText and textEncoding is None:
+            textEncoding = "utf-8"
 
         fileSize = os.path.getsize(targetPath)
-        maxBytes = HomeAssistantFileSystem.c_MaxReadFileBytes
-        if tailBytes is not None:
-            maxBytes = min(tailBytes, HomeAssistantFileSystem.c_MaxReadFileBytes)
-        isTruncated = fileSize > maxBytes
-        bytesToRead = maxBytes if isTruncated else fileSize
-        readOffset = fileSize - bytesToRead
+        readOffset = self._GetReadOffset(fileSize, startByte, tailBytes)
+        bytesToRead = self._GetReadSize(fileSize, readOffset, maxBytes)
         with open(targetPath, "rb") as f:
             f.seek(readOffset)
             fileBytes = f.read(bytesToRead)
 
-        if isTruncated:
-            # The tail slice can start mid UTF-8 character, so drop only that partial character if needed.
-            text = fileBytes.decode("utf-8", errors="ignore")
-        else:
-            text = fileBytes.decode("utf-8")
-
-        return {
-            "Path": self._ToResponseRelativePath(normalizedPath),
-            "Text": text,
-            "FullFileSize": int(fileSize),
-            "ReadOffset": int(readOffset),
-            "Truncated": isTruncated,
+        isPartialRead = readOffset != 0 or readOffset + len(fileBytes) < fileSize
+        result:Dict[str, Any] = {
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "fullFileSize": int(fileSize),
+            "readOffset": int(readOffset),
+            "bytesRead": len(fileBytes),
+            "truncated": isPartialRead,
+            "sha256": self._HashFile(targetPath),
         }
 
+        if readType == HomeAssistantFileSystem.c_FileFormatText:
+            result["text"] = self._DecodeText(fileBytes, textEncoding, isPartialRead)
+        else:
+            result["data"] = base64.b64encode(fileBytes).decode(encoding="utf-8")
 
-    def WriteFile(self, path:str, content:bytes, createDirectories:bool) -> Dict[str, Any]:
+        return result
+
+
+    def WriteFile(self, path:str, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str], createParents:bool, override:bool, expectedSha256:Optional[str]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
         normalizedPath, targetPath = self._ResolvePath(rootPath, path, False)
-        if self._IsDeniedFileName(normalizedPath):
-            raise PermissionError("Access to this file is denied.")
+        self._ValidateWritableTarget(rootPath, normalizedPath, targetPath, createParents, "Path")
 
-        if os.path.isdir(targetPath):
-            raise ValueError("'Path' references a directory.")
-        if os.path.islink(targetPath):
-            raise PermissionError("Refusing to edit a symbolic link.")
+        expectedSha256 = self._NormalizeExpectedSha256(expectedSha256)
+        self._ValidateExpectedSha256(targetPath, expectedSha256)
+        if override is False and os.path.exists(targetPath):
+            raise FileExistsError("File already exists and 'Override' is false.")
 
-        parentPath = os.path.dirname(targetPath)
-        if self._IsPathInsideRoot(rootPath, parentPath) is False:
-            raise PermissionError("Resolved parent path is outside of the Home Assistant config directory.")
-        if os.path.exists(parentPath) is False:
-            if createDirectories is False:
-                raise FileNotFoundError("Parent directory does not exist.")
-            os.makedirs(parentPath, exist_ok=True)
-        if os.path.isdir(parentPath) is False:
-            raise NotADirectoryError("Parent path is not a directory.")
+        content = self._GetWriteContentBytes(text, base64Data, textEncoding)
 
         fileExisted = os.path.exists(targetPath)
-        with open(targetPath, "wb") as f:
+        openMode = "wb" if override else "xb"
+        with open(targetPath, openMode) as f:
             f.write(content)
 
         return {
-            "Path": self._ToResponseRelativePath(normalizedPath),
-            "Size": len(content),
-            "Created": fileExisted is False,
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "size": len(content),
+            "created": fileExisted is False,
+            "sha256": self._HashFile(targetPath),
+        }
+
+
+    def MoveFile(self, path:str, newPath:str, copy:bool) -> Dict[str, Any]:
+        rootPath = self._GetRootPath(True)
+        sourceOperationName = "copy" if copy else "move"
+        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, sourceOperationName)
+        normalizedNewPath, newTargetPath = self._ResolvePath(rootPath, newPath, False)
+        self._ValidateWritableTarget(rootPath, normalizedNewPath, newTargetPath, False, "NewPath")
+
+        if os.path.realpath(targetPath) == os.path.realpath(newTargetPath):
+            raise ValueError("'NewPath' must be different from 'Path'.")
+
+        fileSize = os.path.getsize(targetPath)
+        if copy:
+            shutil.copy2(targetPath, newTargetPath)
+        else:
+            os.replace(targetPath, newTargetPath)
+
+        return {
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "newPath": self._ToResponseRelativePath(normalizedNewPath),
+            "copied": copy,
+            "moved": copy is False,
+            "size": int(fileSize),
+            "sha256": self._HashFile(newTargetPath),
+        }
+
+
+    def PatchFile(self, path:str, unifiedDiffPatch:str, expectedSha256:Optional[str]) -> Dict[str, Any]:
+        rootPath = self._GetRootPath(True)
+        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, "patch")
+        self._ValidateWritableTarget(rootPath, normalizedPath, targetPath, False, "Path")
+
+        expectedSha256 = self._NormalizeExpectedSha256(expectedSha256)
+        self._ValidateExpectedSha256(targetPath, expectedSha256)
+        originalFileBytes = self._ReadUtf8TextFileBytesForPatch(targetPath, "File")
+        originalSha256 = hashlib.sha256(originalFileBytes).hexdigest()
+        patchSet = self._ParseSingleFileTextPatch(targetPath, unifiedDiffPatch)
+
+        try:
+            applied = patchSet.apply()
+            if applied is False:
+                raise RuntimeError("Patch could not be applied.")
+            if os.path.exists(targetPath) is False:
+                raise RuntimeError("Patch removed file unexpectedly.")
+            self._ReadUtf8TextFileBytesForPatch(targetPath, "Patched file")
+        except Exception:
+            self._RestoreFileBytesAfterFailedPatch(targetPath, originalFileBytes)
+            raise
+
+        return {
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "patched": True,
+            "size": int(os.path.getsize(targetPath)),
+            "previousSha256": originalSha256,
+            "sha256": self._HashFile(targetPath),
         }
 
 
     def DeleteFile(self, path:str) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
-        normalizedPath, targetPath = self._ResolvePath(rootPath, path, False)
-        if self._IsDeniedFileName(normalizedPath):
-            raise PermissionError("Access to this file is denied.")
-
-        if os.path.exists(targetPath) is False:
-            raise FileNotFoundError("File does not exist.")
-        if os.path.islink(targetPath):
-            raise PermissionError("Refusing to remove a symbolic link.")
-        if os.path.isfile(targetPath) is False:
-            raise ValueError("'Path' must reference a file.")
+        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, "remove")
 
         os.remove(targetPath)
 
         return {
-            "Path": self._ToResponseRelativePath(normalizedPath),
-            "Removed": True,
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "removed": True,
         }
 
 
@@ -174,6 +216,162 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         if self._IsPathInsideRoot(rootPath, targetPath) is False:
             raise PermissionError("Resolved path is outside of the Home Assistant config directory.")
         return normalizedPath, targetPath
+
+
+    def _ResolveExistingFilePath(self, rootPath:str, rawPath:str, operationName:str) -> Tuple[str, str]:
+        normalizedPath, targetPath = self._ResolvePath(rootPath, rawPath, False)
+        if self._IsDeniedFileName(normalizedPath):
+            raise PermissionError("Access to this file is denied.")
+        if os.path.exists(targetPath) is False:
+            raise FileNotFoundError("File does not exist.")
+        if os.path.islink(targetPath):
+            raise PermissionError(f"Refusing to {operationName} a symbolic link.")
+        if os.path.isfile(targetPath) is False:
+            raise ValueError("'Path' must reference a file.")
+        return normalizedPath, targetPath
+
+
+    def _ValidateWritableTarget(self, rootPath:str, normalizedPath:str, targetPath:str, createParents:bool, argName:str) -> None:
+        if self._IsDeniedFileName(normalizedPath):
+            raise PermissionError("Access to this file is denied.")
+        if os.path.islink(targetPath):
+            raise PermissionError("Refusing to edit a symbolic link.")
+        if os.path.isdir(targetPath):
+            raise ValueError(f"'{argName}' references a directory.")
+
+        parentPath = os.path.dirname(targetPath)
+        if self._IsPathInsideRoot(rootPath, parentPath) is False:
+            raise PermissionError("Resolved parent path is outside of the Home Assistant config directory.")
+        if os.path.exists(parentPath) is False:
+            if createParents is False:
+                raise FileNotFoundError("Parent directory does not exist.")
+            os.makedirs(parentPath, exist_ok=True)
+        if os.path.isdir(parentPath) is False:
+            raise NotADirectoryError("Parent path is not a directory.")
+
+
+    def _NormalizeFileFormat(self, format:str, argName:str) -> str:
+        normalizedFormat = format.strip().lower()
+        if normalizedFormat not in [HomeAssistantFileSystem.c_FileFormatText, HomeAssistantFileSystem.c_FileFormatData]:
+            raise ValueError(f"'{argName}' must be either 'text' or 'data'.")
+        return normalizedFormat
+
+
+    def _GetReadOffset(self, fileSize:int, startByte:Optional[int], tailBytes:Optional[int]) -> int:
+        if tailBytes is not None:
+            return max(0, fileSize - tailBytes)
+        if startByte is not None:
+            return min(startByte, fileSize)
+        return 0
+
+
+    def _GetReadSize(self, fileSize:int, readOffset:int, maxBytes:Optional[int]) -> int:
+        availableBytes = max(0, fileSize - readOffset)
+        if maxBytes is None:
+            maxBytes = HomeAssistantFileSystem.c_MaxReadFileBytes
+        return min(availableBytes, maxBytes)
+
+
+    def _DecodeText(self, fileBytes:bytes, textEncoding:Optional[str], ignoreDecodeErrors:bool) -> str:
+        if textEncoding is None:
+            raise ValueError("'TextEncoding' must be provided.")
+        try:
+            return fileBytes.decode(textEncoding, errors="ignore" if ignoreDecodeErrors else "strict")
+        except LookupError as e:
+            raise ValueError(f"Unknown text encoding '{textEncoding}'.") from e
+
+
+    def _GetWriteContentBytes(self, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str]) -> bytes:
+        if text is not None:
+            if textEncoding is None:
+                textEncoding = "utf-8"
+            try:
+                return text.encode(textEncoding)
+            except LookupError as e:
+                raise ValueError(f"Unknown text encoding '{textEncoding}'.") from e
+        if base64Data is None:
+            raise ValueError("'Base64Data' must be provided when 'Format' is 'data'.")
+        try:
+            return base64.b64decode(base64Data, validate=True)
+        except Exception as e:
+            raise ValueError("'Base64Data' must be valid base64.") from e
+
+
+    def _NormalizeExpectedSha256(self, expectedSha256:Optional[str]) -> Optional[str]:
+        if expectedSha256 is None:
+            return None
+        expectedSha256 = expectedSha256.strip().lower()
+        if len(expectedSha256) != 64 or any(c not in "0123456789abcdef" for c in expectedSha256):
+            raise ValueError("'ExpectedSha256' must be a SHA256 hex string.")
+        return expectedSha256
+
+
+    def _ValidateExpectedSha256(self, targetPath:str, expectedSha256:Optional[str]) -> None:
+        if expectedSha256 is None:
+            return
+        if os.path.exists(targetPath) is False:
+            raise FileNotFoundError("Expected SHA256 was provided, but file does not exist.")
+        actualSha256 = self._HashFile(targetPath)
+        if actualSha256 != expectedSha256:
+            raise RuntimeError("File SHA256 did not match 'ExpectedSha256'.")
+
+
+    def _ParseSingleFileTextPatch(self, targetPath:str, unifiedDiffPatch:str) -> Any:
+        if len(unifiedDiffPatch) == 0:
+            raise ValueError("'UnifiedDiffPatch' must not be empty.")
+        if "\x00" in unifiedDiffPatch:
+            raise ValueError("'UnifiedDiffPatch' must be text and must not contain null bytes.")
+
+        try:
+            patchBytes = unifiedDiffPatch.encode("utf-8")
+        except UnicodeEncodeError as e:
+            raise ValueError("'UnifiedDiffPatch' must be valid UTF-8 text.") from e
+
+        patchSet = patch_ng.fromstring(patchBytes)
+        if patchSet is False:
+            raise ValueError("'UnifiedDiffPatch' must be a valid unified diff.")
+        if len(patchSet.items) != 1:
+            raise ValueError("'UnifiedDiffPatch' must contain exactly one file patch.")
+
+        patchItem = patchSet.items[0]
+        if patchItem.source == b"/dev/null" or patchItem.target == b"/dev/null":
+            raise ValueError("'UnifiedDiffPatch' must only modify an existing text file.")
+        if getattr(patchItem, "mode", None) is not None:
+            raise ValueError("'UnifiedDiffPatch' must only modify text and must not rename files.")
+        if getattr(patchItem, "filemode", None) is not None:
+            raise ValueError("'UnifiedDiffPatch' must only modify text and must not change file modes.")
+        if len(patchItem.hunks) == 0:
+            raise ValueError("'UnifiedDiffPatch' must contain at least one hunk.")
+
+        targetPathBytes = os.fsencode(targetPath)
+        patchItem.source = targetPathBytes
+        patchItem.target = targetPathBytes
+        return patchSet
+
+
+    def _ReadUtf8TextFileBytesForPatch(self, targetPath:str, description:str) -> bytes:
+        with open(targetPath, "rb") as f:
+            fileBytes = f.read()
+        if b"\x00" in fileBytes:
+            raise ValueError(f"{description} must be UTF-8 text and must not contain null bytes.")
+        try:
+            fileBytes.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValueError(f"{description} must be UTF-8 text.") from e
+        return fileBytes
+
+
+    def _RestoreFileBytesAfterFailedPatch(self, targetPath:str, fileBytes:bytes) -> None:
+        with open(targetPath, "wb") as f:
+            f.write(fileBytes)
+
+
+    def _HashFile(self, targetPath:str) -> str:
+        sha256 = hashlib.sha256()
+        with open(targetPath, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
 
     def _NormalizeRelativePath(self, rawPath:str, allowRoot:bool) -> str:

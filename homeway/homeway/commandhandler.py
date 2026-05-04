@@ -172,7 +172,7 @@ class CommandHandler:
                 })
 
         # Lists files and folders in the Home Assistant config directory.
-        if commandPathLower.startswith("list-files"):
+        if commandPathLower.startswith("file-list"):
             return self.HandleListFilesCommand(jsonObj_CanBeNone)
 
         # Reads a text file in the Home Assistant config directory.
@@ -186,6 +186,18 @@ class CommandHandler:
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleWriteFileCommand(jsonObj_CanBeNone)
+
+        # Moves or copies a file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-move"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandleMoveFileCommand(jsonObj_CanBeNone)
+
+        # Applies a unified diff patch to a file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-patch"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandlePatchFileCommand(jsonObj_CanBeNone)
 
         # Removes a file in the Home Assistant config directory.
         if commandPathLower.startswith("file-delete"):
@@ -431,13 +443,35 @@ class CommandHandler:
         if not isinstance(rawPath, str):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
+        rawReadType = self._GetCommandArg(jsonArgs, "ReadType")
+        if not isinstance(rawReadType, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'ReadType' must be a string.")
+
+        rawTextEncoding = self._GetCommandArg(jsonArgs, "TextEncoding")
+        textEncoding, textEncodingError = self._ParseOptionalString(rawTextEncoding, "TextEncoding")
+        if textEncodingError is not None:
+            return textEncodingError
+
+        rawStartByte = self._GetCommandArg(jsonArgs, "StartByte")
+        startByte, startByteError = self._ParseOptionalNonNegativeInt(rawStartByte, "StartByte")
+        if startByteError is not None:
+            return startByteError
+
+        rawMaxBytes = self._GetCommandArg(jsonArgs, "MaxBytes")
+        maxBytes, maxBytesError = self._ParseOptionalNonNegativeInt(rawMaxBytes, "MaxBytes")
+        if maxBytesError is not None:
+            return maxBytesError
+
         rawTailBytes = self._GetCommandArg(jsonArgs, "TailBytes")
-        tailBytes, tailBytesError = self._ParseOptionalPositiveInt(rawTailBytes, "TailBytes")
+        tailBytes, tailBytesError = self._ParseOptionalNonNegativeInt(rawTailBytes, "TailBytes")
         if tailBytesError is not None:
             return tailBytesError
 
+        if startByte is not None and tailBytes is not None:
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "Only one of 'StartByte' or 'TailBytes' can be set.")
+
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath, tailBytes))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath, rawReadType, textEncoding, startByte, maxBytes, tailBytes))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 
@@ -450,16 +484,78 @@ class CommandHandler:
         if not isinstance(rawPath, str):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
-        contentBytes, contentError = self._GetFileContentBytes(jsonArgs)
-        if contentError is not None:
-            return contentError
-        if contentBytes is None:
-            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No file content provided.")
+        rawText = self._GetCommandArg(jsonArgs, "Text")
+        text, textError = self._ParseOptionalString(rawText, "Text")
+        if textError is not None:
+            return textError
 
-        rawCreateDirectories = self._GetCommandArg(jsonArgs, "CreateDirectories")
-        createDirectories = self._ParseOptionalBool(rawCreateDirectories, True)
+        rawBase64Data = self._GetCommandArg(jsonArgs, "Base64Data")
+        base64Data, base64DataError = self._ParseOptionalString(rawBase64Data, "Base64Data")
+        if base64DataError is not None:
+            return base64DataError
+
+        rawTextEncoding = self._GetCommandArg(jsonArgs, "TextEncoding")
+        textEncoding, textEncodingError = self._ParseOptionalString(rawTextEncoding, "TextEncoding")
+        if textEncodingError is not None:
+            return textEncodingError
+
+        rawCreateParents = self._GetCommandArg(jsonArgs, "CreateParents")
+        createParents = self._ParseOptionalBool(rawCreateParents, True)
+
+        rawOverride = self._GetCommandArg(jsonArgs, "Override")
+        override = self._ParseOptionalBool(rawOverride, True)
+
+        rawExpectedSha256 = self._GetCommandArg(jsonArgs, "ExpectedSha256")
+        expectedSha256, expectedSha256Error = self._ParseOptionalString(rawExpectedSha256, "ExpectedSha256")
+        if expectedSha256Error is not None:
+            return expectedSha256Error
+
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.WriteFile(rawPath, contentBytes, createDirectories))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.WriteFile(rawPath, text, base64Data, textEncoding, createParents, override, expectedSha256))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandleMoveFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        rawNewPath = self._GetCommandArg(jsonArgs, "NewPath")
+        if not isinstance(rawNewPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'NewPath' must be a string.")
+
+        rawCopy = self._GetCommandArg(jsonArgs, "Copy")
+        copy = self._ParseOptionalBool(rawCopy, False)
+
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.MoveFile(rawPath, rawNewPath, copy))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandlePatchFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        rawUnifiedDiffPatch = self._GetCommandArg(jsonArgs, "UnifiedDiffPatch")
+        if not isinstance(rawUnifiedDiffPatch, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'UnifiedDiffPatch' must be a string.")
+
+        rawExpectedSha256 = self._GetCommandArg(jsonArgs, "ExpectedSha256")
+        expectedSha256, expectedSha256Error = self._ParseOptionalString(rawExpectedSha256, "ExpectedSha256")
+        if expectedSha256Error is not None:
+            return expectedSha256Error
+
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.PatchFile(rawPath, rawUnifiedDiffPatch, expectedSha256))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 
@@ -545,25 +641,6 @@ class CommandHandler:
         return CommandResponse.Error(CommandHandler.c_CommandError_PluginTypeNotSupported, "This plugin type does not have access to the Home Assistant config file system.")
 
 
-    def _GetFileContentBytes(self, jsonArgs:Dict[str, Any]) -> Tuple[Optional[bytes], Optional[CommandResponse]]:
-        content = self._GetCommandArg(jsonArgs, "Content")
-        if content is not None:
-            if not isinstance(content, str):
-                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Content' must be a string.")
-            return content.encode("utf-8"), None
-
-        data = self._GetCommandArg(jsonArgs, "Data")
-        if data is not None:
-            if not isinstance(data, str):
-                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Data' must be a base64 string.")
-            try:
-                return base64.b64decode(data, validate=True), None
-            except Exception:
-                return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Data' must be valid base64.")
-
-        return None, None
-
-
     def _FileSystemExceptionToCommandResponse(self, e:Exception) -> CommandResponse:
         if isinstance(e, ValueError):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, str(e))
@@ -578,6 +655,9 @@ class CommandHandler:
         lowerKey = key.lower()
         if lowerKey in jsonArgs_CanBeNone:
             return jsonArgs_CanBeNone[lowerKey]
+        for existingKey, value in jsonArgs_CanBeNone.items():
+            if isinstance(existingKey, str) and existingKey.lower() == lowerKey:
+                return value
         return None
 
 
@@ -601,6 +681,26 @@ class CommandHandler:
         if parsedValue <= 0:
             return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be greater than zero.")
         return parsedValue, None
+
+
+    def _ParseOptionalNonNegativeInt(self, value:Optional[Any], argName:str) -> Tuple[Optional[int], Optional[CommandResponse]]:
+        if value is None:
+            return None, None
+        try:
+            parsedValue = int(value)
+        except Exception:
+            return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be an integer.")
+        if parsedValue < 0:
+            return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be greater than or equal to zero.")
+        return parsedValue, None
+
+
+    def _ParseOptionalString(self, value:Optional[Any], argName:str) -> Tuple[Optional[str], Optional[CommandResponse]]:
+        if value is None:
+            return None, None
+        if not isinstance(value, str):
+            return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be a string.")
+        return value, None
 
 
     def _SerializeCompressionResult(self, compressionResult:Optional[Any]) -> Optional[Dict[str, Any]]:
