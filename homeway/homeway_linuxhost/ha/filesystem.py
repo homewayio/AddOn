@@ -377,6 +377,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
                 return text.encode(textEncoding)
             except LookupError as e:
                 raise ValueError(f"Unknown text encoding '{textEncoding}'.") from e
+        if base64Data is None:
+            raise ValueError("Invalid state: 'Base64Data' is None when it should not be.")
         try:
             return base64.b64decode(base64Data, validate=True)
         except Exception as e:

@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-## 3.0.5
+## 3.0.6
 
 - 🧠 [Connect Your AI With The New Remote MCP Server for Home Assistant](https://blog.homeway.io/remote-mcp-server-for-home-assistant/?source=addon_changelog)
     - Works with all major AI agents and assistants, including Claude, Gemini, ChatGPT, Copilot, Cursor, and more!
