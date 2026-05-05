@@ -532,6 +532,7 @@ class HomeContext(IHomeContext):
                 self._CopyPropertyIfExists("name", e, entity)
                 self._CopyPropertyIfExists("original_name", e, entity)
                 self._CopyPropertyIfExists("platform", e, entity)
+                self._CopyPropertyIfExists("labels", e, entity, destKey="label_ids")
                 # Now we add all of the properties we want in the full state tree, but we DON'T want to expose to Sage.
                 # The reason is most of these are really large, and Sage doesn't need them.
                 self._AddFullStateOptionalEntityProperties(e, entity)
@@ -964,7 +965,7 @@ class HomeContext(IHomeContext):
         return {
             "RequestLocationContext" : {
                 "entity_id" : assistantDeviceContext.EntityId if assistantDeviceContext is not None else "None",
-                "device_id" : assistantDeviceContext.EntityId if assistantDeviceContext is not None else "None",
+                "device_id" : assistantDeviceContext.DeviceId if assistantDeviceContext is not None else "None",
                 "area_id" : assistantDeviceContext.AreaId if assistantDeviceContext is not None else "None",
                 "floor_id" : assistantDeviceContext.FloorId if assistantDeviceContext is not None else "None",
             }
