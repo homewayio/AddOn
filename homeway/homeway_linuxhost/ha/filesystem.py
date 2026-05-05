@@ -1,9 +1,10 @@
 import base64
+from collections import deque
 import hashlib
 import os
 import logging
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 import patch_ng
 
@@ -15,11 +16,9 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     # The Home Assistant addon maps homeassistant_config here.
     c_HomeAssistantConfigRootPath = "/homeassistant"
 
-    # Default read cap to avoid loading very large files into memory or responses when maxBytes is not specified.
+    # Default read caps to avoid loading very large files into memory or responses when a max value is not specified.
     c_MaxReadFileBytes = 50 * 1024 * 1024
-
-    c_FileFormatText = "text"
-    c_FileFormatData = "data"
+    c_MaxReadFileLines = 10000
 
     # Exact file names or wildcard file extensions denied in every folder under the config root.
     # Extension entries can be written as "*pem" or "*.pem".
@@ -74,16 +73,13 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         }
 
 
-    def ReadFile(self, path:str, readType:str, textEncoding:Optional[str], startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
+    def ReadDataFile(self, path:str, startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(False)
         _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
-        readType = self._NormalizeFileFormat(readType, "ReadType")
-        if readType == HomeAssistantFileSystem.c_FileFormatText and textEncoding is None:
-            textEncoding = "utf-8"
 
         fileSize = os.path.getsize(targetPath)
-        readOffset = self._GetReadOffset(fileSize, startByte, tailBytes)
-        bytesToRead = self._GetReadSize(fileSize, readOffset, maxBytes)
+        readOffset = self._GetDataReadOffset(fileSize, startByte, tailBytes)
+        bytesToRead = self._GetDataReadSize(fileSize, readOffset, maxBytes)
         with open(targetPath, "rb") as f:
             f.seek(readOffset)
             fileBytes = f.read(bytesToRead)
@@ -96,13 +92,34 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             "bytes_read": len(fileBytes),
             "is_partial_read": isPartialRead,
             "sha256": self._HashFile(targetPath),
+            "data": base64.b64encode(fileBytes).decode(encoding="utf-8"),
         }
-        if readType == HomeAssistantFileSystem.c_FileFormatText:
-            result["text"] = self._DecodeText(fileBytes, textEncoding, isPartialRead)
-        else:
-            result["data"] = base64.b64encode(fileBytes).decode(encoding="utf-8")
 
         return result
+
+
+    def ReadTextFile(self, path:str, textEncoding:Optional[str], startLine:Optional[int], maxLines:Optional[int], tailLines:Optional[int]) -> Dict[str, Any]:
+        rootPath = self._GetRootPath(False)
+        _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
+        textEncoding = self._GetTextEncoding(textEncoding)
+
+        fileSize = os.path.getsize(targetPath)
+        lines, fullLineCount, readStartLine = self._ReadTextLines(targetPath, textEncoding, startLine, maxLines, tailLines)
+        linesRead = len(lines)
+        readEndLine = readStartLine + linesRead - 1
+        isPartialRead = fullLineCount > 0 and (readStartLine > 1 or readEndLine < fullLineCount)
+
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
+        return {
+            "full_file_size": int(fileSize),
+            "full_line_count": int(fullLineCount),
+            "read_start_line": int(readStartLine),
+            "read_end_line": int(readEndLine),
+            "lines_read": linesRead,
+            "is_partial_read": isPartialRead,
+            "sha256": self._HashFile(targetPath),
+            "text": "".join(lines),
+        }
 
 
     def WriteFile(self, path:str, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str], createParents:bool, override:bool, expectedSha256:Optional[str]) -> Dict[str, Any]:
@@ -248,14 +265,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             raise NotADirectoryError("Parent path is not a directory.")
 
 
-    def _NormalizeFileFormat(self, formatStr:str, argName:str) -> str:
-        normalizedFormat = formatStr.strip().lower()
-        if normalizedFormat not in [HomeAssistantFileSystem.c_FileFormatText, HomeAssistantFileSystem.c_FileFormatData]:
-            raise ValueError(f"'{argName}' must be either 'text' or 'data'.")
-        return normalizedFormat
-
-
-    def _GetReadOffset(self, fileSize:int, startByte:Optional[int], tailBytes:Optional[int]) -> int:
+    def _GetDataReadOffset(self, fileSize:int, startByte:Optional[int], tailBytes:Optional[int]) -> int:
         if tailBytes is not None:
             return max(0, fileSize - tailBytes)
         if startByte is not None:
@@ -263,20 +273,69 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         return 0
 
 
-    def _GetReadSize(self, fileSize:int, readOffset:int, maxBytes:Optional[int]) -> int:
+    def _GetDataReadSize(self, fileSize:int, readOffset:int, maxBytes:Optional[int]) -> int:
         availableBytes = max(0, fileSize - readOffset)
         if maxBytes is None:
             maxBytes = HomeAssistantFileSystem.c_MaxReadFileBytes
         return min(availableBytes, maxBytes)
 
 
-    def _DecodeText(self, fileBytes:bytes, textEncoding:Optional[str], ignoreDecodeErrors:bool) -> str:
+    def _GetTextEncoding(self, textEncoding:Optional[str]) -> str:
         if textEncoding is None:
-            raise ValueError("'TextEncoding' must be provided.")
+            return "utf-8"
         try:
-            return fileBytes.decode(textEncoding, errors="ignore" if ignoreDecodeErrors else "strict")
+            "".encode(textEncoding)
         except LookupError as e:
             raise ValueError(f"Unknown text encoding '{textEncoding}'.") from e
+        return textEncoding
+
+
+    def _GetTextStartLine(self, startLine:Optional[int]) -> int:
+        # StartLine is 1-based for callers, but accept 0 as the beginning like the byte offset API did.
+        if startLine is None or startLine == 0:
+            return 1
+        return startLine
+
+
+    def _GetTextMaxLines(self, maxLines:Optional[int]) -> int:
+        if maxLines is None or maxLines > HomeAssistantFileSystem.c_MaxReadFileLines:
+            return HomeAssistantFileSystem.c_MaxReadFileLines
+        return maxLines
+
+
+    def _ReadTextLines(self, targetPath:str, textEncoding:str, startLine:Optional[int], maxLines:Optional[int], tailLines:Optional[int]) -> Tuple[List[str], int, int]:
+        maxLinesToRead = self._GetTextMaxLines(maxLines)
+        if tailLines is not None:
+            return self._ReadTextTailLines(targetPath, textEncoding, tailLines, maxLinesToRead)
+        return self._ReadTextLineRange(targetPath, textEncoding, self._GetTextStartLine(startLine), maxLinesToRead)
+
+
+    def _ReadTextTailLines(self, targetPath:str, textEncoding:str, tailLines:int, maxLines:int) -> Tuple[List[str], int, int]:
+        tailBuffer:Deque[str] = deque(maxlen=tailLines)
+        fullLineCount = 0
+        with open(targetPath, "r", encoding=textEncoding, newline="") as f:
+            for line in f:
+                fullLineCount += 1
+                tailBuffer.append(line)
+
+        lines = list(tailBuffer)
+        readStartLine = fullLineCount - len(lines) + 1
+        return lines[:maxLines], fullLineCount, readStartLine
+
+
+    def _ReadTextLineRange(self, targetPath:str, textEncoding:str, startLine:int, maxLines:int) -> Tuple[List[str], int, int]:
+        lines:List[str] = []
+        fullLineCount = 0
+        with open(targetPath, "r", encoding=textEncoding, newline="") as f:
+            for line in f:
+                fullLineCount += 1
+                if fullLineCount < startLine:
+                    continue
+                if len(lines) < maxLines:
+                    lines.append(line)
+
+        readStartLine = min(startLine, fullLineCount + 1)
+        return lines, fullLineCount, readStartLine
 
 
     def _GetWriteContentBytes(self, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str]) -> bytes:

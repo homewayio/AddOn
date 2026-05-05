@@ -176,10 +176,16 @@ class CommandHandler:
             return self.HandleListFilesCommand(jsonObj_CanBeNone)
 
         # Reads a text file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-read"):
+        if commandPathLower.startswith("file-read-text"):
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
-            return self.HandleReadFileCommand(jsonObj_CanBeNone)
+            return self.HandleReadTextFileCommand(jsonObj_CanBeNone)
+
+        # Reads raw bytes from a file in the Home Assistant config directory.
+        if commandPathLower.startswith("file-read-data"):
+            if jsonObj_CanBeNone is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
+            return self.HandleReadDataFileCommand(jsonObj_CanBeNone)
 
         # Adds or overwrites a file in the Home Assistant config directory.
         if commandPathLower.startswith("file-write"):
@@ -451,22 +457,13 @@ class CommandHandler:
             return self._FileSystemExceptionToCommandResponse(e)
 
 
-    def HandleReadFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+    def HandleReadDataFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
         if self.HomeAssistantFileSystem is None:
             return self._FileSystemNotSupportedResponse()
 
         rawPath = self._GetCommandArg(jsonArgs, "Path")
         if not isinstance(rawPath, str):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
-
-        rawReadType = self._GetCommandArg(jsonArgs, "ReadType")
-        if not isinstance(rawReadType, str):
-            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'ReadType' must be a string.")
-
-        rawTextEncoding = self._GetCommandArg(jsonArgs, "TextEncoding")
-        textEncoding, textEncodingError = self._ParseOptionalString(rawTextEncoding, "TextEncoding")
-        if textEncodingError is not None:
-            return textEncodingError
 
         rawStartByte = self._GetCommandArg(jsonArgs, "StartByte")
         startByte, startByteError = self._ParseOptionalNonNegativeInt(rawStartByte, "StartByte")
@@ -487,7 +484,44 @@ class CommandHandler:
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "Only one of 'StartByte' or 'TailBytes' can be set.")
 
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadFile(rawPath, rawReadType, textEncoding, startByte, maxBytes, tailBytes))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadDataFile(rawPath, startByte, maxBytes, tailBytes))
+        except Exception as e:
+            return self._FileSystemExceptionToCommandResponse(e)
+
+
+    def HandleReadTextFileCommand(self, jsonArgs:Dict[str, Any]) -> CommandResponse:
+        if self.HomeAssistantFileSystem is None:
+            return self._FileSystemNotSupportedResponse()
+
+        rawPath = self._GetCommandArg(jsonArgs, "Path")
+        if not isinstance(rawPath, str):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
+
+        rawTextEncoding = self._GetCommandArg(jsonArgs, "TextEncoding")
+        textEncoding, textEncodingError = self._ParseOptionalString(rawTextEncoding, "TextEncoding")
+        if textEncodingError is not None:
+            return textEncodingError
+
+        rawStartLine = self._GetCommandArg(jsonArgs, "StartLine")
+        startLine, startLineError = self._ParseOptionalNonNegativeInt(rawStartLine, "StartLine")
+        if startLineError is not None:
+            return startLineError
+
+        rawMaxLines = self._GetCommandArg(jsonArgs, "MaxLines")
+        maxLines, maxLinesError = self._ParseOptionalNonNegativeInt(rawMaxLines, "MaxLines")
+        if maxLinesError is not None:
+            return maxLinesError
+
+        rawTailLines = self._GetCommandArg(jsonArgs, "TailLines")
+        tailLines, tailLinesError = self._ParseOptionalNonNegativeInt(rawTailLines, "TailLines")
+        if tailLinesError is not None:
+            return tailLinesError
+
+        if startLine is not None and tailLines is not None:
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "Only one of 'StartLine' or 'TailLines' can be set.")
+
+        try:
+            return CommandResponse.Success(self.HomeAssistantFileSystem.ReadTextFile(rawPath, textEncoding, startLine, maxLines, tailLines))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 
