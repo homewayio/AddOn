@@ -214,18 +214,34 @@ class CommandHandler:
             self.AccountLinkStatusUpdateHandler.OnAccountLinkStatusUpdate(jsonObj_CanBeNone["IsLinked"])
             return CommandResponse.Success()
 
-        # Used for Assistant device control
-        # This must return the full entity tree.
+        # Used for Assistant device control & MCP to get the full device and entity tree and optionally states in a single call.
+        # This must return the full entity tree, with no filtering unless the domain filter is sent.
         if commandPathLower.startswith("get-full-device-and-entity-tree"):
+            # Ensure we have a home context.
+            if self.HomeContext is None:
+                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
+
             # Read the optional force refresh arg.
             forceRefresh = False
             if jsonObj_CanBeNone is not None:
                 forceRefresh = bool(jsonObj_CanBeNone.get("ForceRefresh", False))
-            if self.HomeContext is None:
-                return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
-            allEntities = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh)
+            # Read the optional flag to also include states.
+            includeStates = False
+            if jsonObj_CanBeNone is not None:
+                includeStates = bool(jsonObj_CanBeNone.get("IncludeStates", False))
+            # Read the optional domain filter flag, which is one high level filter that cuts down on size a lot.
+            domainsFilter:Optional[List[str]]=None
+            if jsonObj_CanBeNone is not None:
+                domainsFilterRaw = jsonObj_CanBeNone.get("FilterDomains", None)
+                if domainsFilterRaw is not None:
+                    if isinstance(domainsFilterRaw, list) and all(isinstance(d, str) for d in domainsFilterRaw):
+                        domainsFilter = domainsFilterRaw
+                    else:
+                        return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'DomainsFilter' must be a list of strings.")
+
+            allEntities, allStates = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh, includeStates, domainsFilter)
             successful = allEntities is not None
-            return CommandResponse.Success({"Success": successful, "Floors": allEntities})
+            return CommandResponse.Success({"Success": successful, "Floors": allEntities, "States": allStates})
 
         # Used by Sage and MCP to get the current home context and live state in a single round trip.
         if commandPathLower.startswith("get-live-context"):

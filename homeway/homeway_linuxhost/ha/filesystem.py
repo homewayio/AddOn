@@ -76,7 +76,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
     def ReadFile(self, path:str, readType:str, textEncoding:Optional[str], startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(False)
-        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
+        _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
         readType = self._NormalizeFileFormat(readType, "ReadType")
         if readType == HomeAssistantFileSystem.c_FileFormatText and textEncoding is None:
             textEncoding = "utf-8"
@@ -88,16 +88,15 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             f.seek(readOffset)
             fileBytes = f.read(bytesToRead)
 
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         isPartialRead = readOffset != 0 or readOffset + len(fileBytes) < fileSize
         result:Dict[str, Any] = {
-            "path": self._ToResponseRelativePath(normalizedPath),
-            "fullFileSize": int(fileSize),
-            "readOffset": int(readOffset),
-            "bytesRead": len(fileBytes),
-            "truncated": isPartialRead,
+            "full_file_size": int(fileSize),
+            "read_offset": int(readOffset),
+            "bytes_read": len(fileBytes),
+            "is_partial_read": isPartialRead,
             "sha256": self._HashFile(targetPath),
         }
-
         if readType == HomeAssistantFileSystem.c_FileFormatText:
             result["text"] = self._DecodeText(fileBytes, textEncoding, isPartialRead)
         else:
@@ -123,8 +122,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         with open(targetPath, openMode) as f:
             f.write(content)
 
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
-            "path": self._ToResponseRelativePath(normalizedPath),
             "size": len(content),
             "created": fileExisted is False,
             "sha256": self._HashFile(targetPath),
@@ -134,7 +133,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     def MoveFile(self, path:str, newPath:str, copy:bool) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
         sourceOperationName = "copy" if copy else "move"
-        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, sourceOperationName)
+        _, targetPath = self._ResolveExistingFilePath(rootPath, path, sourceOperationName)
         normalizedNewPath, newTargetPath = self._ResolvePath(rootPath, newPath, False)
         self._ValidateWritableTarget(rootPath, normalizedNewPath, newTargetPath, False, "NewPath")
 
@@ -147,9 +146,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         else:
             os.replace(targetPath, newTargetPath)
 
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
-            "path": self._ToResponseRelativePath(normalizedPath),
-            "newPath": self._ToResponseRelativePath(normalizedNewPath),
             "copied": copy,
             "moved": copy is False,
             "size": int(fileSize),
@@ -179,8 +177,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             self._RestoreFileBytesAfterFailedPatch(targetPath, originalFileBytes)
             raise
 
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
-            "path": self._ToResponseRelativePath(normalizedPath),
             "patched": True,
             "size": int(os.path.getsize(targetPath)),
             "previousSha256": originalSha256,
@@ -190,13 +188,13 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
     def DeleteFile(self, path:str) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
-        normalizedPath, targetPath = self._ResolveExistingFilePath(rootPath, path, "remove")
+        _, targetPath = self._ResolveExistingFilePath(rootPath, path, "remove")
 
         os.remove(targetPath)
 
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
-            "path": self._ToResponseRelativePath(normalizedPath),
-            "removed": True,
+            "deleted": True,
         }
 
 
@@ -412,12 +410,13 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     def _AddFileListEntry(self, files:List[Dict[str, Any]], rootPath:str, entryPath:str, entryName:str) -> None:
         statResult = os.lstat(entryPath)
         relativePath = os.path.relpath(entryPath, rootPath)
+        # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         files.append({
-            "Path": self._ToResponseRelativePath(relativePath),
-            "IsDirectory": os.path.isdir(entryPath),
-            "Size": int(statResult.st_size),
-            "ModifiedTimeSec": int(statResult.st_mtime),
-            "HasAccess": self._IsDeniedFileName(entryPath) is False,
+            "path": self._ToResponseRelativePath(relativePath),
+            "is_directory": os.path.isdir(entryPath),
+            "size": int(statResult.st_size),
+            "modified_time_sec": int(statResult.st_mtime),
+            "has_access": self._IsDeniedFileName(entryPath) is False,
         })
 
 

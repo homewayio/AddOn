@@ -107,7 +107,27 @@ class HomeContext(IHomeContext):
 
 
     # Returns the full floor -> area -> device -> entity tree.
-    def GetFullDeviceAndEntityTree(self, forceRefresh: bool) -> Optional[List[Dict[str, Any]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
+        # Always start with the full entity tree.
+        allEntities = self._GetFullDeviceAndEntityTree(forceRefresh)
+
+        # If we got a result, filter if needed.
+        if allEntities is not None:
+            allEntities = self._FilterFullDeviceAndEntityTree(allEntities, domainsFilter)
+
+        # Try to get the states if requested, and filter them if needed.
+        states:Optional[List[Dict[str, Any]]] = None
+        if includeStates:
+            states = self._QueryCurrentState()
+        if states is not None:
+            (states, _) = self._FilterStateList(states, useSageFiltering=False, domainsFilter=domainsFilter)
+
+        # Done!
+        return (allEntities, states)
+
+
+    # Returns the full floor -> area -> device -> entity tree.
+    def _GetFullDeviceAndEntityTree(self, forceRefresh: bool):
         with self.CacheLock:
             # If we have a cached version, we are good to go.
             if self.FullDeviceAndEntityTree is not None and not forceRefresh:
@@ -140,7 +160,7 @@ class HomeContext(IHomeContext):
 
             # Filter out what we don't want.
             filterTime = time.time()
-            (states, activeAssistEntityId) = self._FilterStateList(states)
+            (states, activeAssistEntityId) = self._FilterStateList(states, useSageFiltering=True, domainsFilter=None)
 
             # Build the result wrapper.
             # These are part of the server shared model, so we can't change them.
@@ -818,15 +838,21 @@ class HomeContext(IHomeContext):
 
 
     # Handles a full state response from the server.
-    # This returns two things!
-    #    1) list - The filtered entities
-    #    2) str - The active assist entity id (if there is one, otherwise None)
-    def _FilterStateList(self, states:List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    # If useSageFiltering is true;
+    #   - We remove more properties to keep the size down.
+    #   - We filter to only things in the SageLiveStateEntityFilter list.
+    # else
+    #   - We must include everything!
+    #   - But we can still reduce the size some.
+    #
+    def _FilterStateList(self, states:List[Dict[str, Any]], useSageFiltering:bool, domainsFilter:Optional[List[str]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
         # No need to take the lock, since this is a read only operation.
-        allowedEntityIdFilterMap = self.SageLiveStateEntityFilter
-        if allowedEntityIdFilterMap is None:
-            self.Logger.warning("Home Context - SageLiveStateEntityFilter is None, skipping state filter.")
+        allowedEntityIdFilterMap:Optional[Dict[str, str]]  = None
+        if useSageFiltering:
+            allowedEntityIdFilterMap = self.SageLiveStateEntityFilter
+            if allowedEntityIdFilterMap is None:
+                self.Logger.warning("Home Context - SageLiveStateEntityFilter is None, skipping state filter.")
 
         result:List[Dict[str, Any]] = []
         assistActiveEntityId:Optional[str] = None
@@ -851,8 +877,15 @@ class HomeContext(IHomeContext):
             if allowedEntityIdFilterMap is not None and entityId not in allowedEntityIdFilterMap:
                 continue
 
+            # Filter by domain if requested
+            if domainsFilter is not None:
+                domain = entityId.split(".")[0]
+                if domain not in domainsFilter:
+                    continue
+
             # Remove the common things that we know are large and we don't need.
-            s.pop("last_reported", None)
+            if useSageFiltering:
+                s.pop("last_reported", None)
             s.pop("last_updated", None)
             s.pop("last_changed", None)
             s.pop("context", None)
@@ -865,7 +898,10 @@ class HomeContext(IHomeContext):
                 for a in attributes:
                     # Filter some things we know have little value.
                     # friendly_name is already part of the home context.
-                    if a == "id" or a == "icon" or a == "friendly_name" or a == "access_token" or a.find("video") != -1 or a.find("picture") != -1 or a.find("image") != -1:
+                    if a == "id" or a == "friendly_name" or a == "access_token" or a.find("video") != -1 or a.find("picture") != -1 or a.find("image") != -1:
+                        continue
+                    # Filter a few extra things out for sage.
+                    if useSageFiltering and (a == "icon"):
                         continue
                     if attributes[a] is None:
                         continue
@@ -879,6 +915,36 @@ class HomeContext(IHomeContext):
             result.append(s)
 
         return result, assistActiveEntityId
+
+
+    # Filters the full device tree by domain if needed.
+    def _FilterFullDeviceAndEntityTree(self, fullDeviceAndEntityTree:List[Dict[str, Any]], domainsFilter:Optional[List[str]]) -> List[Dict[str, Any]]:
+        if domainsFilter is None:
+            return fullDeviceAndEntityTree
+
+        # We need to filter the entities by domain.
+        # We want to keep any floors or areas that are left over, so the model still knows they are there.
+        result:List[Dict[str, Any]] = []
+        for f in fullDeviceAndEntityTree:
+            newFloor:Dict[str, Any] = copy.deepcopy(f)
+            newFloor["areas"] = []
+            for a in f.get("areas", []):
+                newArea:Dict[str, Any] = copy.deepcopy(a)
+                newArea["devices"] = []
+                for d in a.get("devices", []):
+                    newDevice:Dict[str, Any] = copy.deepcopy(d)
+                    newDevice["entities"] = []
+                    for e in d.get("entities", []):
+                        entityId:Optional[str] = e.get("entity_id", None)
+                        if entityId is not None:
+                            domain = entityId.split(".")[0]
+                            if domain in domainsFilter:
+                                newDevice["entities"].append(e) #pyright: ignore[reportUnknownMemberType]
+                    if newDevice["entities"]:
+                        newArea["devices"].append(newDevice) #pyright: ignore[reportUnknownMemberType]
+                newFloor["areas"].append(newArea) #pyright: ignore[reportUnknownMemberType]
+            result.append(newFloor)
+        return result
 
 
     # Builds the live context.
