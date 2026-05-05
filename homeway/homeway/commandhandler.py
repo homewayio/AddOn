@@ -241,13 +241,14 @@ class CommandHandler:
                 domainsFilterRaw = jsonObj_CanBeNone.get("FilterDomains", None)
                 if domainsFilterRaw is not None:
                     if isinstance(domainsFilterRaw, list) and all(isinstance(d, str) for d in domainsFilterRaw):
-                        domainsFilter = domainsFilterRaw
+                        if len(domainsFilterRaw) > 0:
+                            domainsFilter = domainsFilterRaw
                     else:
-                        return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'DomainsFilter' must be a list of strings.")
+                        return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'FilterDomains' must be a list of strings.")
 
-            allEntities, allStates = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh, includeStates, domainsFilter)
+            allEntities, allStates, labels = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh, includeStates, domainsFilter)
             successful = allEntities is not None
-            return CommandResponse.Success({"Success": successful, "Floors": allEntities, "States": allStates})
+            return CommandResponse.Success({"Success": successful, "Floors": allEntities, "States": allStates, "Labels": labels})
 
         # Used by Sage and MCP to get the current home context and live state in a single round trip.
         if commandPathLower.startswith("get-live-context"):
@@ -503,7 +504,7 @@ class CommandHandler:
             return textEncodingError
 
         rawStartLine = self._GetCommandArg(jsonArgs, "StartLine")
-        startLine, startLineError = self._ParseOptionalNonNegativeInt(rawStartLine, "StartLine")
+        startLine, startLineError = self._ParseOptionalPositiveInt(rawStartLine, "StartLine")
         if startLineError is not None:
             return startLineError
 
@@ -543,6 +544,8 @@ class CommandHandler:
         base64Data, base64DataError = self._ParseOptionalString(rawBase64Data, "Base64Data")
         if base64DataError is not None:
             return base64DataError
+        if text is not None and base64Data is not None:
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "Only one of 'Text' or 'Base64Data' can be provided.")
 
         rawTextEncoding = self._GetCommandArg(jsonArgs, "TextEncoding")
         textEncoding, textEncodingError = self._ParseOptionalString(rawTextEncoding, "TextEncoding")
@@ -581,8 +584,16 @@ class CommandHandler:
         rawCopy = self._GetCommandArg(jsonArgs, "Copy")
         copy = self._ParseOptionalBool(rawCopy, False)
 
+        rawOverride = self._GetCommandArg(jsonArgs, "Override")
+        override = self._ParseOptionalBool(rawOverride, False)
+
+        rawExpectedSha256 = self._GetCommandArg(jsonArgs, "ExpectedSha256")
+        expectedSha256, expectedSha256Error = self._ParseOptionalString(rawExpectedSha256, "ExpectedSha256")
+        if expectedSha256Error is not None:
+            return expectedSha256Error
+
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.MoveFile(rawPath, rawNewPath, copy))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.MoveFile(rawPath, rawNewPath, copy, override, expectedSha256))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 
@@ -618,8 +629,11 @@ class CommandHandler:
         if not isinstance(rawPath, str):
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
+        rawRecursive = self._GetCommandArg(jsonArgs, "Recursive")
+        recursive = self._ParseOptionalBool(rawRecursive, False)
+
         try:
-            return CommandResponse.Success(self.HomeAssistantFileSystem.DeleteFile(rawPath))
+            return CommandResponse.Success(self.HomeAssistantFileSystem.DeleteFile(rawPath, recursive))
         except Exception as e:
             return self._FileSystemExceptionToCommandResponse(e)
 

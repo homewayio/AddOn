@@ -68,8 +68,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
                     self._AddFileListEntry(files, rootPath, entryPath, entryName)
 
         return {
-            "Path": self._ToResponseRelativePath(normalizedPath),
-            "Files": files,
+            "path": self._ToResponseRelativePath(normalizedPath),
+            "files": files,
         }
 
 
@@ -106,7 +106,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         fileSize = os.path.getsize(targetPath)
         lines, fullLineCount, readStartLine = self._ReadTextLines(targetPath, textEncoding, startLine, maxLines, tailLines)
         linesRead = len(lines)
-        readEndLine = readStartLine + linesRead - 1
+        if linesRead == 0:
+            readStartLine = 0
+            readEndLine = 0
+        else:
+            readEndLine = readStartLine + linesRead - 1
         isPartialRead = fullLineCount > 0 and (readStartLine > 1 or readEndLine < fullLineCount)
 
         # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
@@ -147,7 +151,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         }
 
 
-    def MoveFile(self, path:str, newPath:str, copy:bool) -> Dict[str, Any]:
+    def MoveFile(self, path:str, newPath:str, copy:bool, override:bool, expectedSha256:Optional[str]) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
         sourceOperationName = "copy" if copy else "move"
         _, targetPath = self._ResolveExistingFilePath(rootPath, path, sourceOperationName)
@@ -156,6 +160,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
         if os.path.realpath(targetPath) == os.path.realpath(newTargetPath):
             raise ValueError("'NewPath' must be different from 'Path'.")
+
+        expectedSha256 = self._NormalizeExpectedSha256(expectedSha256)
+        self._ValidateExpectedSha256(targetPath, expectedSha256)
+        if override is False and os.path.exists(newTargetPath):
+            raise FileExistsError("Destination file already exists and 'Override' is false.")
 
         fileSize = os.path.getsize(targetPath)
         if copy:
@@ -186,7 +195,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         try:
             applied = patchSet.apply()
             if applied is False:
-                raise RuntimeError("Patch could not be applied.")
+                raise RuntimeError("Patch context did not match the current file.")
             if os.path.exists(targetPath) is False:
                 raise RuntimeError("Patch removed file unexpectedly.")
             self._ReadUtf8TextFileBytesForPatch(targetPath, "Patched file")
@@ -203,15 +212,26 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         }
 
 
-    def DeleteFile(self, path:str) -> Dict[str, Any]:
+    def DeleteFile(self, path:str, recursive:bool) -> Dict[str, Any]:
         rootPath = self._GetRootPath(True)
-        _, targetPath = self._ResolveExistingFilePath(rootPath, path, "remove")
+        _, targetPath = self._ResolveExistingPath(rootPath, path, "remove")
 
-        os.remove(targetPath)
+        isDirectory = os.path.isdir(targetPath)
+        if isDirectory:
+            if recursive:
+                self._ValidateDirectoryTreeForDelete(rootPath, targetPath)
+                shutil.rmtree(targetPath)
+            else:
+                if len(os.listdir(targetPath)) > 0:
+                    raise OSError("Directory is not empty. Set 'Recursive' to true to delete it.")
+                os.rmdir(targetPath)
+        else:
+            os.remove(targetPath)
 
         # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
             "deleted": True,
+            "is_directory": isDirectory,
         }
 
 
@@ -234,6 +254,13 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _ResolveExistingFilePath(self, rootPath:str, rawPath:str, operationName:str) -> Tuple[str, str]:
+        normalizedPath, targetPath = self._ResolveExistingPath(rootPath, rawPath, operationName)
+        if os.path.isfile(targetPath) is False:
+            raise ValueError("'Path' must reference a file.")
+        return normalizedPath, targetPath
+
+
+    def _ResolveExistingPath(self, rootPath:str, rawPath:str, operationName:str) -> Tuple[str, str]:
         normalizedPath, targetPath = self._ResolvePath(rootPath, rawPath, False)
         if self._IsDeniedFileName(normalizedPath):
             raise PermissionError("Access to this file is denied.")
@@ -241,8 +268,6 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             raise FileNotFoundError("File does not exist.")
         if os.path.islink(targetPath):
             raise PermissionError(f"Refusing to {operationName} a symbolic link.")
-        if os.path.isfile(targetPath) is False:
-            raise ValueError("'Path' must reference a file.")
         return normalizedPath, targetPath
 
 
@@ -291,9 +316,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _GetTextStartLine(self, startLine:Optional[int]) -> int:
-        # StartLine is 1-based for callers, but accept 0 as the beginning like the byte offset API did.
-        if startLine is None or startLine == 0:
+        # StartLine is 1-based for callers.
+        if startLine is None:
             return 1
+        if startLine <= 0:
+            raise ValueError("'StartLine' must be greater than zero.")
         return startLine
 
 
@@ -339,6 +366,10 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _GetWriteContentBytes(self, text:Optional[str], base64Data:Optional[str], textEncoding:Optional[str]) -> bytes:
+        if text is not None and base64Data is not None:
+            raise ValueError("Only one of 'Text' or 'Base64Data' can be provided.")
+        if text is None and base64Data is None:
+            raise ValueError("One of 'Text' or 'Base64Data' must be provided.")
         if text is not None:
             if textEncoding is None:
                 textEncoding = "utf-8"
@@ -346,8 +377,6 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
                 return text.encode(textEncoding)
             except LookupError as e:
                 raise ValueError(f"Unknown text encoding '{textEncoding}'.") from e
-        if base64Data is None:
-            raise ValueError("'Base64Data' must be provided when 'Format' is 'data'.")
         try:
             return base64.b64decode(base64Data, validate=True)
         except Exception as e:
@@ -421,6 +450,23 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     def _RestoreFileBytesAfterFailedPatch(self, targetPath:str, fileBytes:bytes) -> None:
         with open(targetPath, "wb") as f:
             f.write(fileBytes)
+
+
+    def _ValidateDirectoryTreeForDelete(self, rootPath:str, targetPath:str) -> None:
+        for currentRoot, dirNames, fileNames in os.walk(targetPath):
+            if self._IsPathInsideRoot(rootPath, currentRoot) is False:
+                raise PermissionError("Directory contains a path outside of the Home Assistant config directory.")
+            for dirName in dirNames:
+                entryPath = os.path.join(currentRoot, dirName)
+                if os.path.islink(entryPath):
+                    raise PermissionError("Refusing to delete a directory containing a symbolic link.")
+            for fileName in fileNames:
+                entryPath = os.path.join(currentRoot, fileName)
+                normalizedPath = os.path.relpath(entryPath, rootPath)
+                if os.path.islink(entryPath):
+                    raise PermissionError("Refusing to delete a directory containing a symbolic link.")
+                if self._IsDeniedFileName(normalizedPath):
+                    raise PermissionError("Refusing to delete a directory containing a denied file.")
 
 
     def _HashFile(self, targetPath:str) -> str:

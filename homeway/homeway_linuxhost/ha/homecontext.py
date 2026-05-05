@@ -71,6 +71,7 @@ class HomeContext(IHomeContext):
 
         # These cache the full device and entity tree for use by the server and other components.
         self.FullDeviceAndEntityTree:Optional[List[Dict[str, Any]]] = None
+        self.FullLabels:Optional[List[Dict[str, Any]]] = None
         # This is the same entity that are in the full tree, but just dumped into a map for fast lookups.
         self.FullEntityMap:Optional[Dict[str, Dict[str, Any]]] = None
 
@@ -107,9 +108,11 @@ class HomeContext(IHomeContext):
 
 
     # Returns the full floor -> area -> device -> entity tree.
-    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
         # Always start with the full entity tree.
         allEntities = self._GetFullDeviceAndEntityTree(forceRefresh)
+        with self.CacheLock:
+            labels = self.FullLabels
 
         # If we got a result, filter if needed.
         if allEntities is not None:
@@ -123,7 +126,7 @@ class HomeContext(IHomeContext):
             (states, _) = self._FilterStateList(states, useSageFiltering=False, domainsFilter=domainsFilter)
 
         # Done!
-        return (allEntities, states)
+        return (allEntities, states, labels)
 
 
     # Returns the full floor -> area -> device -> entity tree.
@@ -704,6 +707,7 @@ class HomeContext(IHomeContext):
             self.AssistantDeviceContexts = assistDeviceContexts
             # This is the full device and entity tree for other components that need it.
             self.FullDeviceAndEntityTree = fullDeviceAndEntityTree
+            self.FullLabels = labelsList
             # This is the full entity map for fast lookups.
             self.FullEntityMap = fullEntityMap
             self.CacheUpdatedEvent.set()

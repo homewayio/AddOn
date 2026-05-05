@@ -105,7 +105,7 @@ class IHomeAssistantFileSystem(ABC):
         pass
 
     @abstractmethod
-    def MoveFile(self, path:str, newPath:str, copy:bool) -> Dict[str, Any]:
+    def MoveFile(self, path:str, newPath:str, copy:bool, override:bool, expectedSha256:Optional[str]) -> Dict[str, Any]:
         pass
 
     @abstractmethod
@@ -113,7 +113,7 @@ class IHomeAssistantFileSystem(ABC):
         pass
 
     @abstractmethod
-    def DeleteFile(self, path:str) -> Dict[str, Any]:
+    def DeleteFile(self, path:str, recursive:bool) -> Dict[str, Any]:
         pass
 
 
@@ -139,7 +139,7 @@ class IHomeContext(ABC):
     # Gets the full device and entity tree stored in our cache.
     # Optionally also gets the states and can be filtered by domains.
     @abstractmethod
-    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
         pass
 
     # Looks up a full entity dict by its entity ID, or None if not found.
