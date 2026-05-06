@@ -235,6 +235,10 @@ class CommandHandler:
             includeStates = False
             if jsonObj_CanBeNone is not None:
                 includeStates = bool(jsonObj_CanBeNone.get("IncludeStates", False))
+            # Read the optional flag to also include labels.
+            includeLabels = False
+            if jsonObj_CanBeNone is not None:
+                includeLabels = bool(jsonObj_CanBeNone.get("IncludeLabels", False))
             # Read the optional domain filter flag, which is one high level filter that cuts down on size a lot.
             domainsFilter:Optional[List[str]]=None
             if jsonObj_CanBeNone is not None:
@@ -246,7 +250,7 @@ class CommandHandler:
                     else:
                         return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'FilterDomains' must be a list of strings.")
 
-            allEntities, allStates, labels = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh, includeStates, domainsFilter)
+            allEntities, allStates, labels = self.HomeContext.GetFullDeviceAndEntityTree(forceRefresh, includeStates, includeLabels, domainsFilter)
             successful = allEntities is not None
             return CommandResponse.Success({"Success": successful, "Floors": allEntities, "States": allStates, "Labels": labels})
 

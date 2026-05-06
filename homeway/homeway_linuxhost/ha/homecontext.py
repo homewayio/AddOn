@@ -108,11 +108,15 @@ class HomeContext(IHomeContext):
 
 
     # Returns the full floor -> area -> device -> entity tree.
-    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, includeLabels:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
         # Always start with the full entity tree.
         allEntities = self._GetFullDeviceAndEntityTree(forceRefresh)
-        with self.CacheLock:
-            labels = self.FullLabels
+
+        # Get the labels if desired.
+        labels:Optional[List[Dict[str, Any]]] = None
+        if includeLabels:
+            with self.CacheLock:
+                labels = self.FullLabels
 
         # If we got a result, filter if needed.
         if allEntities is not None:

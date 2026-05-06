@@ -139,7 +139,7 @@ class IHomeContext(ABC):
     # Gets the full device and entity tree stored in our cache.
     # Optionally also gets the states and can be filtered by domains.
     @abstractmethod
-    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
+    def GetFullDeviceAndEntityTree(self, forceRefresh: bool, includeStates:bool=False, includeLabels:bool=False, domainsFilter:Optional[List[str]]=None) -> Tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
         pass
 
     # Looks up a full entity dict by its entity ID, or None if not found.
