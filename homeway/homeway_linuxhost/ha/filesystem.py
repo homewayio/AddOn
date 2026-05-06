@@ -111,7 +111,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             readEndLine = 0
         else:
             readEndLine = readStartLine + linesRead - 1
-        isPartialRead = fullLineCount > 0 and (readStartLine > 1 or readEndLine < fullLineCount)
+        isPartialRead = fullLineCount > 0 and (linesRead == 0 or readStartLine > 0 or readEndLine < fullLineCount - 1)
 
         # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         return {
@@ -316,11 +316,10 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _GetTextStartLine(self, startLine:Optional[int]) -> int:
-        # StartLine is 1-based for callers.
         if startLine is None:
-            return 1
-        if startLine <= 0:
-            raise ValueError("'StartLine' must be greater than zero.")
+            return 0
+        if startLine < 0:
+            raise ValueError("'StartLine' must be greater than or equal to zero.")
         return startLine
 
 
@@ -346,7 +345,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
                 tailBuffer.append(line)
 
         lines = list(tailBuffer)
-        readStartLine = fullLineCount - len(lines) + 1
+        readStartLine = fullLineCount - len(lines)
         return lines[:maxLines], fullLineCount, readStartLine
 
 
@@ -356,12 +355,13 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         with open(targetPath, "r", encoding=textEncoding, newline="") as f:
             for line in f:
                 fullLineCount += 1
-                if fullLineCount < startLine:
+                lineIndex = fullLineCount - 1
+                if lineIndex < startLine:
                     continue
                 if len(lines) < maxLines:
                     lines.append(line)
 
-        readStartLine = min(startLine, fullLineCount + 1)
+        readStartLine = min(startLine, fullLineCount)
         return lines, fullLineCount, readStartLine
 
 

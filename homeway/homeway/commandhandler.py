@@ -508,7 +508,7 @@ class CommandHandler:
             return textEncodingError
 
         rawStartLine = self._GetCommandArg(jsonArgs, "StartLine")
-        startLine, startLineError = self._ParseOptionalPositiveInt(rawStartLine, "StartLine")
+        startLine, startLineError = self._ParseOptionalNonNegativeInt(rawStartLine, "StartLine")
         if startLineError is not None:
             return startLineError
 
