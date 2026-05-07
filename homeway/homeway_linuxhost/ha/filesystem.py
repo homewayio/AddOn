@@ -1,10 +1,9 @@
 import base64
-from collections import deque
 import hashlib
 import os
 import logging
 import shutil
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import patch_ng
 
@@ -74,6 +73,12 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def ReadDataFile(self, path:str, startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> Dict[str, Any]:
+        self._ValidateOptionalNonNegativeInt(startByte, "StartByte")
+        self._ValidateOptionalNonNegativeInt(maxBytes, "MaxBytes")
+        self._ValidateOptionalNonNegativeInt(tailBytes, "TailBytes")
+        if startByte is not None and tailBytes is not None:
+            raise ValueError("Only one of 'StartByte' or 'TailBytes' can be set.")
+
         rootPath = self._GetRootPath(False)
         _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
 
@@ -99,6 +104,12 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def ReadTextFile(self, path:str, textEncoding:Optional[str], startLine:Optional[int], maxLines:Optional[int], tailLines:Optional[int]) -> Dict[str, Any]:
+        self._ValidateOptionalNonNegativeInt(startLine, "StartLine")
+        self._ValidateOptionalNonNegativeInt(maxLines, "MaxLines")
+        self._ValidateOptionalNonNegativeInt(tailLines, "TailLines")
+        if startLine is not None and tailLines is not None:
+            raise ValueError("Only one of 'StartLine' or 'TailLines' can be set.")
+
         rootPath = self._GetRootPath(False)
         _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
         textEncoding = self._GetTextEncoding(textEncoding)
@@ -107,8 +118,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         lines, fullLineCount, readStartLine = self._ReadTextLines(targetPath, textEncoding, startLine, maxLines, tailLines)
         linesRead = len(lines)
         if linesRead == 0:
-            readStartLine = 0
-            readEndLine = 0
+            readEndLine = max(0, readStartLine - 1)
         else:
             readEndLine = readStartLine + linesRead - 1
         isPartialRead = fullLineCount > 0 and (linesRead == 0 or readStartLine > 0 or readEndLine < fullLineCount - 1)
@@ -290,6 +300,15 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             raise NotADirectoryError("Parent path is not a directory.")
 
 
+    def _ValidateOptionalNonNegativeInt(self, value:Optional[int], argName:str) -> None:
+        if value is None:
+            return
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"'{argName}' must be an integer.")
+        if value < 0:
+            raise ValueError(f"'{argName}' must be greater than or equal to zero.")
+
+
     def _GetDataReadOffset(self, fileSize:int, startByte:Optional[int], tailBytes:Optional[int]) -> int:
         if tailBytes is not None:
             return max(0, fileSize - tailBytes)
@@ -324,6 +343,8 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _GetTextMaxLines(self, maxLines:Optional[int]) -> int:
+        if maxLines is not None and maxLines < 0:
+            raise ValueError("'MaxLines' must be greater than or equal to zero.")
         if maxLines is None or maxLines > HomeAssistantFileSystem.c_MaxReadFileLines:
             return HomeAssistantFileSystem.c_MaxReadFileLines
         return maxLines
@@ -337,16 +358,22 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
 
 
     def _ReadTextTailLines(self, targetPath:str, textEncoding:str, tailLines:int, maxLines:int) -> Tuple[List[str], int, int]:
-        tailBuffer:Deque[str] = deque(maxlen=tailLines)
+        if tailLines < 0:
+            raise ValueError("'TailLines' must be greater than or equal to zero.")
+        fullLineCount = self._CountTextLines(targetPath, textEncoding)
+        readStartLine = max(0, fullLineCount - tailLines)
+        if tailLines == 0 or maxLines == 0:
+            return [], fullLineCount, readStartLine
+        lines, _, _ = self._ReadTextLineRange(targetPath, textEncoding, readStartLine, maxLines)
+        return lines, fullLineCount, readStartLine
+
+
+    def _CountTextLines(self, targetPath:str, textEncoding:str) -> int:
         fullLineCount = 0
         with open(targetPath, "r", encoding=textEncoding, newline="") as f:
-            for line in f:
+            for _ in f:
                 fullLineCount += 1
-                tailBuffer.append(line)
-
-        lines = list(tailBuffer)
-        readStartLine = fullLineCount - len(lines)
-        return lines[:maxLines], fullLineCount, readStartLine
+        return fullLineCount
 
 
     def _ReadTextLineRange(self, targetPath:str, textEncoding:str, startLine:int, maxLines:int) -> Tuple[List[str], int, int]:
@@ -460,8 +487,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
                 raise PermissionError("Directory contains a path outside of the Home Assistant config directory.")
             for dirName in dirNames:
                 entryPath = os.path.join(currentRoot, dirName)
+                normalizedPath = os.path.relpath(entryPath, rootPath)
                 if os.path.islink(entryPath):
                     raise PermissionError("Refusing to delete a directory containing a symbolic link.")
+                if self._IsDeniedFileName(normalizedPath):
+                    raise PermissionError("Refusing to delete a directory containing a denied file.")
             for fileName in fileNames:
                 entryPath = os.path.join(currentRoot, fileName)
                 normalizedPath = os.path.relpath(entryPath, rootPath)
@@ -509,7 +539,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         # We allow the denied files to be listed, but not read/written/deleted, since that way users can see that those files exist and know that they can't interact with them, instead of just having them mysteriously not show up in the file list.
         # if self._IsDeniedFileName(entryPath):
         #     return False
-        if self._IsPathInsideRoot(rootPath, entryPath) is False:
+        if self._IsPathLexicallyInsideRoot(rootPath, entryPath) is False:
             return False
         return True
 
@@ -517,13 +547,14 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
     def _AddFileListEntry(self, files:List[Dict[str, Any]], rootPath:str, entryPath:str, entryName:str) -> None:
         statResult = os.lstat(entryPath)
         relativePath = os.path.relpath(entryPath, rootPath)
+        isSymlink = os.path.islink(entryPath)
         # Note! These properties are used by the MCP server and explicitly deserialized by the server, so they must stay in sync!
         files.append({
             "path": self._ToResponseRelativePath(relativePath),
-            "is_directory": os.path.isdir(entryPath),
+            "is_directory": os.path.isdir(entryPath) and isSymlink is False,
             "size": int(statResult.st_size),
             "modified_time_sec": int(statResult.st_mtime),
-            "has_access": self._IsDeniedFileName(entryPath) is False,
+            "has_access": isSymlink is False and self._IsDeniedFileName(relativePath) is False,
         })
 
 
@@ -548,6 +579,15 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             rootRealPath = os.path.realpath(rootPath)
             targetRealPath = os.path.realpath(targetPath)
             return os.path.commonpath([rootRealPath, targetRealPath]) == rootRealPath
+        except Exception:
+            return False
+
+
+    def _IsPathLexicallyInsideRoot(self, rootPath:str, targetPath:str) -> bool:
+        try:
+            rootAbsPath = os.path.abspath(rootPath)
+            targetAbsPath = os.path.abspath(targetPath)
+            return os.path.commonpath([rootAbsPath, targetAbsPath]) == rootAbsPath
         except Exception:
             return False
 

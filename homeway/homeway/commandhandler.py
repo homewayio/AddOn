@@ -4,7 +4,7 @@ import base64
 import logging
 import concurrent.futures
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote
+from urllib.parse import parse_qsl
 
 from .interfaces import IConfigManager, IHomeAssistantFileSystem, IAccountLinkStatusUpdateHandler, IHomeContext, IHomeAssistantWebSocket
 from .streammsgbuilder import StreamMsgBuilder
@@ -119,13 +119,15 @@ class CommandHandler:
 
     # The goal here is to keep as much of the common logic as common as possible.
     def ProcessCommand(self, commandPath:str, jsonObj_CanBeNone:Optional[Dict[str, Any]]) -> CommandResponse:
-        # To lower, to match any case.
-        commandPathLower = commandPath.lower()
-        if commandPathLower.startswith("ping"):
+        if jsonObj_CanBeNone is not None and not isinstance(jsonObj_CanBeNone, dict):
+            return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "Command arguments must be a JSON object.")
+
+        commandName = self._GetCommandName(commandPath)
+        if commandName == "ping":
             return CommandResponse.Success({"Message":"Pong"})
 
         # Handle the batch API call command. Used by Sage to be more efficient.
-        if commandPathLower.startswith("batch-web-requests"):
+        if commandName == "batch-web-requests":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             if self.ConfigManager is None:
@@ -133,7 +135,7 @@ class CommandHandler:
             return self.HandleBatchApiRequestsCommand(jsonObj_CanBeNone)
 
         # Can be used to make any Home Assistant WebSocket API call.
-        if commandPathLower.startswith("ha-websocket-api-call"):
+        if commandName == "ha-websocket-api-call":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             if self.HaWebSocketCon is None:
@@ -141,7 +143,7 @@ class CommandHandler:
             return CommandResponse.Success(self._InvokeHaWebsocketApiCall(jsonObj_CanBeNone))
 
         # Can be used to make multiple Home Assistant WebSocket API calls in a single command.
-        if commandPathLower.startswith("batch-ha-websocket-api-call"):
+        if commandName == "batch-ha-websocket-api-call":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             if self.HaWebSocketCon is None:
@@ -149,7 +151,7 @@ class CommandHandler:
             return self.HandleBatchHaWebsocketApiCallCommand(jsonObj_CanBeNone)
 
         # Returns the Home Assistant version string, if known.
-        if commandPathLower.startswith("get-ha-version"):
+        if commandName == "get-ha-version":
             if self.HaWebSocketCon is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No Home Assistant WebSocket connection.")
             haVersion = self.HaWebSocketCon.GetHomeAssistantVersionString()
@@ -158,7 +160,7 @@ class CommandHandler:
 
         # restart-if-needed - Deprecated 1.0.5 (3/16/2024) for `get-config-status`
         # Returns this addon's status with the config. This works for both container and standalone addons.
-        if commandPathLower.startswith("get-config-status"):
+        if commandName == "get-config-status":
             needsRestartForAssistantConfigs = False
             canEditConfig = False
             if self.ConfigManager is not None:
@@ -172,47 +174,47 @@ class CommandHandler:
                 })
 
         # Lists files and folders in the Home Assistant config directory.
-        if commandPathLower.startswith("file-list"):
+        if commandName == "file-list":
             return self.HandleListFilesCommand(jsonObj_CanBeNone)
 
         # Reads a text file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-read-text"):
+        if commandName == "file-read-text":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleReadTextFileCommand(jsonObj_CanBeNone)
 
         # Reads raw bytes from a file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-read-data"):
+        if commandName == "file-read-data":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleReadDataFileCommand(jsonObj_CanBeNone)
 
         # Adds or overwrites a file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-write"):
+        if commandName == "file-write":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleWriteFileCommand(jsonObj_CanBeNone)
 
         # Moves or copies a file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-move"):
+        if commandName == "file-move":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleMoveFileCommand(jsonObj_CanBeNone)
 
         # Applies a unified diff patch to a file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-patch"):
+        if commandName == "file-patch":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandlePatchFileCommand(jsonObj_CanBeNone)
 
         # Removes a file in the Home Assistant config directory.
-        if commandPathLower.startswith("file-delete"):
+        if commandName == "file-delete":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             return self.HandleDeleteFileCommand(jsonObj_CanBeNone)
 
         # Used to tell the addon that there's an account linked to this addon. Mostly used to update the webserver page.
-        if commandPathLower.startswith("update-account-link-status"):
+        if commandName == "update-account-link-status":
             if jsonObj_CanBeNone is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "No arguments provided.")
             if self.AccountLinkStatusUpdateHandler is None:
@@ -222,7 +224,7 @@ class CommandHandler:
 
         # Used for Assistant device control & MCP to get the full device and entity tree and optionally states in a single call.
         # This must return the full entity tree, with no filtering unless the domain filter is sent.
-        if commandPathLower.startswith("get-full-device-and-entity-tree"):
+        if commandName == "get-full-device-and-entity-tree":
             # Ensure we have a home context.
             if self.HomeContext is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
@@ -255,7 +257,7 @@ class CommandHandler:
             return CommandResponse.Success({"Success": successful, "Floors": allEntities, "States": allStates, "Labels": labels})
 
         # Used by Sage and MCP to get the current home context and live state in a single round trip.
-        if commandPathLower.startswith("get-live-context"):
+        if commandName == "get-live-context":
             if self.HomeContext is None:
                 return CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, "No home context.")
             homeContext = self.HomeContext.GetSageHomeContext()
@@ -421,9 +423,15 @@ class CommandHandler:
             # Debug helper
             if self.Logger.isEnabledFor(logging.DEBUG):
                 for request in requestList:
+                    if not isinstance(request, dict):
+                        self.Logger.debug(f"HandleBatchApiCallCommand invalid request: {request}")
+                        continue
                     data = request.get("Data", None)
                     if data is not None:
-                        data = base64.b64decode(data)
+                        try:
+                            data = base64.b64decode(data)
+                        except Exception:
+                            data = "[invalid base64]"
                     self.Logger.debug(f"HandleBatchApiCallCommand Request: {json.dumps(request)} - Data: {data}")
 
             # Submit all tasks
@@ -455,7 +463,9 @@ class CommandHandler:
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
         rawRecursive = self._GetCommandArg(jsonArgs_CanBeNone, "Recursive")
-        recursive = self._ParseOptionalBool(rawRecursive, True)
+        recursive, recursiveError = self._ParseOptionalBool(rawRecursive, "Recursive", True)
+        if recursiveError is not None:
+            return recursiveError
         try:
             return CommandResponse.Success(self.HomeAssistantFileSystem.ListFiles(rawPath, recursive))
         except Exception as e:
@@ -557,10 +567,14 @@ class CommandHandler:
             return textEncodingError
 
         rawCreateParents = self._GetCommandArg(jsonArgs, "CreateParents")
-        createParents = self._ParseOptionalBool(rawCreateParents, True)
+        createParents, createParentsError = self._ParseOptionalBool(rawCreateParents, "CreateParents", True)
+        if createParentsError is not None:
+            return createParentsError
 
         rawOverride = self._GetCommandArg(jsonArgs, "Override")
-        override = self._ParseOptionalBool(rawOverride, True)
+        override, overrideError = self._ParseOptionalBool(rawOverride, "Override", True)
+        if overrideError is not None:
+            return overrideError
 
         rawExpectedSha256 = self._GetCommandArg(jsonArgs, "ExpectedSha256")
         expectedSha256, expectedSha256Error = self._ParseOptionalString(rawExpectedSha256, "ExpectedSha256")
@@ -586,10 +600,14 @@ class CommandHandler:
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'NewPath' must be a string.")
 
         rawCopy = self._GetCommandArg(jsonArgs, "Copy")
-        copy = self._ParseOptionalBool(rawCopy, False)
+        copy, copyError = self._ParseOptionalBool(rawCopy, "Copy", False)
+        if copyError is not None:
+            return copyError
 
         rawOverride = self._GetCommandArg(jsonArgs, "Override")
-        override = self._ParseOptionalBool(rawOverride, False)
+        override, overrideError = self._ParseOptionalBool(rawOverride, "Override", False)
+        if overrideError is not None:
+            return overrideError
 
         rawExpectedSha256 = self._GetCommandArg(jsonArgs, "ExpectedSha256")
         expectedSha256, expectedSha256Error = self._ParseOptionalString(rawExpectedSha256, "ExpectedSha256")
@@ -634,7 +652,9 @@ class CommandHandler:
             return CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, "'Path' must be a string.")
 
         rawRecursive = self._GetCommandArg(jsonArgs, "Recursive")
-        recursive = self._ParseOptionalBool(rawRecursive, False)
+        recursive, recursiveError = self._ParseOptionalBool(rawRecursive, "Recursive", False)
+        if recursiveError is not None:
+            return recursiveError
 
         try:
             return CommandResponse.Success(self.HomeAssistantFileSystem.DeleteFile(rawPath, recursive))
@@ -729,22 +749,41 @@ class CommandHandler:
         return None
 
 
-    def _ParseOptionalBool(self, value:Optional[Any], defaultValue:bool) -> bool:
+    def _GetCommandName(self, commandPath:str) -> str:
+        return commandPath.split("?", 1)[0].strip("/").lower()
+
+
+    def _ParseOptionalBool(self, value:Optional[Any], argName:str, defaultValue:bool) -> Tuple[bool, Optional[CommandResponse]]:
         if value is None:
-            return defaultValue
+            return defaultValue, None
         if isinstance(value, bool):
-            return value
+            return value, None
         if isinstance(value, str):
-            return value.lower() in ["1", "true", "yes", "on"]
-        return bool(value)
+            valueLower = value.strip().lower()
+            if valueLower in ["1", "true", "yes", "on"]:
+                return True, None
+            if valueLower in ["0", "false", "no", "off"]:
+                return False, None
+            return defaultValue, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be a boolean.")
+        if isinstance(value, int):
+            if value == 1:
+                return True, None
+            if value == 0:
+                return False, None
+        return defaultValue, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be a boolean.")
 
 
     def _ParseOptionalPositiveInt(self, value:Optional[Any], argName:str) -> Tuple[Optional[int], Optional[CommandResponse]]:
         if value is None:
             return None, None
-        try:
-            parsedValue = int(value)
-        except Exception:
+        parsedValue:Optional[int] = None
+        if isinstance(value, bool):
+            parsedValue = None
+        elif isinstance(value, int):
+            parsedValue = value
+        elif isinstance(value, str) and value.strip().isdecimal():
+            parsedValue = int(value.strip())
+        if parsedValue is None:
             return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be an integer.")
         if parsedValue <= 0:
             return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be greater than zero.")
@@ -754,9 +793,14 @@ class CommandHandler:
     def _ParseOptionalNonNegativeInt(self, value:Optional[Any], argName:str) -> Tuple[Optional[int], Optional[CommandResponse]]:
         if value is None:
             return None, None
-        try:
-            parsedValue = int(value)
-        except Exception:
+        parsedValue:Optional[int] = None
+        if isinstance(value, bool):
+            parsedValue = None
+        elif isinstance(value, int):
+            parsedValue = value
+        elif isinstance(value, str) and value.strip().isdecimal():
+            parsedValue = int(value.strip())
+        if parsedValue is None:
             return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be an integer.")
         if parsedValue < 0:
             return None, CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, f"'{argName}' must be greater than or equal to zero.")
@@ -798,8 +842,10 @@ class CommandHandler:
         jsonObj:Optional[Dict[str, Any]] = None
 
         # Parse the POST body if there is one.
-        if postBody is not None:
+        if postBody is not None and len(postBody) > 0:
             jsonObj = json.loads(postBody.GetBytesLike())
+            if not isinstance(jsonObj, dict):
+                raise ValueError("Command arguments JSON body must be an object.")
 
         # If there is no json object, try for get args.
         if jsonObj is None:
@@ -816,23 +862,14 @@ class CommandHandler:
         if "?" not in commandPath:
             return None
         try:
-            args = commandPath.split("?")[1]
-            # Split on & to get the args.
-            args = args.split("&")
-            # Parse each arg and add it to the jsonObj.
+            args = commandPath.split("?", 1)[1]
             jsonObj:Dict[str, str] = {}
-            for i in args:
-                # Split on = to get the key and value.
-                keyValue = i.split("=")
-                if len(keyValue) != 2:
-                    self.Logger.warning("CommandHandler failed to parse args, invalid key value pair: " + i)
+            for key, value in parse_qsl(args, keep_blank_values=True):
+                if len(key) == 0:
+                    self.Logger.warning("CommandHandler failed to parse args, empty key found.")
                     continue
-                else:
-                    # Ensure the key is always lower case, but don't mess with the value, things like passwords might need to be case sensitive.
-                    key = (str(keyValue[0])).lower()
-                    # The value needs to be URL escaped, so we need to decode it.
-                    value = unquote(str(keyValue[1]))
-                    jsonObj[key] = value
+                # Ensure the key is always lower case, but don't mess with the value, things like passwords might need to be case sensitive.
+                jsonObj[key.lower()] = value
             return jsonObj
         except Exception as e:
             Sentry.OnException("CommandHandler error while parsing GET command args.", e)
