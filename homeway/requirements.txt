@@ -22,7 +22,7 @@
 #   zeroconf - Used internally in the wyoming lib for service discovery.
 #   sentry-sdk - For error reporting. We want to keep this as current as possible to get the latest fixes and features.
 #
-octowebsocket_client==1.9.0
+octowebsocket_client==1.9.1
 octoflatbuffers==24.3.27
 # Keep these as current as possible.
 requests>=2.32.3,<3.0

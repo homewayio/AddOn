@@ -659,9 +659,14 @@ class HomeContext(IHomeContext):
                     entityIndexToRemove:List[int] = []
                     entitiesList:List[Dict[str, Any]] = d.get("entities", [])
                     for i, e in enumerate(entitiesList):
-                        # Check to see if we need to remove this entity.
-                        if self.IsDisabled(e) or not self.IsExposeToAssistant(e, checkSage=True):
+                        # We always remove disabled entities.
+                        if self.IsDisabled(e):
                             entityIndexToRemove.append(i)
+                            continue
+                        # We remove entities that aren't exposed to Sage, unless it's a type we always include.
+                        if not self._IsSageNeverIgnoreEntity(e) and not self.IsExposeToAssistant(e, checkSage=True):
+                            entityIndexToRemove.append(i)
+                            continue
                         # Important! AFTER we do our checks (that require the fields to be removed)
                         # ensure we strip out any optional fields that we don't want to send to Sage.
                         self._RemoveFullStateOptionalEntityProperties(e)
@@ -820,6 +825,19 @@ class HomeContext(IHomeContext):
         # The full id is 'assist_satellite', but this is good enough.
         return entityId is not None and entityId.startswith("assist")
 
+
+    # Some entities we never want to remove from the Home context, since Sage needs them for things like assistant states, text to speech, alarms, etc.
+    def _IsSageNeverIgnoreEntity(self, e:Dict[str, Any]) -> bool:
+        entityId = e.get("entity_id", None)
+        if entityId is None:
+            return False
+        # Always send all assistants.
+        if self._IsAssistEntityId(entityId):
+            return True
+        # Always send media players, tts services, and notification services.
+        if entityId.startswith("media_player") or entityId.startswith("tts") or entityId.startswith("notify"):
+            return True
+        return False
 
     #
     # State Logic
