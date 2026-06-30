@@ -5,7 +5,7 @@ import socket
 import time
 import threading
 import logging
-from typing import Any, Dict, List, Callable, Optional
+from typing import Any, Dict, List, Callable, Optional, Tuple
 
 import certifi
 import octowebsocket
@@ -32,7 +32,7 @@ class Client(IWebSocketClient):
     c_MaxSendQueueSizeBytes = 20 * 1024 * 1024
     c_SocketSendBufferBytes = 512 * 1024
     c_SocketReceiveBufferBytes = 512 * 1024
-    c_SendQueueBackpressureLogIntervalSec = 5.0
+    c_SendQueueBackpressureLogIntervalSec = 1.0
 
 
     # Allows us to still enable the websocket debug logs if we want.
@@ -217,7 +217,7 @@ class Client(IWebSocketClient):
             if ws is None:
                 return
             # Tune TCP behavior for lower-latency sends and better throughput on lossy links.
-            sockopt:List[tuple[int, int, int]] = [
+            sockopt:List[Tuple[int, int, int]] = [
                 (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
                 (socket.SOL_SOCKET, socket.SO_SNDBUF, self.c_SocketSendBufferBytes),
                 (socket.SOL_SOCKET, socket.SO_RCVBUF, self.c_SocketReceiveBufferBytes),

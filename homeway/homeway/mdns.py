@@ -158,7 +158,7 @@ class MDns:
         while True:
             # If we don't have a resolver, we can't resolve.
             if self.dnsResolver is None:
-                self.Logger.debug("Mdns skipping resolve bc we don't have a resolver object."+str(domain))
+                self.Logger.debug("Mdns skipping resolve bc we don't have a resolver object. %s", domain)
                 return None
 
             # Only allow 3 attempts to successfully resolve.
@@ -244,9 +244,9 @@ class MDns:
             self.LogDebug("Failed to get our local IP, using the first returned result.")
             return ipList[0]
 
-        matches:List[bool] = []
-        for ip in ipList:
-            matches.append(True)
+        matches:List[bool] = [True] * len(ipList)
+
+
 
         # See which IP in our list matches this the best.
         offset = 0
@@ -310,7 +310,8 @@ class MDns:
     # Starts a thread to update the domain in the cache async.
     def TryToUpdateCacheAsync(self, domain:str):
         # Spin off a thread to try to resolve the dns and update the cache.
-        workerThread = threading.Thread(target=self.TryToUpdateCacheAsync_Thread, args=(domain,))
+        # Daemon, since this is a best effort cache update and shouldn't hold the process open on shutdown.
+        workerThread = threading.Thread(target=self.TryToUpdateCacheAsync_Thread, args=(domain,), name="MDnsCacheUpdate", daemon=True)
         workerThread.start()
 
 
@@ -337,7 +338,7 @@ class MDns:
 
 
     def GetUpdatedTimeSecFromEntryDict(self, d:Dict[str, Any]) -> float:
-        # Use a try catch in case there's anything that fails to due parsing of old files or such.
+        # Use a try catch incase there's anything that fails to due parsing of old files or such.
         try:
             return d["UpdateTimeSec"]
         except Exception as e:
@@ -347,7 +348,7 @@ class MDns:
 
 
     def GetIpAddressFromEntryDict(self, d:Dict[str, Any]) -> str:
-        # Use a try catch in case there's anything that fails to due parsing of old files or such.
+        # Use a try catch incase there's anything that fails to due parsing of old files or such.
         try:
             return d["IpAddress"]
         except Exception as e:

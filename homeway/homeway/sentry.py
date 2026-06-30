@@ -159,10 +159,13 @@ class Sentry:
 
         # If we want to filter by package, do it now.
         if Sentry.FilterExceptionsByPackage:
-            # To prevent that from spamming us, if we can pull out a call stack, we will only
+            # Since all OctoPrint plugins run in the same process, sentry will pick-up unhandled exceptions
+            # from all kinds of sources. To prevent that from spamming us, if we can pull out a call stack, we will only
             # send things that have some origin in our code. This can be any file in the stack or any module with our name in it.
             # Otherwise, we will ignore it.
             exc_info = hint.get("exc_info")
+            # Note the < 3 guard must stay in sync with the exc_info[2] access below, otherwise a short
+            # exc_info tuple would throw an IndexError right here inside the before-send hook.
             if exc_info is None or len(exc_info) < 3 or hasattr(exc_info[2], "tb_frame") is False:
                 Sentry._Logger.error("Failed to extract exception stack in sentry before send.")
                 return None
@@ -297,7 +300,7 @@ class Sentry:
     @staticmethod
     def _HandleCantCreateThreadException(logger:logging.Logger, e:Exception) -> bool:
         # Filter the exception
-        if e is not RuntimeError or "can't start new thread" not in str(e):
+        if not isinstance(e, RuntimeError) or "can't start new thread" not in str(e):
             return False
 
         # If we can't restart, return false, and the normal exception handling will occur.
@@ -311,7 +314,7 @@ class Sentry:
         Sentry._IsHandlingCantCreateThreadException = True
 
         # Log the error
-        ThreadDebug.DoThreadDumpLogout(logger, True)
+        ThreadDebug.DoThreadDumpLogout(logger)
         logger.error("~~~~~~~~~ Process Restarting Due To Threading Bug ~~~~~~~~~~~~")
         Sentry.OnException("Can't start new thread - restarting the process.", e)
 

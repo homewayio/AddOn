@@ -83,7 +83,7 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         _, targetPath = self._ResolveExistingFilePath(rootPath, path, "read")
 
         fileSize = os.path.getsize(targetPath)
-        readOffset = self._GetDataReadOffset(fileSize, startByte, tailBytes)
+        readOffset = self._GetDataReadOffset(fileSize, startByte, maxBytes, tailBytes)
         bytesToRead = self._GetDataReadSize(fileSize, readOffset, maxBytes)
         with open(targetPath, "rb") as f:
             f.seek(readOffset)
@@ -309,9 +309,10 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
             raise ValueError(f"'{argName}' must be greater than or equal to zero.")
 
 
-    def _GetDataReadOffset(self, fileSize:int, startByte:Optional[int], tailBytes:Optional[int]) -> int:
+    def _GetDataReadOffset(self, fileSize:int, startByte:Optional[int], maxBytes:Optional[int], tailBytes:Optional[int]) -> int:
         if tailBytes is not None:
-            return max(0, fileSize - tailBytes)
+            maxReadableBytes = HomeAssistantFileSystem.c_MaxReadFileBytes if maxBytes is None else maxBytes
+            return max(0, fileSize - min(tailBytes, maxReadableBytes))
         if startByte is not None:
             return min(startByte, fileSize)
         return 0
@@ -361,10 +362,11 @@ class HomeAssistantFileSystem(IHomeAssistantFileSystem):
         if tailLines < 0:
             raise ValueError("'TailLines' must be greater than or equal to zero.")
         fullLineCount = self._CountTextLines(targetPath, textEncoding)
-        readStartLine = max(0, fullLineCount - tailLines)
-        if tailLines == 0 or maxLines == 0:
+        maxTailLinesToRead = min(tailLines, maxLines)
+        readStartLine = max(0, fullLineCount - maxTailLinesToRead)
+        if maxTailLinesToRead == 0:
             return [], fullLineCount, readStartLine
-        lines, _, _ = self._ReadTextLineRange(targetPath, textEncoding, readStartLine, maxLines)
+        lines, _, _ = self._ReadTextLineRange(targetPath, textEncoding, readStartLine, maxTailLinesToRead)
         return lines, fullLineCount, readStartLine
 
 

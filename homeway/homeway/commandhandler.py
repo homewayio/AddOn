@@ -15,6 +15,7 @@ from .buffer import Buffer
 
 from .Proto.HaApiTarget import HaApiTarget
 from .Proto.HttpInitialContext import HttpInitialContext
+from .WebStream.uploadbody import UploadBody, UploadBodyOrNone
 
 
 # A helper class that's the result of all ran commands.
@@ -65,6 +66,8 @@ class CommandHandler:
     c_CommandError_ResponseSerializeFailure = 753
     c_CommandError_UnknownCommand = 754
     c_CommandError_PluginTypeNotSupported = 755
+    # Used when we know we can't connect to the printer because we dont have valid auth
+    c_CommandError_LostAuth = 789
 
     _Instance:"CommandHandler" = None #pyright: ignore[reportAssignmentType]
 
@@ -116,6 +119,14 @@ class CommandHandler:
     #
     # Command Handlers
     #
+
+
+    # Some special commands require the raw body to be parsed in a specific way, so this helper will check if the command is one of those.
+    # For any command that doesn't allow the body to be parsed for args, the GET params will be parsed and used for the args dict.
+    def ShouldParseUploadBodyAsJson(self, commandPathLower:str) -> bool:
+        # None of these exist for HW right now.
+        return True
+
 
     # The goal here is to keep as much of the common logic as common as possible.
     def ProcessCommand(self, commandPath:str, jsonObj_CanBeNone:Optional[Dict[str, Any]]) -> CommandResponse:
@@ -297,14 +308,22 @@ class CommandHandler:
     # Note! It's very important that the HttpResult has all of the properties the generic system expects! For example,
     # it must have the FullBodyBuffer (similar to the snapshot helper) and a valid response object JUST LIKE the requests lib would return.
     #
-    def HandleCommand(self, httpInitialContext:HttpInitialContext, postBody:Optional[Buffer]) -> HttpResult:
+    def HandleCommand(self, httpInitialContext:HttpInitialContext, postBody:UploadBody) -> HttpResult:
         # Parse the command path and the optional json args.
         commandPath:str = ""
+        commandPathLower:str = ""
         jsonObj:Optional[Dict[str, Any]] = None
         responseObj:Optional[CommandResponse] = None
         try:
             # Get the command path and json args, the json object can be null if there are no args.
-            commandPath, _, jsonObj = self._GetPathAndJsonArgs(httpInitialContext, postBody)
+            commandPath, commandPathLower = self._GetCommandPath(httpInitialContext)
+            # There are some very special commands where the body is data, so for those we don't try to
+            # parse the json args. But remember those take args via GET parameters.
+            postBodyForJsonArgs:Optional[UploadBody] = None
+            if self.ShouldParseUploadBodyAsJson(commandPathLower):
+                postBodyForJsonArgs = postBody
+            # We always call this, if there's no upload body it will parse the args from get params.
+            jsonObj = self._GetJsonArgs(commandPath, postBodyForJsonArgs)
         except Exception as e:
             Sentry.OnException("CommandHandler error while parsing command args.", e)
             responseObj = CommandResponse.Error(CommandHandler.c_CommandError_ArgParseFailure, str(e))
@@ -312,7 +331,7 @@ class CommandHandler:
         # If the args parse was successful, try to handle the command.
         if responseObj is None:
             try:
-                responseObj = self.ProcessCommand(commandPath, jsonObj)
+                responseObj = self.ProcessCommand(commandPathLower, jsonObj)
             except Exception as e:
                 Sentry.OnException("CommandHandler error while handling command.", e)
                 responseObj = CommandResponse.Error(CommandHandler.c_CommandError_ExecutionFailure, str(e))
@@ -827,7 +846,13 @@ class CommandHandler:
 
 
     # A helper to parse the context and json args. Throws if it fails!
-    def _GetPathAndJsonArgs(self, httpInitialContext:HttpInitialContext, postBody:Optional[Buffer]) -> Tuple[str, str, Optional[Dict[str, Any]]]:
+    def _GetPathAndJsonArgs(self, httpInitialContext:HttpInitialContext, postBody:UploadBodyOrNone) -> Tuple[str, str, Optional[Dict[str, Any]]]:
+        commandPath, commandPathLower = self._GetCommandPath(httpInitialContext)
+        jsonObj = self._GetJsonArgs(commandPath, postBody)
+        return (commandPath, commandPathLower, jsonObj)
+
+
+    def _GetCommandPath(self, httpInitialContext:HttpInitialContext) -> Tuple[str, str]:
         # Get the command path.
         path = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
         if path is None:
@@ -836,23 +861,26 @@ class CommandHandler:
         # Everything after our prefix is part of the command path
         commandPath = path[len(CommandHandler.c_CommandHandlerPathPrefix):]
         commandPathLower = commandPath.lower()
+        return (commandPath, commandPathLower)
 
+
+    def _GetJsonArgs(self, commandPath:str, postBody:UploadBodyOrNone) -> Optional[Dict[str, Any]]:
         # Parse the args. Args are optional, it depends on the command.
         # Note some of these commands can also be GET requests, so we need to handle that.
         jsonObj:Optional[Dict[str, Any]] = None
 
         # Parse the POST body if there is one.
-        if postBody is not None and len(postBody) > 0:
-            jsonObj = json.loads(postBody.GetBytesLike())
-            if not isinstance(jsonObj, dict):
-                raise ValueError("Command arguments JSON body must be an object.")
+        if postBody is not None:
+            bodyBuffer = postBody.GetBodyAsBuffer(postBody.MaxInMemoryBodyBytes)
+            if bodyBuffer is not None:
+                jsonObj = json.loads(bodyBuffer.GetBytesLike())
 
         # If there is no json object, try for get args.
         if jsonObj is None:
             # This will return None if there are no args.
             # Use the cased version of the string, so get args keep the correct case.
             jsonObj = self._ParseGetArgsAsJson(commandPath)
-        return (commandPath, commandPathLower,  jsonObj)
+        return jsonObj
 
 
     # If there are GET args, this will parse them into a json object where all values as strings
@@ -862,14 +890,11 @@ class CommandHandler:
         if "?" not in commandPath:
             return None
         try:
-            args = commandPath.split("?", 1)[1]
             jsonObj:Dict[str, str] = {}
-            for key, value in parse_qsl(args, keep_blank_values=True):
-                if len(key) == 0:
-                    self.Logger.warning("CommandHandler failed to parse args, empty key found.")
-                    continue
-                # Ensure the key is always lower case, but don't mess with the value, things like passwords might need to be case sensitive.
-                jsonObj[key.lower()] = value
+            query = commandPath.split("?", 1)[1]
+            for key, value in parse_qsl(query, keep_blank_values=True):
+                # Ensure the key is always lower case, but don't mess with the value; things like passwords might need to be case sensitive.
+                jsonObj[str(key).lower()] = value
             return jsonObj
         except Exception as e:
             Sentry.OnException("CommandHandler error while parsing GET command args.", e)

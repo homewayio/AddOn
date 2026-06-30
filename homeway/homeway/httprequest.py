@@ -1,18 +1,21 @@
 import platform
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from .mdns import MDns
-from .buffer import BufferOrNone
+from .buffer import Buffer
 from .compat import Compat
 from .localip import LocalIpHelper
 from .httpresult import HttpResult
 from .httpsessions import HttpSessions
 from .streammsgbuilder import StreamMsgBuilder
+from .WebStream.uploadbody import MultipartFormUploadBody, MultipartFormUploadBodyReadContext, MultipartFormUploadBodyReader, UploadBody, UploadBodyReadContext, UploadTypesBufferOrNone, BufferedReaderBytesOrNone
+
 
 from .Proto.PathTypes import PathTypes
 from .Proto.HaApiTarget import HaApiTarget
 from .Proto.HttpInitialContext import HttpInitialContext
+
 
 class HttpRequest:
 
@@ -71,6 +74,7 @@ class HttpRequest:
     def GetRemoteAccessEnabled() -> bool  :
         return HttpRequest.RemoteAccessEnabled
 
+
     # Based on the URL passed, this will return PathTypes.Relative or PathTypes.Absolute
     @staticmethod
     def GetPathType(url:str) -> int:
@@ -107,7 +111,7 @@ class HttpRequest:
     # The main point of this function is to abstract away the logic around relative paths, absolute URLs, and the fallback logic
     # we use for different ports. See the comments in the function for details.
     @staticmethod
-    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers:Dict[str, str], data:BufferOrNone=None) -> Optional[HttpResult]:
+    def MakeHttpCallStreamHelper(logger:logging.Logger, httpInitialContext:HttpInitialContext, method:str, headers:Dict[str, str], data:UploadTypesBufferOrNone=None) -> Optional[HttpResult]:
         # Get the vars we need from the octostream initial context.
         path = StreamMsgBuilder.BytesToString(httpInitialContext.Path())
         if path is None:
@@ -121,10 +125,10 @@ class HttpRequest:
 
     # allowRedirects should be false for all proxy calls. If it's true, then the content returned might be from a redirected URL and the actual URL will be incorrect.
     # Instead, the system needs to handle the redirect 301 or 302 call as normal, sending it back to the caller, and allowing them to follow the redirect if needed.
-    # The X-Forwarded-Host header will tell the local server the correct place to set the location redirect header.
+    # The X-Forwarded-Host header will tell the OctoPrint server the correct place to set the location redirect header.
     # However, for calls that aren't proxy calls, things like local snapshot requests and such, we want to allow redirects to be more robust.
     @staticmethod
-    def MakeHttpCall(logger:logging.Logger, pathOrUrl:str, pathOrUrlType:int, method:str, headers:Optional[Dict[str, str]]=None, data:BufferOrNone=None, allowRedirects=False, apiTarget:Optional[int]=None) -> Optional[HttpResult]:
+    def MakeHttpCall(logger:logging.Logger, pathOrUrl:str, pathOrUrlType:int, method:str, headers:Optional[Dict[str, str]]=None, data:UploadTypesBufferOrNone=None, allowRedirects=False, apiTarget:Optional[int]=None) -> Optional[HttpResult]:
 
         # Handle special API type targets.
         if apiTarget is not None and (apiTarget == HaApiTarget.Core or apiTarget == HaApiTarget.Supervisor):
@@ -166,17 +170,17 @@ class HttpRequest:
         #
         # 1) Absolute URLs
         # These are the easiest, because we just want to make a request to exactly what the absolute URL is. These are used
-        # when the local service is trying to make an local LAN http request to the same device or even a different device.
-        # For these to work properly on a remote browser, the Homeway service will detect and convert the URLs in to encoded relative
-        # URLs for the portal. This ensures when the remote browser tries to access the HTTP endpoint, it will hit Homeway. The Homeway
-        # server detects the special relative URL, decodes the absolute URL, and sends that in the Message as "AbsUrl". For these URLs we just try
+        # when the OctoPrint portal is trying to make an local LAN http request to the same device or even a different device.
+        # For these to work properly on a remote browser, the OctoEverywhere service will detect and convert the URLs in to encoded relative
+        # URLs for the portal. This ensures when the remote browser tries to access the HTTP endpoint, it will hit OctoEverywhere. The OctoEverywhere
+        # server detects the special relative URL, decodes the absolute URL, and sends that in the OctoMessage as "AbsUrl". For these URLs we just try
         # to hit them and we take whatever we get, we don't care if fails or not.
         #
         # 2) Relative Urls
         # These Urls are the most common, standard URLs. The browser makes the relative requests to the same hostname:port as it's currently
-        # on. However, for our setup its a little more complex. The issue is the Homeway plugin not knowing how the user's system is setup.
-        # The plugin can with 100% certainty query and know the port local http server is running on directly. So we do that to know exactly what
-        # local server to talk to. (consider there might be multiple instances running on one device.)
+        # on. However, for our setup its a little more complex. The issue is the OctoEverywhere plugin not knowing how the user's system is setup.
+        # The plugin can with 100% certainty query and know the port OctoPrint's http server is running on directly. So we do that to know exactly what
+        # OctoPrint server to talk to. (consider there might be multiple instances running on one device.)
         #
         # But, the other most common use case for http calls are the webcam streams to mjpegstreamer. This is the tricky part. There are two ways it can be
         # setup. 1) the webcam stream uses an absolute local LAN url with the ip and port. This is covered by the absolute URL system above. 2) The webcam stream
@@ -185,8 +189,8 @@ class HttpRequest:
         # standard places. So to fix the issue, we use logic in the frontend JS to determine if a web browser is connecting locally, and if so what the port is. That gives
         # use a reliable way to know what port haproxy is running on. It sends that to the plugin, which is then given here as `localHttpProxyPort`.
         #
-        # The last problem is knowing which calls should be sent to the local service directly and which should be sent to haproxy. We can't rely on any URL matching, because
-        # the user can setup the webcam stream to start with anything they want. So the method we use right now is to simply always request to the local service first, and if we
+        # The last problem is knowing which calls should be sent to OctoPrint directly and which should be sent to haproxy. We can't rely on any URL matching, because
+        # the user can setup the webcam stream to start with anything they want. So the method we use right now is to simply always request to OctoPrint first, and if we
         # get a 404 back try the haproxy. This adds a little bit of unneeded overhead, but it works really well to cover all of the cases.
 
         # Setup the protocol we need to use for the direct and http proxy. We need to use the same protocol that was detected.
@@ -200,7 +204,7 @@ class HttpRequest:
         # Figure out the main and fallback url.
         url = ""
         fallbackUrl:Optional[str] = None
-        fallbackWebcamUrl:Optional[str]= None
+        fallbackWebcamUrl:Optional[str] = None
         fallbackLocalIpDirectServicePortSuffix:Optional[str] = None
         fallbackLocalIpHttpProxySuffix:Optional[str] = None
         if pathOrUrlType == PathTypes.Relative:
@@ -253,13 +257,13 @@ class HttpRequest:
         else:
             raise Exception("Http request got a message with an unknown path type. "+str(pathOrUrlType))
 
-        # Ensure if there's no data we don't set it. Sometimes our json message parsing will leave an empty
-        # bytearray where it should be None.
-        if data is not None and len(data) == 0:
+        # Ensure if there's no data we don't set it. Sometimes our json message parsing will leave an empty bytearray where it should be None.
+        if isinstance(data, Buffer) and len(data) == 0:
+
             data = None
 
         # All of the users of MakeHttpCall don't handle compressed responses.
-        # For Stream request, this header is already set in GatherRequestHeaders, but for things like webcam snapshot requests and such, it's not set.
+        # For OctoStream request, this header is already set in GatherRequestHeaders, but for things like webcam snapshot requests and such, it's not set.
         # Beyond nothing handling compressed responses, since the call is almost always over localhost, there's no point in doing compression, since it mainly just helps in transmit less data.
         # Thus, for all calls, we set the Accept-Encoding to identity, telling the server no response compression is allowed.
         # This is important for somethings like camera-streamer, which will use gzip by default. (which is also silly, because it's sending jpegs and jmpeg streams?)
@@ -354,45 +358,110 @@ class HttpRequest:
 
     # This function should always return a AttemptResult object.
     @staticmethod
-    def MakeHttpCallAttempt(logger:logging.Logger, attemptName:str, method:str, url:str, headers:Optional[Dict[str,str]], data:BufferOrNone, mainResult:Optional[HttpResult], isFallback:bool, nextFallbackUrl:Optional[str], allowRedirects:bool=False) -> AttemptResult:
-        # The requests lib can accept any "byte like" object. We use this to force the type to be bytes, so pyright is happy.
-        dataBuffer:Optional[bytes] = None if data is None else data.GetBytesLike() #pyright: ignore[reportAssignmentType]
+    def MakeHttpCallAttempt(logger:logging.Logger, attemptName:str, method:str, url:str, headers:Optional[Dict[str,str]], data:UploadTypesBufferOrNone, mainResult:Optional[HttpResult], isFallback:bool, nextFallbackUrl:Optional[str], allowRedirects:bool=False) -> AttemptResult:
 
+        # Prepare the body, if there is one.
+        scopedBodyContext:Optional[Union[UploadBodyReadContext, MultipartFormUploadBodyReadContext]] = None
+        requestBodyDataObject:Union[BufferedReaderBytesOrNone, MultipartFormUploadBodyReader] = None
+        if data is not None:
+            if isinstance(data, Buffer):
+                # If we were passed a buffer, use it directly. We don't own it, so we don't clean it up.
+                requestBodyDataObject = data.GetBytesLike()
+            elif isinstance(data, UploadBody):
+                # If we have a UploadBody, first see if there's any data in it. If not, we just pass None.
+                if data.HasData:
+                    scopedBodyContext = data.OpenForRequest()
+                    requestBodyDataObject = scopedBodyContext.GetData()
+            elif isinstance(data, MultipartFormUploadBody):
+                scopedBodyContext = data.OpenForRequest()
+                requestBodyDataObject = scopedBodyContext.GetData()
+
+        # Now if we have a scope, enter it and do the work.
         response = None
         try:
-            # Try to make the http call.
-            #
-            # Note we use a long timeout because some api calls can hang for a while.
-            # For example when plugins are installed, some have to compile which can take some time.
-            # timeout note! This value also effects how long a body read can be. This can effect unknown body chunk stream reads can hang while waiting on a chunk.
-            # But whatever this timeout value is will be the max time a body read can take, and then the chunk will fail and the stream will close.
-            #
-            # See the note about allowRedirects above MakeHttpCall.
-            #
-            # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert.
-            #
-            # We always set stream=True because we use the iter_content function to read the content.
-            # This means that response.content will not be valid and we will always use the iter_content. But it also means
-            # iter_content will ready into memory on demand and throw when the stream is consumed. This is important, because
-            # our logic relies on the exception when the stream is consumed to end the http response stream.
-            response = HttpSessions.GetSession(url).request(method, url, headers=headers, data=dataBuffer, timeout=1800, allow_redirects=allowRedirects, stream=True, verify=False)
-        except Exception as e:
-            logger.debug(attemptName + " http URL threw an exception: "+str(e))
 
-        # We have seen when making absolute calls to some lower end devices, like external IP cameras, they can't handle the number of headers we send.
-        # So if any call fails due to 431 (headers too long) we will retry the call with no headers at all. Note this will break most auth, but
-        # most of these systems don't need auth headers or anything.
-        # Strangely this seems to only work on Linux, where as on Windows the request.request function will throw a 'An existing connection was forcibly closed by the remote host' error.
-        # Thus for windows, if the response is ever null, try again. This isn't ideal, but most windows users are just doing dev anyways.
-        if response is not None and response.status_code == 431 or (platform.system() == "Windows" and response is None):
-            if response is not None and response.status_code == 431:
-                logger.info(url + " http call returned 431, too many headers. Trying again with no headers.")
-            else:
-                logger.warning(url + " http call returned no response on Windows. Trying again with no headers.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             try:
-                response = HttpSessions.GetSession(url).request(method, url, headers={}, data=dataBuffer, timeout=1800, allow_redirects=False, stream=True, verify=False)
+                # Try to make the http call.
+                #
+                # Note we use a long timeout because some api calls can hang for a while.
+                # For example when plugins are installed, some have to compile which can take some time.
+                # timeout note! This value also effects how long a body read can be. This can effect unknown body chunk stream reads can hang while waiting on a chunk.
+                # But whatever this timeout value is will be the max time a body read can take, and then the chunk will fail and the stream will close.
+                timeoutSec = 1800
+
+                # See the note about allowRedirects above MakeHttpCall.
+                #
+                # It's important to set the `verify` = False, since if the server is using SSL it's probably a self-signed cert.
+                #
+                # We always set stream=True because we use the iter_content function to read the content.
+                # This means that response.content will not be valid and we will always use the iter_content. But it also means
+                # iter_content will ready into memory on demand and throw when the stream is consumed. This is important, because
+                # our logic relies on the exception when the stream is consumed to end the http response stream.
+                response = HttpSessions.GetSession(url).request(
+                    method,
+                    url,
+                    headers=headers,
+                    data=requestBodyDataObject, #pyright: ignore[reportArgumentType]
+                    timeout=timeoutSec,
+                    allow_redirects=allowRedirects, stream=True, verify=False)
             except Exception as e:
-                logger.info(attemptName + " http NO HEADERS URL threw an exception: "+str(e))
+                logger.debug("%s http URL threw an exception: %s", attemptName, e)
+
+            # We have seen when making absolute calls to some lower end devices, like external IP cameras, they can't handle the number of headers we send.
+            # So if any call fails due to 431 (headers too long) we will retry the call with no headers at all. Note this will break most auth, but
+            # most of these systems don't need auth headers or anything.
+            # Strangely this seems to only work on Linux, where as on Windows the request.request function will throw a 'An existing connection was forcibly closed by the remote host' error.
+            # Thus for windows, if the response is ever null, try again. This isn't ideal, but most windows users are just doing dev anyways.
+            if (response is not None and response.status_code == 431) or (platform.system() == "Windows" and response is None):
+                if response is not None and response.status_code == 431:
+                    logger.info(url + " http call returned 431, too many headers. Trying again with no headers.")
+                else:
+                    logger.warning(url + " http call returned no response on Windows. Trying again with no headers.")
+                try:
+                    # Reset the body stream if we have one.
+                    if scopedBodyContext is not None:
+                        scopedBodyContext.SeekToStart()
+                    response = HttpSessions.GetSession(url).request(
+                                method,
+                                url,
+                                headers={},
+                                data=requestBodyDataObject, #pyright: ignore[reportArgumentType]
+                                timeout=1800, allow_redirects=False, stream=True, verify=False)
+                except Exception as e:
+                    logger.info(attemptName + " http NO HEADERS URL threw an exception: "+str(e))
+        finally:
+            requestBodyDataObject = None
+            if scopedBodyContext is not None:
+                scopedBodyContext.Close()
 
         # Check if we got a valid response.
         if response is not None and response.status_code != 404:
@@ -416,9 +485,9 @@ class HttpRequest:
             return HttpRequest.AttemptResult(True, mainResult)
         else:
             if response is not None:
-                logger.debug(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
+                logger.debug("%s failed and we have no more fallbacks. We DON'T have a main response.", attemptName)
                 return HttpRequest.AttemptResult(True, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
 
             # Otherwise return the failure.
-            logger.debug(attemptName + " failed and we have no more fallbacks. We DON'T have a main response.")
+            logger.debug("%s failed and we have no more fallbacks. We DON'T have a main response.", attemptName)
             return HttpRequest.AttemptResult(True, None)

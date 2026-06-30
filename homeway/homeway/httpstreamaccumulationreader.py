@@ -2,13 +2,14 @@ import collections
 import logging
 import threading
 import time
-from typing import  Optional
+from typing import Deque, Optional
 
 import urllib3.exceptions
 
 from .buffer import Buffer, BufferOrNone
 from .httpresult import HttpResult
 from .sentry import Sentry
+from .memorymanager import MemoryManager
 
 
 # This class can be used to read any Request.Response object stream, no matter the content type.
@@ -26,14 +27,17 @@ from .sentry import Sentry
 #
 class HttpStreamAccumulationReader:
 
-    # This is the max size of the pending buffer list. If the pending buffer list exceeds this size, the read thread will block until it goes back down.
-    # This is to prevent memory issues if the producer is producing data faster than the consumer can consume it.
-    # We need to make sure we think about low memory devices, where we don't want to eat RAM.
-    c_MaxPendingBufferSizeBytes = 10 * 1024 * 1024 # 10 MB.
+
+
+
+
+
+
+
 
     # After being constructed the reading starts immediately.
     # This class must be disposed of properly to stop the read thread.
-    def __init__(self, logger:logging.Logger, streamId:int, httpResult:HttpResult, accumulationTimeSec:float, maxReturnBufferSizeBytes:Optional[int]=None):
+    def __init__(self, logger:logging.Logger, streamId:int, httpResult:HttpResult, accumulationTimeSec:float, maxReturnBufferSizeBytes:Optional[int]=None, maxPendingBufferSizeBytes:Optional[int]=None):
         self.Logger = logger
         self.StreamId = streamId
         self.HttpResult = httpResult
@@ -41,11 +45,15 @@ class HttpStreamAccumulationReader:
 
         # We need this max size to ensure the read loop doesn't read a buffer that's too large for the read call to return.
         if maxReturnBufferSizeBytes is None:
-            maxReturnBufferSizeBytes = 10 * 1024 * 1024 # 10 MB
+            maxReturnBufferSizeBytes = MemoryManager.HttpStreamAccumulationReader_MaxReturnBufferSizeBytes
+        if maxReturnBufferSizeBytes > MemoryManager.Global_MaxSingleChunkSizeBytes:
+            self.Logger.error(f"{self.getLogMsgPrefix()} maxReturnBufferSizeBytes of {maxReturnBufferSizeBytes} bytes is larger than the global max single chunk size of {MemoryManager.Global_MaxSingleChunkSizeBytes} bytes. This may cause issues. Setting it to the global max.")
+            maxReturnBufferSizeBytes = MemoryManager.Global_MaxSingleChunkSizeBytes
         self.MaxReturnBufferSizeBytes = maxReturnBufferSizeBytes
+        self.MaxPendingBufferSizeBytes = maxPendingBufferSizeBytes if maxPendingBufferSizeBytes is not None else MemoryManager.HttpStreamAccumulationReader_MaxPendingBufferSizeBytes
 
         # We use a list so we can efficiently append all of the pending buffers at once when they are being sent.
-        self.BufferList:collections.deque[bytes] = collections.deque()
+        self.BufferList:Deque[bytes] = collections.deque()
         self.BufferListPendingSize:int = 0
         self.BufferLock = threading.Lock()
         self.BufferDataReadyEvent = threading.Event()
@@ -56,6 +64,12 @@ class HttpStreamAccumulationReader:
 
         # Set when this object has been told to close.
         self.IsClosed = False
+
+        # Event used for back-pressure signaling from consumer to producer.
+        # When the pending buffer exceeds the max, the producer waits on this event
+        # instead of sleeping a fixed duration, so it resumes as soon as the consumer
+        # drains enough data.
+        self.BackpressureRelievedEvent = threading.Event()
 
         # Stats
         self.OpenedTimeSec = time.time()
@@ -113,8 +127,11 @@ class HttpStreamAccumulationReader:
             # We CAN NOT AND DO NOT WANT TO join the thread because we don't close the HTTP body, and the thread will not return until the body read is done.
             # Instead, we just set the IsClosed flag and the event, and let the thread exit when the body read is done.
             self.debugLog("CloseAsync completed on HttpStreamAccumulationReader.")
+
+
         except Exception as e:
             Sentry.OnException(self.getLogMsgPrefix()+ " exception thrown in HttpStreamAccumulationReader.CloseAsync", e)
+
 
 
     # Reads up to the max buffer size, and will always wait for accumulation.
@@ -136,7 +153,7 @@ class HttpStreamAccumulationReader:
 
         try:
             readCallStartTimeSec = time.time()
-            accumulatedBufferList:Optional[collections.deque[bytes]] = None
+            accumulatedBufferList:Optional[Deque[bytes]] = None
             accumulatedBufferListSizeBytes = 0
             mustReturnAccumulatedBuffers = False
             firstAccumulatedBufferTime = None
@@ -208,6 +225,9 @@ class HttpStreamAccumulationReader:
                                 # Remove it from the pending list.
                                 self.BufferList.popleft()
                                 self.BufferListPendingSize -= nextBufferSize
+
+                        # Signal the producer that buffer space has been freed, relieving back-pressure.
+                        self.BackpressureRelievedEvent.set()
 
                         # Before we clear it under lock, always check to see if the isClosed flag is set.
                         # This ensures we don't miss the close flag before we clear the event and wait on it again.
@@ -306,7 +326,7 @@ class HttpStreamAccumulationReader:
         # This should be as fast as possible when debug logging is disabled.
         if not self.ShouldDebugLog:
             return
-        self.Logger.debug(f"{self.getLogMsgPrefix()} {msg}")
+        self.Logger.debug("%s %s", self.getLogMsgPrefix(), msg)
 
 
     def getLogMsgPrefix(self) -> str:
@@ -338,7 +358,7 @@ class HttpStreamAccumulationReader:
                     #
                     # We use the max read size so we basically read as much as we can in one call. Since we are sleeping for the accumulation time before each read,
                     # we need to make sure we read a sufficient amount of data each time to keep up.
-                    chunk = response.raw.read1(self.MaxReturnBufferSizeBytes)
+                    chunk = response.raw.read1(self.MaxReturnBufferSizeBytes) #pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] this doesn't exist on PY 3.7
                 else:
                     # According to Google some wrappers of the raw object won't have read1, so we fall back to read.
                     # Since read blocks until the requested size is read or the body is done, we read in smaller chunks.
@@ -368,13 +388,16 @@ class HttpStreamAccumulationReader:
 
                     # Important! Since our sending websocket logic will block if there's too much back pressure on sending on the WS,
                     # We must also bound this pending buffer size so it doesn't eat memory just accumulating buffers that can't be sent.
-                    # This is a crude way of blocking the data, by just sleeping, but it shouldn't happen often and it will at least prevent memory issues if it does.
-                    while self.IsClosed is False and self.BufferListPendingSize > self.c_MaxPendingBufferSizeBytes:
+                    # We use an event-based approach: the consumer signals BackpressureRelievedEvent when it drains data,
+                    # allowing the producer to resume immediately instead of sleeping a fixed duration.
+                    while self.IsClosed is False and self.BufferListPendingSize > self.MaxPendingBufferSizeBytes:
                         if self.Logger.isEnabledFor(logging.DEBUG):
-                            self.Logger.debug(f"{self.getLogMsgPrefix()} Pending buffer size of {self.BufferListPendingSize/1024.0/1024.0} MB exceeds the max of {self.c_MaxPendingBufferSizeBytes/1024.0/1024.0} MB. Sleeping to apply back pressure until it goes down." )
+                            self.Logger.debug(f"{self.getLogMsgPrefix()} Pending buffer size of {self.BufferListPendingSize/1024.0/1024.0} MB exceeds the max of {self.MaxPendingBufferSizeBytes/1024.0/1024.0} MB. Waiting for consumer to drain buffer." )
+                        self.BackpressureRelievedEvent.clear()
                         self.BufferLock.release()
-                        time.sleep(0.5)
+                        self.BackpressureRelievedEvent.wait(timeout=0.5)
                         self.BufferLock.acquire() #pylint: disable=consider-using-with
+
 
             # When the loop exits, the body read is complete and the stream is closed.
 

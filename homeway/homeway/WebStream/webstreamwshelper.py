@@ -58,6 +58,9 @@ class WebStreamWsHelper:
         # These are important for when we try to send a message.
         self.IsWsObjOpened = False
         self.IsWsObjClosed = False
+        # Set whenever the websocket opens, closes, or this webstream is closed, so threads waiting
+        # on the websocket to be ready wake up right away instead of polling.
+        self.WsOpenOrClosedEvent = threading.Event()
 
         # Capture the initial http context
         context = webStreamOpenMsg.HttpInitialContext()
@@ -75,7 +78,7 @@ class WebStreamWsHelper:
                 return
 
         # Parse the headers, filter them, and keep them locally.
-        # This is required for some clients, since they need to send the X-API-Key header with the API key.
+        # This is required for klipper clients, since they need to send the X-API-Key header with the API key.
         self.Headers = HeaderHelper.GatherWebsocketRequestHeaders(self.Logger, self.HttpInitialContext)
         self.SubProtocolList = HeaderHelper.GetWebSocketSubProtocols(self.Logger, self.HttpInitialContext)
 
@@ -115,105 +118,13 @@ class WebStreamWsHelper:
             except Exception as _:
                 pass
 
-        # Get the path
-        path = StreamMsgBuilder.BytesToString(self.HttpInitialContext.Path())
-        if path is None:
-            raise Exception("Web stream ws helper got a open message with no path")
+        # Get the websocket object. If it returns None, it's an indication that there was an error
+        # and we should close the incoming websocket.
+        ws = self._GetWebsocketObject()
+        if ws is None:
+            return False
 
-        # Depending on the connection attempt, build the URI
-        uri:Optional[str] = None
-        pathType = self.HttpInitialContext.PathType()
-        if pathType is PathTypes.PathTypes.Relative:
-            # If the path is relative, we will make a few attempts to connect.
-            # Note these attempts are very closely related to the logic in the HttpRequest class and should stay in sync.
-            if self.ConnectionAttempt == 0:
-                # Try to connect using the main URL, this is what we expect to work.
-                protocol = "ws://"
-                if HttpRequest.GetDirectServiceUseHttps():
-                    protocol = "wss://"
-                uri = protocol + str(HttpRequest.GetDirectServiceAddress()) + ":" + str(HttpRequest.GetDirectServicePort()) + path
-            elif self.ConnectionAttempt == 1:
-                # Attempt 2 is to where we think the http proxy port is.
-                # For this address, we need set the protocol correctly depending if the client detected https or not.
-                protocol = "ws://"
-                if HttpRequest.GetLocalHttpProxyIsHttps():
-                    protocol = "wss://"
-                uri = protocol + str(HttpRequest.GetDirectServiceAddress()) + ":" +str(HttpRequest.GetLocalHttpProxyPort()) + path
-            elif self.ConnectionAttempt == 2:
-                # Attempt 3 will be to try to connect with the device IP.
-                # This is needed if the server isn't bound to localhost, but only the public IP. Try the http proxy port.
-                # Since we are using the public IP, it's more likely that the http proxy port will be bound and not fire walled, since the server port is usually internal only.
-                protocol = "ws://"
-                if HttpRequest.GetLocalHttpProxyIsHttps():
-                    protocol = "wss://"
-                uri = protocol + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetLocalHttpProxyPort()) + path
-            elif self.ConnectionAttempt == 3:
-                # Attempt 4 will be to try to connect with the device IP.
-                # This is needed if the server isn't bound to localhost, but only the public IP.
-                uri = "ws://" + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetDirectServicePort()) + path
-            else:
-                # Report the issue and return False to indicate we aren't trying to connect.
-                self.Logger.info(self.getLogMsgPrefix()+" failed to connect to relative path and has nothing else to try.")
-                return False
-        elif pathType is PathTypes.PathTypes.Absolute:
-            # If this is an absolute path, there are two options:
-            #   1) If the path is a local hostname, we will try to manually resolve the hostname and then try that connection directly.
-            #      This is to mitigate mDNS problems, which are described in HttpRequest, in the PathTypes.Absolute handling logic.
-            #      Basically, mDNS is flakey and it's not supported on some OSes, so doing it ourselves fixes some of that.
-            #        - If this is the case, we will try our manually resolved url first, and the OG second.
-            #   2) If the url isn't a local hostname or it fails to resolve manually, we just use the absolute URL directly.
-
-            # Try to see if this is a local hostname, if we don't already have a result.
-            if self.ResolvedLocalHostnameUrl is None:
-                # This returns None if the URL doesn't contain a local hostname or it fails to resolve.
-                self.ResolvedLocalHostnameUrl = MDns.Get().TryToResolveIfLocalHostnameFound(path)
-
-            if self.ResolvedLocalHostnameUrl is None:
-                # If self.ResolvedLocalHostnameUrl is None, there's no local hostname or it failed to resolve.
-                # Thus we will just try the absolute URL and nothing else.
-                if self.ConnectionAttempt != 0:
-                    # Report the issue and return False to indicate we aren't trying to connect.
-                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect to absolute path and has nothing else to try.")
-                    return False
-
-                # Use the raw absolute path.
-                uri = path
-            else:
-                # We have a local hostname url resolved in our string.
-                if self.ConnectionAttempt == 0:
-                    # For the first attempt, try using our manually resolved URL. Since it's already resolved and might be from a cache, it's going to be faster.
-                    uri = self.ResolvedLocalHostnameUrl
-                elif self.ConnectionAttempt == 1:
-                    # For the second attempt, it means the manually resolved URL failed, so we just try the original path with no modification.
-                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect with the locally resoled hostname ("+self.ResolvedLocalHostnameUrl+"), trying the raw URL. " + path)
-                    uri = path
-                else:
-                    # We tired both, neither worked. Give up.
-                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect to manually resolved local hostname and the absolute path.")
-                    return False
-        else:
-            raise Exception("Web stream ws helper got a open message with an unknown path type "+str(pathType))
-
-        # Validate a URI was set
-        if uri is None:
-            raise Exception(self.getLogMsgPrefix()+" AttemptConnection failed to create a URI")
-
-        # Increment the connection attempt.
-        self.ConnectionAttempt += 1
-
-        # Make the websocket object and start it running.
-        self.Logger.debug(self.getLogMsgPrefix()+"opening websocket to "+str(uri) + " attempt "+ str(self.ConnectionAttempt))
-        ws = Client(
-            url=uri,
-            onWsOpen=self.onWsOpened,
-            onWsData=self.onWsData,
-            onWsClose=self.onWsClosed,
-            onWsError=self.onWsError,
-            headers=self.Headers,
-            subProtocolList=self.SubProtocolList
-        )
-        # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
-        # This is safe to do, since the connection will be localhost or on the local LAN
+        # Disable SSLs checks to support locally signed certs.
         ws.SetDisableCertCheck(True)
 
         # To ensure we never leak a websocket, we need to use this lock.
@@ -229,11 +140,116 @@ class WebStreamWsHelper:
 
             # We aren't closed, set the websocket and run it.
             # We have to be careful with this ws, because it needs to be closed to fully shutdown, but we can't use a with statement.
-            self.Ws = ws
-            self.Ws.RunAsync()
+            self.Ws = ws #pyright:ignore[reportAttributeAccessIssue]
+            ws.RunAsync()
 
         # Return true to indicate we are trying to connect again.
         return True
+
+
+    # Called every time we try to connect. If we fail to connect, we will keep calling this until None is returned.
+    def _GetWebsocketObject(self) -> Optional[IWebSocketClient]:
+
+        # Always increment the connection attempt.
+        self.ConnectionAttempt += 1
+
+        # Get the path
+        path = StreamMsgBuilder.BytesToString(self.HttpInitialContext.Path())
+        pathType = self.HttpInitialContext.PathType()
+        if path is None:
+            raise Exception("Web stream ws helper got a open message with no path")
+
+        # This is a normal websocket creation.
+        # Depending on the connection attempt, build the URI
+        uri:Optional[str] = None
+        if pathType is PathTypes.PathTypes.Relative:
+            # If the path is relative, we will make a few attempts to connect.
+            # Note these attempts are very closely related to the logic in the HttpRequest class and should stay in sync.
+            if self.ConnectionAttempt == 1:
+                # Try to connect using the main URL, this is what we expect to work.
+                protocol = "ws://"
+                if HttpRequest.GetDirectServiceUseHttps():
+                    protocol = "wss://"
+                uri = protocol + str(HttpRequest.GetDirectServiceAddress()) + ":" + str(HttpRequest.GetDirectServicePort()) + path
+            elif self.ConnectionAttempt == 2:
+                # Attempt 2 is to where we think the http proxy port is.
+                # For this address, we need set the protocol correctly depending if the client detected https or not.
+                protocol = "ws://"
+                if HttpRequest.GetLocalHttpProxyIsHttps():
+                    protocol = "wss://"
+                uri = protocol + str(HttpRequest.GetDirectServiceAddress()) + ":" +str(HttpRequest.GetLocalHttpProxyPort()) + path
+            elif self.ConnectionAttempt == 3:
+                # Attempt 3 will be to try to connect with the device IP.
+                # This is needed if the server isn't bound to localhost, but only the public IP. Try the http proxy port.
+                # Since we are using the public IP, it's more likely that the http proxy port will be bound and not firewalled, since the OctoPrint port is usually internal only.
+                protocol = "ws://"
+                if HttpRequest.GetLocalHttpProxyIsHttps():
+                    protocol = "wss://"
+                uri = protocol + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetLocalHttpProxyPort()) + path
+            elif self.ConnectionAttempt == 4:
+                # Attempt 4 will be to try to connect with the device IP.
+                # This is needed if the server isn't bound to localhost, but only the public IP.
+                uri = "ws://" + LocalIpHelper.TryToGetLocalIpOfConnectionTarget() + ":" + str(HttpRequest.GetDirectServicePort()) + path
+            else:
+                # Report the issue and return False to indicate we aren't trying to connect.
+                self.Logger.info(self.getLogMsgPrefix()+" failed to connect to relative path and has nothing else to try.")
+                return None
+        elif pathType is PathTypes.PathTypes.Absolute:
+            # If this is an absolute path, there are two options:
+            #   1) If the path is a local hostname, we will try to manually resolve the hostname and then try that connection directly.
+            #      This is to mitigate mDNS problems, which are described in octohttprequest, in the PathTypes.Absolute handling logic.
+            #      Basically, mDNS is flakey and it's not supported on some OSes, so doing it ourselves fixes some of that.
+            #        - If this is the case, we will try our manually resolved url first, and the OG second.
+            #   2) If the url isn't a local hostname or it fails to resolve manually, we just use the absolute URL directly.
+
+            # Try to see if this is a local hostname, if we don't already have a result.
+            if self.ResolvedLocalHostnameUrl is None:
+                # This returns None if the URL doesn't contain a local hostname or it fails to resolve.
+                self.ResolvedLocalHostnameUrl = MDns.Get().TryToResolveIfLocalHostnameFound(path)
+
+            if self.ResolvedLocalHostnameUrl is None:
+                # If self.ResolvedLocalHostnameUrl is None, there's no local hostname or it failed to resolve.
+                # Thus we will just try the absolute URL and nothing else.
+                if self.ConnectionAttempt > 1:
+                    # Report the issue and return None to indicate we aren't trying to connect.
+                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect to absolute path and has nothing else to try.")
+                    return None
+
+                # Use the raw absolute path.
+                uri = path
+            else:
+                # We have a local hostname url resolved in our string.
+                if self.ConnectionAttempt == 1:
+                    # For the first attempt, try using our manually resolved URL. Since it's already resolved and might be from a cache, it's going to be faster.
+                    uri = self.ResolvedLocalHostnameUrl
+                elif self.ConnectionAttempt == 2:
+                    # For the second attempt, it means the manually resolved URL failed, so we just try the original path with no modification.
+                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect with the locally resoled hostname ("+self.ResolvedLocalHostnameUrl+"), trying the raw URL. " + path)
+                    uri = path
+                else:
+                    # We tired both, neither worked. Give up.
+                    self.Logger.info(self.getLogMsgPrefix()+" failed to connect to manually resolved local hostname and the absolute path.")
+                    return None
+        else:
+            raise Exception("Web stream ws helper got a open message with an unknown path type "+str(pathType))
+
+        # Validate a URI was set
+        if uri is None:
+            raise Exception(self.getLogMsgPrefix()+" AttemptConnection failed to create a URI")
+
+        # Make the websocket object and start it running.
+        # Important! The headers must be included for some klipper clients and Home Assistant features to work!
+        # If the auth header isn't included WS like Studio Code Server will return "rsv is not implemented, yet".
+        self.Logger.debug("%sopening websocket to %s attempt %s", self.getLogMsgPrefix(), uri, self.ConnectionAttempt)
+        return Client(
+            url=uri,
+            onWsOpen=self.onWsOpened,
+            onWsData=self.onWsData,
+            onWsClose=self.onWsClosed,
+            onWsError=self.onWsError,
+            headers=self.Headers,
+            subProtocolList=self.SubProtocolList
+        )
 
 
     # When close is called, all http operations should be shutdown.
@@ -251,6 +267,9 @@ class WebStreamWsHelper:
             # We use this lock to protect the websocket and make sure we never open when when we are closed or closing.
             # We must capture this in the same lock as self.IsClosed
             wsToClose = self.Ws
+
+        # Wake up anything waiting on the websocket to open, since we are now closed it never will.
+        self.WsOpenOrClosedEvent.set()
 
         self.Logger.info(self.getLogMsgPrefix()+"websocket closed after " +str(time.time() - self.OpenedTime) + " seconds")
 
@@ -291,9 +310,10 @@ class WebStreamWsHelper:
             if self.IsWsObjClosed is True or self.IsClosed:
                 return True
 
-            # Sleep for a bit to wait for the socket open. The socket will open super quickly (5-10ms), so don't delay long.
-            # Sleep for 5ms.
-            time.sleep(0.005)
+            # Wait on the event, which is set when the websocket opens or closes, so we wake up instantly.
+            # The timeout is just a safety net so we re-check the flags, since connection retry attempts can
+            # swap the websocket object without signaling this event.
+            self.WsOpenOrClosedEvent.wait(0.25)
 
         # If the websocket object is closed ignore this message. It will throw if the socket is closed
         # which will take down the entire Stream. But since it's closed the web stream is already cleaning up.
@@ -301,7 +321,6 @@ class WebStreamWsHelper:
         # were already inbound messages on the way.
         if self.IsWsObjClosed:
             return True
-
         # Note it's ok for this to be empty. Since DataAsByteArray returns 0 if it doesn't
         # exist, we need to check for it.
         buffer = webStreamMsg.DataAsByteArray()
@@ -328,7 +347,7 @@ class WebStreamWsHelper:
 
         # Before we send, make sure we have a local websocket still and it's not closed.
         # If the websocket object is closed ignore this message. It will throw if the socket is closed
-        # which will take down the entire Stream. But since it's closed the web stream is already cleaning up.
+        # which will take down the entire OctoStream. But since it's closed the web stream is already cleaning up.
         # This can happen if the socket closes locally and we sent the message to clean up to the service, but there
         # were already inbound messages on the way.
         localWs = self.Ws
@@ -353,7 +372,6 @@ class WebStreamWsHelper:
 
         try:
             # Figure out the data type
-            # TODO - we should support the OPCODE_CONT type at some point. But it's not needed right now.
             sendType = WebSocketDataTypes.WebSocketDataTypes.None_
             if msgType == WebSocketOpCode.BINARY:
                 sendType = WebSocketDataTypes.WebSocketDataTypes.Binary
@@ -373,25 +391,29 @@ class WebStreamWsHelper:
                 originalDataSize = len(buffer)
                 compressionResult = Compression.Get().Compress(self.CompressionContext, buffer)
                 compressedSize = len(compressionResult.Bytes)
+                # IMPORTANT - For zstandard, the compression context is one continuous stream shared by every compressed
+                # message sent on this websocket. Once data has been run through the compressor, the compressed output MUST
+                # be sent, otherwise the server's streaming decompressor will lose sync and all future compressed messages
+                # on this stream will be corrupted. So we always send what we compressed, and only use the efficiency stats
+                # to decide if we should stop compressing FUTURE messages (which is safe, they just bypass the stream).
+                buffer = compressionResult.Bytes
 
-                # If compression doesn't reduce size enough, don't use it.
-                minCompressedSizeThreshold = int(float(originalDataSize) * (1.0 - self.c_BinaryCompressionMinSavingsRatio))
-                if compressedSize >= minCompressedSizeThreshold:
-                    compressionResult = None
-
-                    # Binary payloads are often already compressed. Disable future attempts for this stream.
-                    if sendType == WebSocketDataTypes.WebSocketDataTypes.Binary:
+                # Binary payloads are often already compressed (video, images). If compression isn't helping, disable
+                # future attempts for this stream so we stop wasting CPU on it.
+                if sendType == WebSocketDataTypes.WebSocketDataTypes.Binary:
+                    minCompressedSizeThreshold = int(float(originalDataSize) * (1.0 - self.c_BinaryCompressionMinSavingsRatio))
+                    if compressedSize >= minCompressedSizeThreshold:
                         self.BinaryCompressionInefficientCount += 1
                         if self.BinaryCompressionInefficientCount >= self.c_BinaryCompressionDisableAfterCount:
                             self.DisableBinaryCompression = True
                             self.Logger.info(
-                                "%s binary compression disabled for this stream after repeated inefficient results.",
+                                "%sbinary compression disabled for this stream after repeated inefficient results.",
                                 self.getLogMsgPrefix(),
                             )
-                else:
-                    if sendType == WebSocketDataTypes.WebSocketDataTypes.Binary:
+                    else:
+
                         self.BinaryCompressionInefficientCount = 0
-                    buffer = compressionResult.Bytes
+
 
             # Send the message along!
             builder = StreamMsgBuilder.CreateBuffer(len(buffer) + 200)
@@ -428,6 +450,7 @@ class WebStreamWsHelper:
 
         # Indicate the socket is closed.
         self.IsWsObjClosed = True
+        self.WsOpenOrClosedEvent.set()
 
         # Make sure the stream is closed.
         self.WebStream.Close()
@@ -474,6 +497,7 @@ class WebStreamWsHelper:
         self.IsWsObjClosed = False
         self.IsWsObjOpened = True
         self.SuccessfullyOpenedSocket = True
+        self.WsOpenOrClosedEvent.set()
         self.Logger.info(self.getLogMsgPrefix()+"opened, attempt "+str(self.ConnectionAttempt) + " after " +str(time.time() - self.OpenedTime) + " seconds")
 
 

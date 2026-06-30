@@ -94,7 +94,7 @@ class OptionalDepsInstaller:
             # NOTE: Use the same logic as we do in the Compression class.
             # Only allow blocking up to 20 seconds, so we don't hang the installer too long.
             OptionalDepsInstaller._ThreadStatus = "Installing zstandard python libs..."
-            result: subprocess.CompletedProcess[bytes] = subprocess.run(
+            result = subprocess.run(
                 [sys.executable, '-m', 'pip', 'install', Compression.ZStandardPipPackageString],
                 timeout=30.0,
                 check=False,

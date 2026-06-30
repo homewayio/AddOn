@@ -1,6 +1,13 @@
 import random
 import string
+import logging
 from typing import Optional
+
+from .memorymanager import MemoryManager
+from .compression import Compression
+from .mdns import MDns
+from .telemetry import Telemetry
+from .pingpong import PingPong
 
 # Common functions that the hosts might need to use.
 class HostCommon:
@@ -15,6 +22,32 @@ class HostCommon:
 
     # The url for the add plugin process.
     c_AddPluginUrl = "https://homeway.io/getstarted"
+
+
+    # Inits stuff that's common to ALL hosts.
+    @staticmethod
+    def Init(logging:logging.Logger, printerId:str, localStorageDir:str, devLocalServerAddress:Optional[str]=None) -> None:
+        # Init the memory manager and allow it to setup the memory limits.
+        MemoryManager.Init(logging)
+
+        # Enable to enable memory debugging
+        # self.MemoryDebugger = MemoryDebug(logging)
+
+        # Init compression
+        Compression.Init(logging, localStorageDir)
+
+        # Init the mdns client
+        MDns.Init(logging, localStorageDir)
+
+        # Init telemetry
+        Telemetry.Init(logging)
+        if devLocalServerAddress is not None:
+            Telemetry.SetServerProtocolAndDomain("http://"+devLocalServerAddress)
+
+        # Init the ping pong helper.
+        PingPong.Init(logging, localStorageDir, printerId)
+        if devLocalServerAddress is not None:
+            PingPong.Get().DisablePrimaryOverride()
 
 
     # Returns a new plugin Id. This needs to be crypo-random to make sure it's not predictable.

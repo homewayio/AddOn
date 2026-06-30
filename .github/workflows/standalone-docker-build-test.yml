@@ -6,6 +6,7 @@ permissions:
   contents: read
 
 # Triggers on our test branch for building docker.
+# yamllint disable-line rule:truthy
 on:
   push:
     branches:

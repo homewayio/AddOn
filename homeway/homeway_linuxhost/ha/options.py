@@ -10,7 +10,7 @@ from homeway.sentry import Sentry
 class Options:
 
     # These are the keys from the options file, as defined in our config.yml file.
-    LoggerLevel = "debug_level"
+    LoggerLevel = "log_level"
 
     # This is the location where HA writes the options file, which is auto generated from the
     # config.yml settings and shows up in the HA UI.

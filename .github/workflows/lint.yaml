@@ -7,7 +7,11 @@ permissions:
   contents: read
 
 # yamllint disable-line rule:truthy
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
 
 concurrency:
   group: queue

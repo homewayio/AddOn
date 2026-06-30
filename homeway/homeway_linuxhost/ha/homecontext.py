@@ -410,7 +410,7 @@ class HomeContext(IHomeContext):
                 threading.Thread(target=getThing, args=(i, result)).start()
 
             # Wait for all the queries to finish.
-            for i in range(total):
+            for _ in range(total):
                 #pylint: disable=consider-using-with
                 s.acquire(True, 10.0)
 

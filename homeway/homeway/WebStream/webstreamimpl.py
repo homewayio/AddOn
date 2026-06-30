@@ -1,6 +1,6 @@
-import threading
 import time
 import queue
+import threading
 import logging
 from typing import Any, Optional
 
@@ -23,8 +23,10 @@ from .webstreamwshelper import WebStreamWsHelper
 #
 class WebStreamImpl(threading.Thread, IWebStream):
 
+    c_MaxIncomingMessagesQueued = 16
+
     # Created when an open message is sent for a new web stream from the server.
-    def __init__(self, group:Any=None, target:Any=None, name:Any=None, args:Any=(), kwargs:Any=None, verbose:Any=None):
+    def __init__(self, group:Any=None, target:Any=None, name:Any=None, args:Any=(), kwargs:Any=None, verbose:Any=None) -> None:
         threading.Thread.__init__(self, group=group, target=target, name=name)
         self.Logger:logging.Logger = args[0]
         self.Id:int = args[1]
@@ -49,13 +51,15 @@ class WebStreamImpl(threading.Thread, IWebStream):
 
     # Called for all messages for this stream id.
     #
-    # This function is called on the main Socket receive thread, so it should pass the
+    # This function is called on the main OctoSocket receive thread, so it should pass the
     # message off to the thread as quickly as possible.
-    def OnIncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
+    def OnIncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> None:
         # Don't accept messages after we are closed.
-        if self.IsClosed:
-            self.Logger.info("Web stream class "+str(self.Id)+" got a incoming message after it has been closed.")
-            return
+        # Check under lock to avoid race condition with Close()
+        with self.StateLock:
+            if self.IsClosed:
+                self.Logger.info("Web stream class "+str(self.Id)+" got a incoming message after it has been closed.")
+                return
 
         # If this is a close message, we need to call close now
         # since the main thread might be blocked waiting on a http call or something.
@@ -63,20 +67,34 @@ class WebStreamImpl(threading.Thread, IWebStream):
             # Note right now we don't support getting close messages with data.
             if webStreamMsg.IsControlFlagsOnly is False:
                 self.Logger.warning("Web stream "+str(self.Id)+" got a close message with data. The data will be ignored.")
-            # Set this flag, because we don't need to send a close message if the server already did.
-            self.HasSentCloseMessage = True
+            # Set this flag under lock, because we don't need to send a close message if the server already did.
+            with self.StateLock:
+                self.HasSentCloseMessage = True
             # Call close.
             # This can never block or it will hang the entire main websocket connection.
             self.Close()
         else:
             # Otherwise, put the message into the queue, so the thread will pick it up.
+            # We can't let the queue grow without bound, but we also can't block this main thread forever.
+            # We do however want to add back pressure if the queue is too long.
+            attempt = 0
+            while True:
+                if self.MsgQueue.qsize() < WebStreamImpl.c_MaxIncomingMessagesQueued:
+                    break
+                attempt += 1
+                if attempt > 20:
+                    self.Logger.warning("Web stream %s incoming message queue has %d messages queued, which is over the limit of %d and it didn't drain in time. Closing the stream.", self.Id, self.MsgQueue.qsize(), WebStreamImpl.c_MaxIncomingMessagesQueued)
+                    self.Close()
+                    return
+                self.Logger.debug("Web stream is sleeping because the incoming message queue has %d messages queued, which is over the limit of %d. Attempt #%d.", self.MsgQueue.qsize(), WebStreamImpl.c_MaxIncomingMessagesQueued, attempt)
+                time.sleep(0.1)
             self.MsgQueue.put(webStreamMsg)
 
 
     # Closes the web stream and all related elements.
     # This is called from the main socket receive thread, so it should
     # execute as quickly as possible.
-    def Close(self):
+    def Close(self) -> None:
         # Check the state and set the flag. Only allow this code to run
         # once.
         localHttpHelper:Optional[WebStreamHttpHelper] = None
@@ -127,13 +145,13 @@ class WebStreamImpl(threading.Thread, IWebStream):
             Sentry.OnException("Web stream "+str(self.Id)+" helper threw an exception during close", e)
 
 
-    def SetClosedDueToFailedRequestConnection(self):
+    def SetClosedDueToFailedRequestConnection(self) -> None:
         self.ClosedDueToRequestConnectionError = True
 
 
     # This is our main thread, where we will process all incoming messages.
-    def run(self):
-      # Enable the profiler if needed- it will do nothing if not enabled.
+    def run(self) -> None:
+        # Enable the profiler if needed- it will do nothing if not enabled.
         with DebugProfiler(self.Logger, DebugProfilerFeatures.WebStream):
             try:
                 self.mainThread()
@@ -142,9 +160,13 @@ class WebStreamImpl(threading.Thread, IWebStream):
                 self.Session.OnSessionError(0)
 
 
-    def mainThread(self):
+    def mainThread(self) -> None:
         # Loop until we are closed.
-        while self.IsClosed is False:
+        # Check under lock to avoid race condition with Close()
+        while True:
+            with self.StateLock:
+                if self.IsClosed:
+                    return
 
             # Wait on incoming messages
             # Timeout after 60 seconds just to check that we aren't closed.
@@ -157,9 +179,10 @@ class WebStreamImpl(threading.Thread, IWebStream):
                 # We get this exception on the timeout.
                 pass
 
-            # Check that we aren't closed
-            if self.IsClosed is True:
-                return
+            # Check that we aren't closed (under lock for thread safety)
+            with self.StateLock:
+                if self.IsClosed:
+                    return
 
             # Check that we got a message and this wasn't just a timeout
             if webStreamMsg is None:
@@ -198,13 +221,16 @@ class WebStreamImpl(threading.Thread, IWebStream):
             # In such a case, self.HasSentCloseMessage will be true. We don't want to rely on the client
             # returning the correct returnValue, so if we see that we will call close to make sure things
             # are going down. Since Close() is guarded against multiple entries, this is totally fine.
-            if self.HasSentCloseMessage is True and self.IsClosed is False:
+            # Check under lock for thread safety.
+            with self.StateLock:
+                shouldClose = self.HasSentCloseMessage is True and self.IsClosed is False
+            if shouldClose:
                 self.Logger.warning("Web stream "+str(self.Id)+" processed a message and has sent a close message, but didn't call close on the web stream. Closing now.")
                 self.Close()
                 return
 
 
-    def initFromOpenMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg):
+    def initFromOpenMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> None:
         # Sanity check.
         if self.OpenWebStreamMsg is not None:
             # Throw so we reset the connection.
@@ -283,7 +309,9 @@ class WebStreamImpl(threading.Thread, IWebStream):
 
             # If this was the close message, set the has set flag back to false so we send again.
             # (this mostly won't matter, since the entire connection will go down anyways)
-            self.HasSentCloseMessage = False
+            # Reset under lock for thread safety.
+            with self.StateLock:
+                self.HasSentCloseMessage = False
 
             # If we fail, close the entire connection.
             self.Session.OnSessionError(0)
@@ -317,7 +345,7 @@ class WebStreamImpl(threading.Thread, IWebStream):
 
     # Called by the StreamHttpHelper if the request is normal pri.
     # If a high pri request is active, this should block until it's complete or for a little while.
-    def BlockIfHighPriStreamActive(self):
+    def BlockIfHighPriStreamActive(self) ->  None:
         # Check the counter, don't worry about taking the lock, worst case
         # this logic would allow one request through or not block one.
 
@@ -337,13 +365,13 @@ class WebStreamImpl(threading.Thread, IWebStream):
 
 
     # Called when a high pri stream is started
-    def highPriStreamStarted(self):
+    def highPriStreamStarted(self) -> None:
         with self.HighPriLock:
             self.ActiveHighPriStreamCount += 1
             self.ActiveHighPriStreamStart = time.time()
 
 
     # Called when a high pri stream is ended.
-    def highPriStreamEnded(self):
+    def highPriStreamEnded(self)  -> None:
         with self.HighPriLock:
             self.ActiveHighPriStreamCount -= 1

@@ -2,15 +2,11 @@ import logging
 import traceback
 from typing import Any, Dict, List, Optional
 
-from homeway.mdns import MDns
 from homeway.sentry import Sentry
 from homeway.hostcommon import HostCommon
-from homeway.telemetry import Telemetry
-from homeway.pingpong import PingPong
 from homeway.homewaycore import Homeway
 from homeway.localip import LocalIpHelper
 from homeway.httprequest import HttpRequest
-from homeway.compression import Compression
 from homeway.httpsessions import HttpSessions
 from homeway.Proto.AddonTypes import AddonTypes
 from homeway.commandhandler import CommandHandler
@@ -107,6 +103,14 @@ class LinuxHost(IStateChangeHandler):
             # Set the plugin id when we know it.
             Sentry.SetAddonId(pluginId)
 
+            # Unpack any dev vars that might exist
+            devLocalHomewayServerAddress = self.GetDevConfigStr(devConfig, "LocalHomewayServerAddress")
+            if devLocalHomewayServerAddress is not None:
+                self.Logger.warning("~~~ Using Local Dev Server Address: %s ~~~", devLocalHomewayServerAddress)
+
+            # Init the host common stuff
+            HostCommon.Init(self.Logger, pluginId, storageDir, devLocalHomewayServerAddress)
+
             # Start the web server, which allows the user to interact with the plugin.
             # We start it as early as possible so the user can load the web page ASAP.
             # We always create the class, but only start the server for the in HA addon.
@@ -118,26 +122,11 @@ class LinuxHost(IStateChangeHandler):
             HttpRequest.SetRemoteAccessEnabled(enableRemoteAccess)
             self.Logger.info("Remote Access Enabled: %s", str(enableRemoteAccess))
 
-            # Unpack any dev vars that might exist
-            devLocalHomewayServerAddress = self.GetDevConfigStr(devConfig, "LocalHomewayServerAddress")
-            if devLocalHomewayServerAddress is not None:
-                self.Logger.warning("~~~ Using Local Dev Server Address: %s ~~~", devLocalHomewayServerAddress)
             # This is mostly just used to not allow the dev plugin to fallback to port 80
             if self.GetDevConfigStr(devConfig, "HomeAssistantProxyPort") is not None:
                 portStr = self.GetDevConfigStr(devConfig, "HomeAssistantProxyPort")
                 if portStr is not None:
                     HttpRequest.SetLocalHttpProxyPort(int(portStr))
-
-            # Init Sentry, but it won't report since we are in dev mode.
-            Telemetry.Init(self.Logger)
-            if devLocalHomewayServerAddress is not None:
-                Telemetry.SetServerProtocolAndDomain("http://"+devLocalHomewayServerAddress)
-
-            # Init compression
-            Compression.Init(self.Logger, storageDir)
-
-            # Init the mdns client
-            MDns.Init(self.Logger, storageDir)
 
             # Setup the command handler
             # This must be setup before the config manager.
@@ -169,11 +158,6 @@ class LinuxHost(IStateChangeHandler):
             # If this isn't running in the special Home Assistant addon mode, set the local IP override.
             if result.IsSpecialHomeAssistantAddonMode is False:
                 LocalIpHelper.SetConnectionTargetIpOverride(result.HostnameOrIp)
-
-            # Init the ping pong helper.
-            PingPong.Init(self.Logger, storageDir, pluginId)
-            if devLocalHomewayServerAddress is not None:
-                PingPong.Get().DisablePrimaryOverride()
 
             # Setup the web response handler
             WebRequestResponseHandler.Init(self.Logger)

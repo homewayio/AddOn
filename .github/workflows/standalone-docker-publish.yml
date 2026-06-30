@@ -6,6 +6,7 @@ permissions:
   contents: read
 
 # Only make and deploy new docker images on tagged releases.
+# yamllint disable-line rule:truthy
 on:
   release:
     types: [published]

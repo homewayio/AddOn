@@ -11,6 +11,7 @@ import subprocess
 import multiprocessing
 
 from .sentry import Sentry
+from .memorymanager import MemoryManager
 from .buffer import Buffer, BufferOrNone, ByteLikeOrMemoryView
 from .zstandarddictionary import ZStandardDictionary
 
@@ -282,6 +283,7 @@ class Compression:
         self.ZStandardDecompressorCreatedCount = 0
 
         # Determine the thread count we will allow zstandard to use.
+        # This can use a lot of ram and cpu, so we want to keep it low.
         # If there are 3 or less cores, we will only use one thread.
         # If there are 4 or more cores, we will use all but 2.
         self.ZStandardThreadCount = 1
@@ -289,7 +291,7 @@ class Compression:
         if cpuCores <= 3:
             self.ZStandardThreadCount = 1
         else:
-            self.ZStandardThreadCount = cpuCores - 2
+            self.ZStandardThreadCount = min(4, cpuCores - 2)
 
         # Always init the zstandard singleton, even if we aren't using zstandard.
         ZStandardDictionary.Init(logger)
@@ -309,16 +311,16 @@ class Compression:
             self.CanUseZStandardLib = True
             self.Logger.info(f"Compression is using zstandard with {self.ZStandardThreadCount} threads")
 
-            # Once the state is set, make a few compressors and decompressors so they are cached and ready to go.
+            # Once the state is set, make a compressor and decompressor so they are cached and ready to go.
             c = self.RentZStandardCompressor()
-            c2 = self.RentZStandardCompressor()
+
             self.ReturnZStandardCompressor(c)
-            self.ReturnZStandardCompressor(c2)
+
 
             d = self.RentZStandardDecompressor()
-            d2 = self.RentZStandardDecompressor()
+
             self.ReturnZStandardDecompressor(d)
-            self.ReturnZStandardDecompressor(d2)
+
         except Exception as e:
             self.Logger.info(f"Failed to load the zstandard lib, so we won't use it. Error: {e}")
 
@@ -389,6 +391,9 @@ class Compression:
         if compressor is None:
             return
         with self.ZStandardCompressorPoolLock:
+            if len(self.ZStandardCompressorPool) >= MemoryManager.Compression_MaxPoolSize:
+                self.Logger.debug("ZStandard compressor pool is full, dropping compressor")
+                return
             self.ZStandardCompressorPool.append(compressor)
 
 
@@ -421,8 +426,10 @@ class Compression:
         if decompressor is None:
             return
         with self.ZStandardDecompressorPoolLock:
+            if len(self.ZStandardDecompressorPool) >= MemoryManager.Compression_MaxPoolSize:
+                self.Logger.debug("ZStandard decompressor pool is full, dropping decompressor")
+                return
             self.ZStandardDecompressorPool.append(decompressor)
-
 
     # If we can't use zstandard, we assume it's not installed since it doesn't install as a required dependency.
     # In that case, we will use this function to try to install it async, and it will be used on the next restart.
