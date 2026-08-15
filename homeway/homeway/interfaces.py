@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from .buffer import Buffer
 from .httpresult import HttpResult
 
+from .Proto import WebStreamMsg
+
 if TYPE_CHECKING:
     from .compression import CompressionResult
 
@@ -235,6 +237,32 @@ class IWebStream(ABC):
 
     @abstractmethod
     def SetClosedDueToFailedRequestConnection(self) -> None:
+        pass
+
+
+class IWebStreamHelper(ABC):
+
+    # Called when a new message has arrived for this stream from the server.
+    # This is called from the dedicated web stream thread, so it can be blocked.
+    #
+    # This function should throw on critical errors, that will reset the connection.
+    # Returning true will case the websocket to close on return.
+    @abstractmethod
+    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bool:
+        pass
+
+
+    # Called from the dedicated web stream thread, after it's done and just before it's exciting.
+    # This allows anything that should only be accessed by the web stream thread to be cleaned up before the thread exits.
+    @abstractmethod
+    def OnWebStreamThreadExit(self) -> None:
+        pass
+
+
+    # When close is called, all http operations should be shutdown.
+    # IMPORTANT NOTE - This function should not block and must be quick, as it will block the entire main websocket connection.
+    @abstractmethod
+    def Close(self) -> None:
         pass
 
 

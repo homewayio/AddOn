@@ -2,7 +2,7 @@ import time
 import json
 import logging
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from homeway.buffer import Buffer
 from homeway.sentry import Sentry
@@ -43,10 +43,11 @@ class Connection(IHomeAssistantWebSocket):
 
         # Allows for blocking message send responses.
         self.PendingContextsLock = threading.Lock()
-        self.PendingContexts:Dict[int, PendingContexts] = {}
+        self.PendingContexts: Dict[int, PendingContexts] = {}
 
-        # If set, we call this back when the WS is connected and authed.
-        self.HomeContextOnConnectedCallback:Optional[Callable[[], None]] = None
+        # Callbacks that fire whenever the WS is connected and authed.
+        self.OnConnectedCallbacksLock = threading.Lock()
+        self.OnConnectedCallbacks:List[Callable[[], None]] = []
 
 
     def Start(self) -> None:
@@ -58,7 +59,7 @@ class Connection(IHomeAssistantWebSocket):
     # Allows for any system to send and receive messages to Home Assistant,
     # since there are some APIs that can only be interacted with via the WS API.
     # Returns the response dict, or None on failure/timeout.
-    def SendAndReceiveMsg(self, msg:Dict[str, Any], timeoutSec:float=10.0) -> Optional[Dict[str, Any]]:
+    def SendAndReceiveMsg(self, msg: Dict[str, Any], timeoutSec: float = 10.0) -> Optional[Dict[str, Any]]:
         return self.SendMsg(msg, waitForResponse=True, timeoutSec=timeoutSec)
 
 
@@ -72,15 +73,27 @@ class Connection(IHomeAssistantWebSocket):
         if self.IsConnected:
             self.IssueRestartOnConnect = False
             self.Logger.error(f"{self._getLogTag()} Sending HA restart command.")
-            self.SendMsg({"type": "call_service", "domain": "homeassistant", "service": "restart", "service_data": {}})
+            self.SendMsg(
+                {
+                    "type": "call_service",
+                    "domain": "homeassistant",
+                    "service": "restart",
+                    "service_data": {},
+                }
+            )
         else:
             self.Logger.error(f"{self._getLogTag()} HA restart command deferred, since we aren't connected.")
             self.IssueRestartOnConnect = True
 
 
-    # Sets the callback to be fired when the WS is connected.
-    def SetHomeContextOnConnectedCallback(self, callback:Callable[[], None]) -> None:
-        self.HomeContextOnConnectedCallback = callback
+    # Registers a callback to be fired whenever the WS is connected.
+    # If the connection is already ready, invoke it immediately so callers can't miss the initial connection.
+    def RegisterOnConnectedCallback(self, callback: Callable[[], None]) -> None:
+        with self.OnConnectedCallbacksLock:
+            self.OnConnectedCallbacks.append(callback)
+            isConnected = self.IsConnected
+        if isConnected:
+            callback()
 
 
     # Called when the websocket is up and authed.
@@ -96,13 +109,18 @@ class Connection(IHomeAssistantWebSocket):
         # We need to subscribe to events, so we can fire the required assistant callbacks.
         # TODO - For now this subs us to everything. We can also be selective of which types we want, which we could
         # explore in the future.
-        if self.SendMsg({"type":"subscribe_events"}) is None:
+        if self.SendMsg({"type": "subscribe_events"}) is None:
             self.Logger.error(f"{self._getLogTag()} failed to send event subscribe call.")
 
-        # If we have a callback, call it.
-        callback = self.HomeContextOnConnectedCallback
-        if callback is not None:
-            callback()
+        # Notify all systems that are waiting for an authenticated connection.
+        callbacks:List[Callable[[], None]]
+        with self.OnConnectedCallbacksLock:
+            callbacks = list(self.OnConnectedCallbacks)
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception as e:
+                Sentry.OnException("HA connected callback exception.", e)
 
         # Finally, update the x-forwarded-for header support state.
         ServerInfo.DetectXForwardedForHeaderSupportAsync(self.Logger)
@@ -111,7 +129,6 @@ class Connection(IHomeAssistantWebSocket):
     # Runs the main connection we maintain with Home Assistant.
     def ConnectionThread(self):
         while True:
-
             # Reset the state vars
             self.IsConnected = False
             self.Ws = None
@@ -161,19 +178,19 @@ class Connection(IHomeAssistantWebSocket):
 
 
     # This is called when the socket is opened.
-    def Opened(self, ws:IWebSocketClient):
+    def Opened(self, ws: IWebSocketClient):
         self.Logger.info(f"{self._getLogTag()} Websocket opened")
 
 
     # Called when the websocket is closed.
-    def Closed(self, ws:IWebSocketClient):
+    def Closed(self, ws: IWebSocketClient):
         self.Logger.info(f"{self._getLogTag()} Websocket closed")
 
 
-    def _OnData(self, ws:IWebSocketClient, buffer:Buffer, msgType:WebSocketOpCode) -> None:
+    def _OnData(self, ws: IWebSocketClient, buffer: Buffer, msgType: WebSocketOpCode) -> None:
         try:
             jsonStr = buffer.GetBytesLike().decode()
-            jsonObj:Dict[str, Any] = json.loads(jsonStr)
+            jsonObj: Dict[str, Any] = json.loads(jsonStr)
             if self.Logger.isEnabledFor(logging.DEBUG) and Connection.c_LogWsMessages:
                 jsonFormatted = json.dumps(jsonObj, indent=2)
                 self.Logger.debug(f"{self._getLogTag()} WS Message \r\n{jsonFormatted}\r\n")
@@ -206,7 +223,10 @@ class Connection(IHomeAssistantWebSocket):
                     self.Logger.warning(f"{self._getLogTag()} we aren't authed, we are expecting auth_required but didn't get it.")
                 # Return the auth message
                 # https://developers.home-assistant.io/docs/api/websocket/
-                self.SendMsg({"type":"auth", "access_token": ServerInfo.GetAccessToken()}, ignoreConnectionState=True)
+                self.SendMsg(
+                    {"type": "auth", "access_token": ServerInfo.GetAccessToken()},
+                    ignoreConnectionState=True,
+                )
                 return
 
             # For now, if there are any errors, we always log them.
@@ -251,7 +271,13 @@ class Connection(IHomeAssistantWebSocket):
     # Sends a message to Home Assistant.
     # If waitForResponse is True, either the response dict will be returned or None if the message failed or timeout.
     # If waitForResponse is False, an empty dict will be returned on success, or None if it failed.
-    def SendMsg(self, msg:Dict[str, Any], waitForResponse:bool=False, ignoreConnectionState:bool=False, timeoutSec:float=10.0) -> Optional[Dict[str, Any]]:
+    def SendMsg(
+        self,
+        msg: Dict[str, Any],
+        waitForResponse: bool = False,
+        ignoreConnectionState: bool = False,
+        timeoutSec: float = 10.0,
+    ) -> Optional[Dict[str, Any]]:
         # Check the connection state.
         if ignoreConnectionState is False:
             if self.IsConnected is False:
@@ -264,7 +290,7 @@ class Connection(IHomeAssistantWebSocket):
             return None
 
         msgId = 0
-        pendingContext:Optional[PendingContexts] = None
+        pendingContext: Optional[PendingContexts] = None
         try:
             # Add the id field to all messages that are post auth.
             if self.IsConnected:

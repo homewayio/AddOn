@@ -51,7 +51,7 @@ class HomeContext(IHomeContext):
         self.MostRecentUpdateSuccess = True
 
         # Setup our callbacks
-        self.HaConnection.SetHomeContextOnConnectedCallback(self._OnNewHaWsConnected)
+        self.HaConnection.RegisterOnConnectedCallback(self._OnNewHaWsConnected)
         self.EventHandler.SetHomeContextCallback(self._OnStateChangedCallback)
         self.EventHandler.SetHomeContext(self)
 

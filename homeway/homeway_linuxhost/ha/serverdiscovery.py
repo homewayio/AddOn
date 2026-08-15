@@ -20,6 +20,10 @@ class ServerDiscoveryResponse:
 # This class will scan known local ports for the given IP to see if we can find a Home Assistant server.
 class ServerDiscovery:
 
+    # These are the default ports Home Assistant runs on. Before HA 2026.8, it was 8123, but new setups
+    # now default to 80.
+    c_DefaultHaPorts = (8123, 80)
+
 
     def __init__(self, logger:logging.Logger, configManager:ConfigManager) -> None:
         self.Logger = logger
@@ -39,21 +43,22 @@ class ServerDiscovery:
         if specialAddonSupervisorAccessToken is not None:
             # In this case, the correct config is:
             #   API & WS -> http://supervisor/core/api/ (with access token from the environment)
-            #   HTTP Frontend -> http://homeassistant:8123/
+            #   HTTP Frontend -> http://homeassistant:<active Core HTTP port>/
             # The API is handled automatically by the GetApiServerBaseUrl class.
             # So for here, we need to return the HA frontend server info.
-            if self._CheckForHaWebAndAPIAccess(
-                    # Use the expected docker hostnames and ports.
-                    webIpOrHostname="homeassistant", webPort=8123,
+            for coreHttpPort in ServerDiscovery.c_DefaultHaPorts:
+                if self._CheckForHaWebAndAPIAccess(
+                    # Use the expected docker hostname and active Core port.
+                    webIpOrHostname="homeassistant",
+                    webPort=coreHttpPort,
                     # Force checking using the supervisor API path.
                     apiIpOrHostname=None, apiPort=None, apiFullUrlOverride="http://supervisor/core/api/",
                     accessCode=specialAddonSupervisorAccessToken,
                     useHttps=False,
                 ):
-                self.Logger.info("Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core.")
-                return ServerDiscoveryResponse("homeassistant", 8123, False, specialAddonSupervisorAccessToken, isSpecialHomeAssistantAddonMode=True)
-            else:
-                self.Logger.warning("Home Assistant Addon Environment detected, but failed to connect to Home Assistant core via direct docker access. Falling back to config-based discovery.")
+                    self.Logger.info(f"Detected Home Assistant Addon Environment, using direct docker access to Home Assistant core on port {coreHttpPort}.")
+                    return ServerDiscoveryResponse("homeassistant", coreHttpPort, False, specialAddonSupervisorAccessToken, isSpecialHomeAssistantAddonMode=True)
+            self.Logger.warning("Home Assistant Addon Environment detected, but failed to connect to Home Assistant core via direct docker access. Falling back to config-based discovery.")
 
         # If we are here, we are running standalone, so we need to get the server info from the config.
         configHomeAssistantIpOrHostname = config.GetStrRequired(Config.HomeAssistantSection, Config.HaIpOrHostnameKey, "127.0.0.1")
@@ -96,7 +101,7 @@ class ServerDiscovery:
         # Note that HA doesn't support running behind a proxy thats a base path, so we don't need to worry about that.
         ports = [
             8123,  # The default Home Assistant port, this is what the port will be for most users.
-            80,    # Some users might have setup HA to run on the default http port.
+            80,    # Some users might have setup HA to run on the default http port, this is also the new default port as HA 2026.8
             7123,  # This port is used by some dev setups.
             443,   # The default port for HTTPs.
         ]
@@ -158,13 +163,17 @@ class ServerDiscovery:
         # No server found on the given ports.
         return None
 
-
-    def _CheckForHaWebAndAPIAccess(self,
-                                   webIpOrHostname:str, webPort:int,
-                                   apiIpOrHostname:Optional[str], apiPort:Optional[int],
-                                   apiFullUrlOverride:Optional[str],
-                                   accessCode:Optional[str], useHttps:bool=False, timeoutSec:float=1.0
-                                   ) -> bool:
+    def _CheckForHaWebAndAPIAccess(
+        self,
+        webIpOrHostname: str,
+        webPort: int,
+        apiIpOrHostname: Optional[str],
+        apiPort: Optional[int],
+        apiFullUrlOverride: Optional[str],
+        accessCode: Optional[str],
+        useHttps: bool = False,
+        timeoutSec: float = 1.0,
+    ) -> bool:
         try:
             protocol = "https" if useHttps is True else "http"
 

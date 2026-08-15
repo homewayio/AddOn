@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from ..buffer import Buffer
-from ..interfaces import IWebSocketClient, IWebStream, WebSocketOpCode
+from ..interfaces import IWebSocketClient, IWebStream, WebSocketOpCode, IWebStreamHelper
 from .headerimpl import HeaderHelper
 from ..sentry import Sentry
 from ..httprequest import HttpRequest
@@ -28,7 +28,7 @@ from ..Proto.HaApiTarget import HaApiTarget
 # The helper can close the stream by calling close directly on the WebStream object
 # or by returning true from `IncomingServerMessage`
 #
-class WebStreamWsHelper:
+class WebStreamWsHelper(IWebStreamHelper):
 
     # If binary compression doesn't save at least this much, treat it as inefficient.
     c_BinaryCompressionMinSavingsRatio = 0.05
@@ -363,6 +363,13 @@ class WebStreamWsHelper:
 
         # Always return false, to keep the socket alive.
         return False
+
+
+    # Called from the dedicated web stream thread, after it's done and just before it's exciting.
+    # This allows anything that should only be accessed by the web stream thread to be cleaned up before the thread exits.
+    def OnWebStreamThreadExit(self) -> None:
+        # There's nothing to do in this class for this call.
+        pass
 
 
     def onWsData(self, ws:IWebSocketClient, buffer:Buffer, msgType:WebSocketOpCode) -> None:

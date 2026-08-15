@@ -167,11 +167,10 @@ class LinuxHost(IStateChangeHandler):
 
             # Setup the HA connection object
             haConnection = Connection(self.Logger, self.HaEventHandler)
-            haConnection.Start()
             CommandHandler.Get().RegisterHomeAssistantWebsocketCon(haConnection)
             self.HaEventHandler.RegisterHomeAssistantWebsocketCon(haConnection)
 
-            # Set the ha connection object and try to update the config if needed.
+            # Register config callbacks and finish file config updates before the connection can trigger an HTTP config restart.
             configManager.SetHaConnection(haConnection)
             configManager.UpdateConfigIfNeeded()
 
@@ -182,6 +181,9 @@ class LinuxHost(IStateChangeHandler):
             homeContext = HomeContext(self.Logger, haConnection, self.HaEventHandler)
             homeContext.Start()
             CommandHandler.Get().RegisterHomeContext(homeContext)
+
+            # Start the HA connection now.
+            haConnection.Start()
 
             # Setup the sage sub system, it won't be started until the primary connection is established.
             sagePrefix = self.Config.GetStr(Config.SageSection, Config.SagePrefixStringKey, None)

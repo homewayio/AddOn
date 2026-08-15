@@ -7,7 +7,7 @@ from typing import Any, Optional
 from ..buffer import Buffer
 from ..sentry import Sentry
 from ..streammsgbuilder import StreamMsgBuilder
-from ..interfaces import ISession, IWebStream
+from ..interfaces import ISession, IWebStream, IWebStreamHelper
 from ..debugprofiler import DebugProfiler, DebugProfilerFeatures
 
 from ..Proto import WebStreamMsg
@@ -36,9 +36,7 @@ class WebStreamImpl(threading.Thread, IWebStream):
         self.HasSentCloseMessage = False
         self.StateLock = threading.Lock()
         self.MsgQueue:queue.Queue[Optional[WebStreamMsg.WebStreamMsg]] = queue.Queue()
-        self.HttpHelper:Optional[WebStreamHttpHelper] = None
-        self.WsHelper:Optional[WebStreamWsHelper] = None
-        self.IsHelperClosed = False
+        self.WebStreamHelper:Optional[IWebStreamHelper] = None
         self.OpenedTime = time.time()
         self.ClosedDueToRequestConnectionError = False
 
@@ -95,31 +93,21 @@ class WebStreamImpl(threading.Thread, IWebStream):
     # This is called from the main socket receive thread, so it should
     # execute as quickly as possible.
     def Close(self) -> None:
-        # Check the state and set the flag. Only allow this code to run
-        # once.
-        localHttpHelper:Optional[WebStreamHttpHelper] = None
-        localWsHelper:Optional[WebStreamWsHelper] = None
+        streamHelper:Optional[IWebStreamHelper] = None
 
+        # Check the state and set the flag. Only allow this code to run once.
         with self.StateLock:
             # If we are already closed, there's nothing to do.
             if self.IsClosed is True:
                 return
-            # We will close now, so set the flag.
             self.IsClosed = True
 
-            # While under lock, exists, and if so, has it been closed.
-            # Note it's possible that this helper is being crated on a different
-            # thread and will be set just after we exit the lock. In that case
-            # the creator logic will notice that the stream is closed and call close on it.
-            # So if the http helper doesn't exist yet, we can't set the isClosed flag to false.
-            if self.HttpHelper is not None or self.WsHelper is not None:
-                if self.IsHelperClosed is False:
-                    self.IsHelperClosed = True
-                    localHttpHelper = self.HttpHelper
-                    localWsHelper = self.WsHelper
-                    # Important! Ensure these are set to None so we don't have a circular ref.
-                    self.HttpHelper = None
-                    self.WsHelper = None
+            # While under lock, after the self.IsClosed flag has been set, check if there's a helper.
+            # The helper will only be set if self.IsClosed is false, once it's set, it's this function's responsibility to close.
+            if self.WebStreamHelper is not None:
+                # Grab a local ref and clear the member var, which indicates we are going to close it.
+                streamHelper = self.WebStreamHelper
+                self.WebStreamHelper = None
 
         # Remove ourselves from the session map
         self.Session.WebStreamClosed(self.Id)
@@ -137,10 +125,8 @@ class WebStreamImpl(threading.Thread, IWebStream):
         # If we got a ref to the helper, we need to call close on it.
         # NOTE - It's very important that these don't block or they will block the entire main websocket connection.
         try:
-            if localHttpHelper is not None:
-                localHttpHelper.Close()
-            if localWsHelper is not None:
-                localWsHelper.Close()
+            if streamHelper is not None:
+                streamHelper.Close()
         except Exception as e:
             Sentry.OnException("Web stream "+str(self.Id)+" helper threw an exception during close", e)
 
@@ -161,77 +147,84 @@ class WebStreamImpl(threading.Thread, IWebStream):
 
 
     def mainThread(self) -> None:
-        # Loop until we are closed.
-        # Check under lock to avoid race condition with Close()
-        while True:
-            with self.StateLock:
-                if self.IsClosed:
+        # Once created, we need to hold a ref so we can use it for cleanup.
+        streamHelper:Optional[IWebStreamHelper] = None
+        try:
+            # Loop until we are closed.
+            # Check under lock to avoid race condition with Close()
+            while True:
+                with self.StateLock:
+                    if self.IsClosed:
+                        return
+
+                # Wait on incoming messages
+                # Timeout after 60 seconds just to check that we aren't closed.
+                # It's important to set this value to None, otherwise on loops it will hold it's old value
+                # which can accidentally re-process old messages.
+                webStreamMsg:Optional[WebStreamMsg.WebStreamMsg] = None
+                try:
+                    webStreamMsg = self.MsgQueue.get(timeout=60)
+                except Exception as _:
+                    # We get this exception on the timeout.
+                    pass
+
+                # Check that we aren't closed (under lock for thread safety)
+                with self.StateLock:
+                    if self.IsClosed:
+                        return
+
+                # Check that we got a message and this wasn't just a timeout
+                if webStreamMsg is None:
+                    continue
+
+                # Handle the message.
+                if webStreamMsg.IsOpenMsg():
+                    # This will return the webstream helper if it was created.
+                    # The only way it wouldn't be created is if the stream was closed before it could be created.
+                    streamHelper = self.initFromOpenMessage(webStreamMsg)
+
+                # Ensure we have an open message.
+                if self.OpenWebStreamMsg is None:
+                    # Throw so we reset the connection.
+                    raise Exception("Web stream ["+str(self.Id)+"] got a non open message before it's open message.")
+
+                # Don't pass it to the helper if there's nothing more.
+                if webStreamMsg.IsControlFlagsOnly():
+                    continue
+
+                # As long as we aren't closed and we have a helper, process the message.
+                closeRequested = True
+                if self.IsClosed is False and streamHelper is not None:
+                    closeRequested = streamHelper.IncomingServerMessage(webStreamMsg)
+
+                # If process server message returns true, we should close the stream.
+                if closeRequested is True:
+                    self.Close()
                     return
 
-            # Wait on incoming messages
-            # Timeout after 60 seconds just to check that we aren't closed.
-            # It's important to set this value to None, otherwise on loops it will hold it's old value
-            # which can accidentally re-process old messages.
-            webStreamMsg:Optional[WebStreamMsg.WebStreamMsg] = None
+                # When the http helper sends messages, it can indicate that the close flag has been set.
+                # In such a case, self.HasSentCloseMessage will be true. We don't want to rely on the client
+                # returning the correct returnValue, so if we see that we will call close to make sure things
+                # are going down. Since Close() is guarded against multiple entries, this is totally fine.
+                # Check under lock for thread safety.
+                with self.StateLock:
+                    shouldClose = self.HasSentCloseMessage is True and self.IsClosed is False
+                if shouldClose:
+                    self.Logger.warning("Web stream "+str(self.Id)+" processed a message and has sent a close message, but didn't call close on the web stream. Closing now.")
+                    self.Close()
+                    return
+        finally:
+            # Be sure to call this cleanup function before the thread exists.
             try:
-                webStreamMsg = self.MsgQueue.get(timeout=60)
-            except Exception as _:
-                # We get this exception on the timeout.
-                pass
-
-            # Check that we aren't closed (under lock for thread safety)
-            with self.StateLock:
-                if self.IsClosed:
-                    return
-
-            # Check that we got a message and this wasn't just a timeout
-            if webStreamMsg is None:
-                continue
-
-            # Handle the message.
-            if webStreamMsg.IsOpenMsg():
-                self.initFromOpenMessage(webStreamMsg)
-
-            # Ensure we have an open message.
-            if self.OpenWebStreamMsg is None:
-                # Throw so we reset the connection.
-                raise Exception("Web stream ["+str(self.Id)+"] got a non open message before it's open message.")
-
-            # Don't pass it to the helper if there's nothing more.
-            if webStreamMsg.IsControlFlagsOnly():
-                continue
-
-            # Allow the helper to process the message
-            # We should only ever have one, but just for safety, check both.
-            # We need to take a local reference, since they are cleared under lock on close.
-            returnValue = True
-            httpHelper = self.HttpHelper
-            wsHelper = self.WsHelper
-            if httpHelper is not None:
-                returnValue = httpHelper.IncomingServerMessage(webStreamMsg)
-            if wsHelper is not None:
-                returnValue = wsHelper.IncomingServerMessage(webStreamMsg)
-
-            # If process server message returns true, we should close the stream.
-            if returnValue is True:
-                self.Close()
-                return
-
-            # When the http helper sends messages, it can indicate that the close flag has been set.
-            # In such a case, self.HasSentCloseMessage will be true. We don't want to rely on the client
-            # returning the correct returnValue, so if we see that we will call close to make sure things
-            # are going down. Since Close() is guarded against multiple entries, this is totally fine.
-            # Check under lock for thread safety.
-            with self.StateLock:
-                shouldClose = self.HasSentCloseMessage is True and self.IsClosed is False
-            if shouldClose:
-                self.Logger.warning("Web stream "+str(self.Id)+" processed a message and has sent a close message, but didn't call close on the web stream. Closing now.")
-                self.Close()
-                return
+                if streamHelper is not None:
+                    streamHelper.OnWebStreamThreadExit()
+            except Exception as e:
+                self.Logger.error("Exception in OnWebStreamThreadExit: "+str(e))
 
 
-    def initFromOpenMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> None:
-        # Sanity check.
+    # If the web stream helper was created AND SET, it must be returned here.
+    def initFromOpenMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> Optional[IWebStreamHelper]:
+        # Ensure we haven't already received an open message.
         if self.OpenWebStreamMsg is not None:
             # Throw so we reset the connection.
             raise Exception("Web stream ["+str(self.Id)+"] already have an open message and we got another.")
@@ -248,36 +241,35 @@ class WebStreamImpl(threading.Thread, IWebStream):
         # Create the helper out of lock and then set it.
         # WE MUST ALWAYS SET THE HTTP HELPER OBJECT since down stream logic depends on it existing.
         # But, if the stream has closed since we created this object, we must call close on it.
-        httpHelper = None
-        wsHelper = None
+        webStreamHelper:Optional[IWebStreamHelper] = None
         if webStreamMsg.IsWebsocketStream():
-            wsHelper = WebStreamWsHelper(self.Id, self.Logger, self, self.OpenWebStreamMsg, self.OpenedTime)
+            webStreamHelper = WebStreamWsHelper(self.Id, self.Logger, self, self.OpenWebStreamMsg, self.OpenedTime)
         else:
-            httpHelper = WebStreamHttpHelper(self.Id, self.Logger, self, self.OpenWebStreamMsg, self.OpenedTime)
+            webStreamHelper = WebStreamHttpHelper(self.Id, self.Logger, self, self.OpenWebStreamMsg, self.OpenedTime)
 
         needsToCallCloseOnHelper = False
         with self.StateLock:
-            # Set the helper, which ever we made.
-            self.HttpHelper = httpHelper
-            self.WsHelper = wsHelper
+            # Ensure we haven't already done the init.
+            if self.WebStreamHelper is not None:
+                raise Exception("Web stream ["+str(self.Id)+"] already has a helper created but we got another init message. This means we got two init messages.")
 
-            # If the stream is now closed...
-            if self.IsClosed is True:
-                # and the http helper didn't get closed called yet...
-                if self.IsHelperClosed is False:
-                    # We need to call it now.
-                    self.IsHelperClosed = True
-                    needsToCallCloseOnHelper = True
-                    # Important! Ensure these are set to None so we don't have a circular ref.
-                    self.HttpHelper = None
-                    self.WsHelper = None
+            if self.IsClosed is False:
+                # If we are open, set the webstream helper now.
+                # Once it's set, the Close function must call Close on it.
+                self.WebStreamHelper = webStreamHelper
+            else:
+                # If the stream is now closed, DO NOT set the helper and close it now.
+                needsToCallCloseOnHelper = True
 
         # Outside of lock, if we need to close this helper, do it.
         if needsToCallCloseOnHelper is True:
-            if httpHelper is not None:
-                httpHelper.Close()
-            if wsHelper is not None:
-                wsHelper.Close()
+            webStreamHelper.Close()
+            webStreamHelper.OnWebStreamThreadExit()
+            # If we closed it, we should NOT return it.
+            return None
+        else:
+            # This is set and we opened it, so we must return it.
+            return webStreamHelper
 
 
     # Called by the helpers to send messages to the server.

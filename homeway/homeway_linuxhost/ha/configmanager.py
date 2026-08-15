@@ -2,7 +2,8 @@ import os
 import logging
 import threading
 import time
-from typing import Optional, List
+from ipaddress import IPv4Network, IPv6Network, ip_network
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from homeway.sentry import Sentry
 from homeway.interfaces import IConfigManager
@@ -10,6 +11,7 @@ from homeway.commandhandler import CommandHandler
 
 from .serverinfo import ServerInfo
 from .connection import Connection
+
 
 # Helps manage the Home Assistant config
 class ConfigManager(IConfigManager):
@@ -20,24 +22,44 @@ class ConfigManager(IConfigManager):
     # If the user followed the default install for Home Assistant Core, which is PY running directly on the device,
     # this is the default path that will be created for the config.
     # https://www.home-assistant.io/installation/linux#install-home-assistant-core
-    c_HomeAssistantCoreInstallConfigFilePath = "/home/homeassistant/.homeassistant/configuration.yaml"
+    c_HomeAssistantCoreInstallConfigFilePath = (
+        "/home/homeassistant/.homeassistant/configuration.yaml"
+    )
 
     # The time we will wait for idle until we restart.
     # Since we will ping the plugin to force the restart before we setup an assistant, this can be a while.
     c_TimeToIdleSec = 60 * 60 * 5
 
+    # Home Assistant 2026.8 moved HTTP configuration from YAML to a WebSocket API.
+    c_MinHomeAssistantHttpConfigApiVersion: Tuple[int, int] = (2026, 8)
+    c_HttpConfigUpdateRetryCount = 12
+    c_HttpConfigUpdateRetryDelaySec = 5.0
+    c_RequiredTrustedProxies = (
+        "172.30.32.0/23",
+        "127.0.0.1",
+        "::1",
+    )
+    c_HttpConfigMetaKeys = (
+        "created_at",
+        "error",
+        "error_message",
+    )
 
-    def __init__(self, logger:logging.Logger) -> None:
+
+    def __init__(self, logger: logging.Logger) -> None:
         self.Logger = logger
-        self.HaConnection:Optional[Connection] = None
-        self.RestartRequired:bool = False
-        self.RestartNow:bool = False
+        self.HaConnection: Optional[Connection] = None
+        self.RestartRequired: bool = False
+        self.HttpConfigUpdateStateLock = threading.Lock()
+        self.HttpConfigUpdateThreadRunning = False
+        self.HttpConfigUpdateRequested = False
         CommandHandler.Get().RegisterConfigManager(self)
 
 
     # Sets the HA con object when it's ready, this should always be set after startup.
-    def SetHaConnection(self, haCon:Connection) -> None:
+    def SetHaConnection(self, haCon: Connection) -> None:
         self.HaConnection = haCon
+        haCon.RegisterOnConnectedCallback(self._OnHaConnected)
 
 
     # Interface function - Called by the CommandHandler.
@@ -133,10 +155,9 @@ class ConfigManager(IConfigManager):
                 self.Logger.warning("UpdateConfigIfNeeded failed to get a config file path.")
                 return
 
-            # Try to update the config file.
+            # HTTP config is managed separately through Home Assistant's WebSocket API once connected.
             assistantConfigUpdated = self._UpdateAssistantConfigIfNeeded(configFilePath)
-            httpConfigUpdated = self._UpdateHttpConfigIfNeeded(configFilePath)
-            if not assistantConfigUpdated and not httpConfigUpdated:
+            if not assistantConfigUpdated:
                 self.Logger.info("No config updates were needed.")
                 return
 
@@ -147,12 +168,11 @@ class ConfigManager(IConfigManager):
             Sentry.OnException("HomeAssistantConfigManager exception.", e)
 
 
-
-    def _UpdateAssistantConfigIfNeeded(self, configFilePath:str) -> bool:
+    def _UpdateAssistantConfigIfNeeded(self, configFilePath: str) -> bool:
         # Open the file and read.
-        foundGoogleAssistantConfig:bool = False
-        foundAlexaConfig:bool = False
-        with open(configFilePath, 'r', encoding="utf-8") as f:
+        foundGoogleAssistantConfig: bool = False
+        foundAlexaConfig: bool = False
+        with open(configFilePath, "r", encoding="utf-8") as f:
             # Look for the starting lines of the configs, since they must be exact.
             # But remember they will have line endings, so we use startwith.
             lines = f.readlines()
@@ -169,7 +189,7 @@ class ConfigManager(IConfigManager):
 
         # Add which ever is needed.
         # It's important to get the indents correct, or we will break the config.
-        linesToAppend:List[str] = []
+        linesToAppend: List[str] = []
         lineEnding = "\r\n"
 
         # Add a new line to start
@@ -195,184 +215,207 @@ class ConfigManager(IConfigManager):
         linesToAppend.append(lineEnding)
 
         # Add the config lines.
-        with open(configFilePath, 'a', encoding="utf-8") as f:
+        with open(configFilePath, "a", encoding="utf-8") as f:
             f.writelines(linesToAppend)
 
         self.Logger.info(f"Config file updated with assistant configs. Alexa: {str(foundAlexaConfig is False)}, Google Assistant: {str(foundGoogleAssistantConfig is False)}")
         return True
 
 
-    def _UpdateHttpConfigIfNeeded(self, configFilePath:str) -> bool:
-        # This one is a bit more tricky, since the user might have the http section already and some of the settings already configured.
-        # We need to add the http section and set use_x_forwarded_for=true and trusted_proxies to include the HA docker IPs.
-        # We also need to make sure the user doesn't already have trusted_proxies set with the wrong IP, or we won't be abel to access the http webserver.
-        lineEnding = "\r\n"
-        dockerIpRangePrefix = "172.30"
-        desiredTrustedProxyDockerIp = "172.30.32.0/23"
-        lines:List[str] = []
-        with open(configFilePath, 'r', encoding="utf-8") as f:
-            lines = f.readlines()
+    # Called on the HA websocket thread. Start a worker because SendAndReceiveMsg can't block that thread.
+    def _OnHaConnected(self) -> None:
+        with self.HttpConfigUpdateStateLock:
+            self.HttpConfigUpdateRequested = True
+            if self.HttpConfigUpdateThreadRunning:
+                return
+            self.HttpConfigUpdateThreadRunning = True
+        t = threading.Thread(target=self._UpdateHttpConfig_Thread)
+        t.daemon = True
+        t.start()
 
-        # Look for the starting lines of the configs, since they must be exact.
-        # But remember they will have line endings, so we use startwith.
-        httpSectionLineNumber:Optional[int] = None
-        lineNumber = 0
-        while lineNumber < len(lines):
-            line = lines[lineNumber]
-            lineLower = line.lower()
-            # Look for the http section.
-            if lineLower.startswith("http:"):
-                httpSectionLineNumber = lineNumber
-                break
-            lineNumber += 1
 
-        # Check if there's an existing http section or not.
-        if httpSectionLineNumber is None:
-            # There is no http section, we need to add it.
-            # If safest to just append it to the end of the file.
-            with open(configFilePath, 'a', encoding="utf-8") as f:
-                f.writelines(lineEnding)
-                f.writelines("# Added By Homeway to enable proper HTTP proxy support."+lineEnding)
-                f.writelines("http:"+lineEnding)
-                f.writelines("  use_x_forwarded_for: true"+lineEnding)
-                f.writelines("  trusted_proxies:"+lineEnding)
-                f.writelines(f"    - {desiredTrustedProxyDockerIp}"+lineEnding)
-                f.writelines( "    - 127.0.0.1"+lineEnding)
-                f.writelines( "    - ::1"+lineEnding)
-                f.writelines(lineEnding)
+    def _UpdateHttpConfig_Thread(self) -> None:
+        try:
+            retryCount = 0
+            while True:
+                with self.HttpConfigUpdateStateLock:
+                    self.HttpConfigUpdateRequested = False
 
-            # Return true since we did work.
-            self.Logger.info("Config file updated with new http config section.")
+                shouldRetry = self._UpdateHttpConfigViaApiIfNeeded()
+                if (shouldRetry and retryCount < ConfigManager.c_HttpConfigUpdateRetryCount):
+                    retryCount += 1
+                    time.sleep(ConfigManager.c_HttpConfigUpdateRetryDelaySec)
+                    continue
+
+                with self.HttpConfigUpdateStateLock:
+                    if self.HttpConfigUpdateRequested:
+                        retryCount = 0
+                        continue
+                    return
+        except Exception as e:
+            Sentry.OnException("Home Assistant HTTP config update exception.", e)
+        finally:
+            with self.HttpConfigUpdateStateLock:
+                updateRequested = self.HttpConfigUpdateRequested
+                self.HttpConfigUpdateThreadRunning = False
+            if updateRequested:
+                self._OnHaConnected()
+
+
+    # Returns true when the operation should be retried because HA isn't ready yet.
+    def _UpdateHttpConfigViaApiIfNeeded(self) -> bool:
+        # Ensure we have a connection.
+        haConnection = self.HaConnection
+        if haConnection is None:
+            self.Logger.warning("HTTP config update skipped because there is no Home Assistant connection.")
             return True
 
-        # We now need to look inside the http section to see if the settings are correct.
-        self.Logger.debug("ConfigManager._UpdateHttpConfigIfNeeded Found the http section. "+lines[httpSectionLineNumber].lower())
-        useXForwardedForLineNumber:Optional[int] = None
-        trustedProxiesLineNumber:Optional[int] = None
-        lineNumber = httpSectionLineNumber + 1
-        singleIndent = None
-        while lineNumber < len(lines):
-            line = lines[lineNumber]
-            lineLower = line.lower()
-            # If we see a new section, we are done.
-            if lineLower[0].isalnum():
-                break
-            # Determine the single indent for this config file.
-            if singleIndent is None:
-                strippedLine = line.lstrip()
-                singleIndent = line[:len(line)-len(strippedLine)]
-            # Look for use_x_forwarded_for
-            if lineLower.find("use_x_forwarded_for") != -1:
-                useXForwardedForLineNumber = lineNumber
-            # Look for trusted_proxies
-            if lineLower.find("trusted_proxies") != -1:
-                trustedProxiesLineNumber = lineNumber
-            if useXForwardedForLineNumber is not None and trustedProxiesLineNumber is not None:
-                break
-            lineNumber += 1
-
-        # Default to 2 spaces, the yaml standard, if we couldn't determine it.
-        if singleIndent is None:
-            singleIndent = "  "
-
-        # Ensure the values exist and are correct.
-        hasUpdates = False
-        linesToAppendAfterHttpHeader:List[str] = []
-        linesToAppendAfterTrustedProxy:List[str] = []
-        if useXForwardedForLineNumber is None:
-            # If there is no use_x_forwarded_for line, add it.
-            # We can't append now, or the line numbers will be off.
-            self.Logger.info("Adding config http section use_x_forwarded_for set to true.")
-            linesToAppendAfterHttpHeader.append(f"{singleIndent}use_x_forwarded_for: true{lineEnding}")
-        else:
-            # If the value exists and it's true, we are good.
-            # Otherwise replace the line and mark we have updates.
-            line = lines[useXForwardedForLineNumber]
-            lineLower = line.lower()
-            if lineLower.find("true") == -1:
-                self.Logger.info("Updating config http section use_x_forwarded_for to true.")
-                lines[useXForwardedForLineNumber] = f"{singleIndent}use_x_forwarded_for: true{lineEnding}"
-                hasUpdates = True
-
-        if trustedProxiesLineNumber is None:
-            # If there is no trusted_proxies line, add it and the docker IP.
-            self.Logger.info("Adding config http section trusted_proxies with docker IP.")
-            linesToAppendAfterHttpHeader.append(f"{singleIndent}trusted_proxies:{lineEnding}")
-            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- {desiredTrustedProxyDockerIp}{lineEnding}")
-            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- 127.0.0.1{lineEnding}")
-            linesToAppendAfterHttpHeader.append(f"{singleIndent}{singleIndent}- ::1{lineEnding}")
-        else:
-            # We need to look for the docker IP in the trusted_proxies list.
-            foundDesiredDockerIp:bool = False
-            lineNumber = trustedProxiesLineNumber + 1
-            listIndent = None
-            while lineNumber < len(lines):
-                line = lines[lineNumber]
-                lineLower = line.lower()
-                # If we see a new section, we are done.
-                if lineLower[0].isalnum():
-                    break
-                # If we see a line that is not indented enough, we are done.
-                strippedLine = line.lstrip()
-                currentIndent = line[:len(line)-len(strippedLine)]
-                if len(currentIndent) < len(singleIndent)*2:
-                    break
-                # Set then when we know we are in the list and it's not set.
-                if listIndent is None:
-                    listIndent = currentIndent
-                # Look for the desired docker IP.
-                if lineLower.find(dockerIpRangePrefix) != -1:
-                    # We found the docker IP line, ensure it's correct.
-                    if lineLower.find(desiredTrustedProxyDockerIp) == -1:
-                        # The line is not correct, replace it.
-                        self.Logger.info(f"Updating config http section trusted_proxies to include correct docker IP. Current: `{lineLower}`")
-                        lines[lineNumber] = f"{listIndent}- {desiredTrustedProxyDockerIp}{lineEnding}"
-                        hasUpdates = True
-                        # Set the restart now flag since the http calls might be blocked.
-                        self.RestartNow = True
-                    foundDesiredDockerIp = True
-                    break
-                lineNumber += 1
-
-            if foundDesiredDockerIp is False:
-                # We need to add the docker IP to the trusted_proxies list.
-                self.Logger.info("Adding docker IP to existing trusted_proxies list.")
-                if listIndent is None:
-                    listIndent = singleIndent + singleIndent
-                linesToAppendAfterTrustedProxy.append(f"{listIndent}- {desiredTrustedProxyDockerIp}{lineEnding}")
-                # Set the restart now flag since the http calls might be blocked.
-                self.RestartNow = True
-
-        # If there are no updates, we are good.
-        if hasUpdates is False and len(linesToAppendAfterHttpHeader) == 0 and len(linesToAppendAfterTrustedProxy) == 0:
-            self.Logger.info("HTTP config section found and no updates needed.")
+        # Ensure the version is new enough to use this API.
+        haVersion = haConnection.GetHomeAssistantVersionString()
+        if not self._HomeAssistantVersionSupportsHttpConfigApi(haVersion):
+            self.Logger.info(f"Home Assistant {haVersion} does not support the HTTP config API; leaving its HTTP config unchanged.")
             return False
 
-        # Append any new lines right after the http section line.
-        if len(linesToAppendAfterHttpHeader) > 0:
-            insertLineNumber = httpSectionLineNumber + 1
-            for newLine in linesToAppendAfterHttpHeader:
-                self.Logger.debug(f"ConfigManager._UpdateHttpConfigIfNeeded adding line to http section: `{newLine}`")
-                lines.insert(insertLineNumber, newLine)
-                insertLineNumber += 1
+        # Get the current config.
+        response = haConnection.SendAndReceiveMsg({"type": "http/config"})
+        shouldRetry, result = self._GetHttpConfigApiResult("query", response)
+        if result is None:
+            return shouldRetry
 
-        # Append any new lines right after the trusted_proxies line.
-        if len(linesToAppendAfterTrustedProxy) > 0:
-            if trustedProxiesLineNumber is None:
-                self.Logger.error("Logic error: We have lines to append after trusted_proxies but no trusted_proxies line number.")
-                return False
-            insertLineNumber = trustedProxiesLineNumber + 1
-            for newLine in linesToAppendAfterTrustedProxy:
-                self.Logger.debug(f"ConfigManager._UpdateHttpConfigIfNeeded adding line to trusted_proxies section: `{newLine}`")
-                lines.insert(insertLineNumber, newLine)
-                insertLineNumber += 1
+        activeConfigType = result.get("active_config_type", "stable")
+        activePendingConfig = activeConfigType == "pending"
+        sourceConfig = result.get("pending" if activePendingConfig else "stable")
+        if activeConfigType == "default" or activeConfigType == "default_legacy_port":
+            sourceConfig = result.get("default")
+        if not isinstance(sourceConfig, dict):
+            self.Logger.warning("Home Assistant HTTP config API returned no usable active config.")
+            return False
 
-        # Write the file back out.
-        with open(configFilePath, 'w', encoding="utf-8") as f:
-            f.writelines(lines)
+        config: Dict[str, Any] = dict(sourceConfig)
+        for key in ConfigManager.c_HttpConfigMetaKeys:
+            config.pop(key, None)
+        if activeConfigType == "default_legacy_port":
+            # HA fell back because the new default port couldn't be bound. Preserve the actual
+            # discovered port instead of retrying the same default that already failed.
+            config["server_port"] = ServerInfo.ServerPort
 
-        self.Logger.info(f"Config file updated with http config. HasUpdates: {str(hasUpdates)}, NewLines: {str(len(linesToAppendAfterHttpHeader) > 0 or len(linesToAppendAfterTrustedProxy) > 0)}")
-        return True
+        hasUpdates = config.get("use_x_forwarded_for") is not True
+        config["use_x_forwarded_for"] = True
+
+        trustedProxiesValue = config.get("trusted_proxies", [])
+        trustedProxies: List[Any]
+        if not isinstance(trustedProxiesValue, list):
+            trustedProxies = [trustedProxiesValue]
+        else:
+            trustedProxies = list(trustedProxiesValue)
+        for requiredProxy in ConfigManager.c_RequiredTrustedProxies:
+            if not self._TrustedProxyListCovers(trustedProxies, requiredProxy):
+                trustedProxies.append(requiredProxy)
+                hasUpdates = True
+        config["trusted_proxies"] = trustedProxies
+
+        if not hasUpdates:
+            if activePendingConfig:
+                return self._PromotePendingHttpConfig(haConnection)
+            self.Logger.info("Home Assistant HTTP trusted proxy config is already correct.")
+            return False
+
+        self.Logger.info("Updating Home Assistant HTTP trusted proxy config through the WebSocket API.")
+        response = haConnection.SendAndReceiveMsg(
+            {"type": "http/config/configure", "config": config}
+        )
+        shouldRetry, configureResult = self._GetHttpConfigApiResult("update", response)
+        if configureResult is None:
+            return shouldRetry
+
+        if configureResult.get("restart", False):
+            # The API restart also applies any assistant YAML changes waiting for a restart.
+            self.RestartRequired = False
+            self.Logger.info("Home Assistant is restarting to apply the HTTP trusted proxy config.")
+        else:
+            self.Logger.info("Home Assistant accepted the HTTP trusted proxy config without requiring a restart.")
+        return False
+
+
+    def _PromotePendingHttpConfig(self, haConnection: Connection) -> bool:
+        self.Logger.info("Confirming the pending Home Assistant HTTP trusted proxy config.")
+        response = haConnection.SendAndReceiveMsg({"type": "http/config/promote"})
+        shouldRetry, result = self._GetHttpConfigApiResult("confirm", response, allowEmptyResult=True)
+        if result is not None:
+            self.Logger.info("Home Assistant HTTP trusted proxy config confirmed.")
+        return shouldRetry
+
+
+    def _GetHttpConfigApiResult(
+        self,
+        operation: str,
+        response: Optional[Dict[str, Any]],
+        allowEmptyResult: bool = False,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        if response is None:
+            self.Logger.warning(f"Home Assistant HTTP config {operation} did not return a response.")
+            return True, None
+        if response.get("success", False) is not True:
+            error = response.get("error", {})
+            errorCode = (
+                cast(Dict[str, Any], error).get("code", "unknown")
+                if isinstance(error, dict)
+                else "unknown"
+            )
+            if errorCode == "not_running":
+                self.Logger.info(
+                    "Home Assistant is still starting; the HTTP config update will be retried."
+                )
+                return True, None
+            self.Logger.warning(
+                f"Home Assistant HTTP config {operation} failed: {error}"
+            )
+            return False, None
+        result = response.get("result")
+        if allowEmptyResult and result is None:
+            return False, {}
+        if not isinstance(result, dict):
+            self.Logger.warning(
+                f"Home Assistant HTTP config {operation} returned an invalid result."
+            )
+            return False, None
+        return False, result
+
+
+    @staticmethod
+    def _HomeAssistantVersionSupportsHttpConfigApi(version: Optional[str]) -> bool:
+        if version is None:
+            return True
+        try:
+            versionParts = version.split(".")
+            versionTuple = (int(versionParts[0]), int(versionParts[1]))
+            return versionTuple >= ConfigManager.c_MinHomeAssistantHttpConfigApiVersion
+        except (IndexError, ValueError):
+            # Development versions can use a non-standard version string; query the API and let HA decide.
+            return True
+
+
+    @staticmethod
+    def _TrustedProxyListCovers(trustedProxies: List[Any], requiredProxy: str) -> bool:
+        requiredNetwork = ip_network(requiredProxy)
+        for trustedProxy in trustedProxies:
+            try:
+                trustedNetwork = ip_network(trustedProxy)
+                if (
+                    isinstance(requiredNetwork, IPv4Network)
+                    and isinstance(trustedNetwork, IPv4Network)
+                    and requiredNetwork.subnet_of(trustedNetwork)
+                ):
+                    return True
+                if (
+                    isinstance(requiredNetwork, IPv6Network)
+                    and isinstance(trustedNetwork, IPv6Network)
+                    and requiredNetwork.subnet_of(trustedNetwork)
+                ):
+                    return True
+            except ValueError:
+                continue
+        return False
 
 
     def RestartHomeAssistant(self, restartInSec:float) -> None:
@@ -381,13 +424,8 @@ class ConfigManager(IConfigManager):
         t.start()
 
 
-    def _RestartHomeAssistant_Thread(self, restartInSec:float) -> None:
+    def _RestartHomeAssistant_Thread(self, restartInSec: float) -> None:
         try:
-            if self.RestartNow is True:
-                # Don't do this too quick, so HA doesn't restart right after the plugin loads and users might be trying to link.
-                # We also want to try to give the webrtc system to allow the HW connection, get the API key, and update the servers if needed.
-                self.Logger.info("Restarting Home Assistant soon due to critical config change.")
-                restartInSec = 10.0
             self.Logger.info(f"Waiting to restart HA for {restartInSec}...")
             time.sleep(restartInSec)
 
@@ -399,10 +437,14 @@ class ConfigManager(IConfigManager):
 
             # Ensure we have a connection object.
             if self.HaConnection is None:
-                self.Logger.error("We wanted to restart Home Assistant but we don't have a ha connection object.")
+                self.Logger.error(
+                    "We wanted to restart Home Assistant but we don't have a ha connection object."
+                )
                 return
 
-            self.Logger.info("Trying to restart Home Assistant to apply the config change.")
+            self.Logger.info(
+                "Trying to restart Home Assistant to apply the config change."
+            )
             self.HaConnection.RestartHa()
         except Exception as e:
             Sentry.OnException("TryToRestartHomeAssistant exception.", e)

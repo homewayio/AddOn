@@ -12,7 +12,7 @@ from .uploadbody import UploadBody
 from .headerimpl import HeaderHelper
 from .headerimpl import BaseProtocol
 
-from ..interfaces import IWebStream
+from ..interfaces import IWebStream, IWebStreamHelper
 from ..buffer import Buffer, BufferOrNone
 from ..httprequest import HttpRequest
 from ..streammsgbuilder import StreamMsgBuilder
@@ -54,7 +54,7 @@ class MsgBuilderContext:
 # The helper can close the stream by calling close directly on the WebStream object
 # or by returning true from `IncomingServerMessage`
 #
-class WebStreamHttpHelper:
+class WebStreamHttpHelper(IWebStreamHelper):
 
     # Called by the main socket thread so this should be quick!
     def __init__(self, streamId:int, logger:logging.Logger, webStream:IWebStream, webStreamOpenMsg:WebStreamMsg.WebStreamMsg, openedTime:float) -> None:
@@ -116,11 +116,10 @@ class WebStreamHttpHelper:
         if self.HttpStreamAccumulationReader is not None:
             self.HttpStreamAccumulationReader.CloseAsync()
 
-        # Ensure the upload body is cleaned up.
-        self.UploadBody.Cleanup()
-
 
     # Called when a new message has arrived for this stream from the server.
+    # This is called from the dedicated thread for this stream, so it can be blocked.
+    #
     # This function should throw on critical errors, that will reset the connection.
     # Returning true will case the websocket to close on return.
     def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bool:
@@ -150,6 +149,13 @@ class WebStreamHttpHelper:
 
         # Return false since there should be more to this stream.
         return False
+
+
+    # Called from the dedicated web stream thread, after it's done and just before it's exciting.
+    # This allows anything that should only be accessed by the web stream thread to be cleaned up before the thread exits.
+    def OnWebStreamThreadExit(self) -> None:
+        # Since UploadBody is not thread safe and used by the web stream thread, clean it up here.
+        self.UploadBody.Cleanup()
 
 
     # This function either needs to throw (which will restart the entire connection)
