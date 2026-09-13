@@ -5,9 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from .buffer import Buffer
 from .httpresult import HttpResult
 
-from .Proto import WebStreamMsg
-
 if TYPE_CHECKING:
+    from .Proto import WebStreamMsg
     from .compression import CompressionResult
 
 #
@@ -248,7 +247,7 @@ class IWebStreamHelper(ABC):
     # This function should throw on critical errors, that will reset the connection.
     # Returning true will case the websocket to close on return.
     @abstractmethod
-    def IncomingServerMessage(self, webStreamMsg:WebStreamMsg.WebStreamMsg) -> bool:
+    def IncomingServerMessage(self, webStreamMsg:"WebStreamMsg.WebStreamMsg") -> bool:
         pass
 
 

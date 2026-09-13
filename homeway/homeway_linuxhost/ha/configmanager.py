@@ -51,8 +51,13 @@ class ConfigManager(IConfigManager):
         self.HaConnection: Optional[Connection] = None
         self.RestartRequired: bool = False
         self.HttpConfigUpdateStateLock = threading.Lock()
+        self.HttpConfigUpdateWakeEvent = threading.Event()
         self.HttpConfigUpdateThreadRunning = False
         self.HttpConfigUpdateRequested = False
+        # Normalized fingerprint of an HTTP config staged by Homeway and awaiting
+        # confirmation. Never use a bare pending state here, since it might belong to a
+        # user changing unrelated settings in the Home Assistant UI.
+        self.PendingHttpConfigToPromote: Optional[Dict[str, Any]] = None
         CommandHandler.Get().RegisterConfigManager(self)
 
 
@@ -226,6 +231,7 @@ class ConfigManager(IConfigManager):
     def _OnHaConnected(self) -> None:
         with self.HttpConfigUpdateStateLock:
             self.HttpConfigUpdateRequested = True
+            self.HttpConfigUpdateWakeEvent.set()
             if self.HttpConfigUpdateThreadRunning:
                 return
             self.HttpConfigUpdateThreadRunning = True
@@ -240,11 +246,16 @@ class ConfigManager(IConfigManager):
             while True:
                 with self.HttpConfigUpdateStateLock:
                     self.HttpConfigUpdateRequested = False
+                    self.HttpConfigUpdateWakeEvent.clear()
 
                 shouldRetry = self._UpdateHttpConfigViaApiIfNeeded()
                 if (shouldRetry and retryCount < ConfigManager.c_HttpConfigUpdateRetryCount):
                     retryCount += 1
-                    time.sleep(ConfigManager.c_HttpConfigUpdateRetryDelaySec)
+                    # A reconnect means the API is available again, so retry immediately
+                    # instead of waiting out the normal startup delay.
+                    self.HttpConfigUpdateWakeEvent.wait(
+                        ConfigManager.c_HttpConfigUpdateRetryDelaySec
+                    )
                     continue
 
                 with self.HttpConfigUpdateStateLock:
@@ -284,6 +295,48 @@ class ConfigManager(IConfigManager):
 
         activeConfigType = result.get("active_config_type", "stable")
         activePendingConfig = activeConfigType == "pending"
+        pendingConfig = result.get("pending")
+        pendingConfigOwnedByHomeway = (
+            isinstance(pendingConfig, dict)
+            and self._IsPendingHttpConfigOwnedByHomeway(pendingConfig)
+        )
+
+        if self._HasPendingHttpConfigOwnedByHomeway():
+            if pendingConfigOwnedByHomeway:
+                assert isinstance(pendingConfig, dict)
+                pendingConfig = cast(Dict[str, Any], pendingConfig)
+                if pendingConfig.get("error") is not None:
+                    self.Logger.warning(
+                        "Homeway's pending HTTP config was rejected by Home Assistant; it will not be auto-confirmed."
+                    )
+                    self._ClearPendingHttpConfigOwnedByHomeway()
+                    haConnection.ClearServerRestartExpected()
+                    return False
+
+                if activePendingConfig:
+                    # Seeing our exact config active proves the API-triggered restart
+                    # completed, even if its configure response was lost with the socket.
+                    self.RestartRequired = False
+                else:
+                    # Configure stores the pending slot before its queued restart runs. If a
+                    # retry reaches the old server during that window, wait for the restart
+                    # rather than staging the same config again.
+                    self.Logger.info(
+                        "Homeway's HTTP config is pending; waiting for Home Assistant to restart."
+                    )
+                    return True
+            else:
+                # The request definitively did not leave our config pending (or another
+                # operation replaced it), so it is no longer safe to auto-promote.
+                self._ClearPendingHttpConfigOwnedByHomeway()
+                haConnection.ClearServerRestartExpected()
+
+        if isinstance(pendingConfig, dict) and not pendingConfigOwnedByHomeway:
+            self.Logger.info(
+                "Home Assistant has a pending HTTP config not staged by Homeway; leaving it for the user to confirm."
+            )
+            return False
+
         sourceConfig = result.get("pending" if activePendingConfig else "stable")
         if activeConfigType == "default" or activeConfigType == "default_legacy_port":
             sourceConfig = result.get("default")
@@ -321,18 +374,34 @@ class ConfigManager(IConfigManager):
             return False
 
         self.Logger.info("Updating Home Assistant HTTP trusted proxy config through the WebSocket API.")
+        # Arm both the ownership check and quick reconnect path before configure. HA can
+        # close the websocket for its queued restart before its response reaches us.
+        self._SetPendingHttpConfigOwnedByHomeway(config)
+        haConnection.SetServerRestartExpected()
         response = haConnection.SendAndReceiveMsg(
             {"type": "http/config/configure", "config": config}
         )
         shouldRetry, configureResult = self._GetHttpConfigApiResult("update", response)
         if configureResult is None:
+            if response is not None:
+                # A definite API error means configure did not queue a restart. A missing
+                # response is ambiguous, so retain the state for reconnect recovery.
+                self._ClearPendingHttpConfigOwnedByHomeway()
+                haConnection.ClearServerRestartExpected()
             return shouldRetry
 
         if configureResult.get("restart", False):
             # The API restart also applies any assistant YAML changes waiting for a restart.
             self.RestartRequired = False
             self.Logger.info("Home Assistant is restarting to apply the HTTP trusted proxy config.")
+            # Best-effort confirmation on the current websocket prevents HA's frontend from
+            # observing the pending slot and leaving its dialog open. This intentionally
+            # bypasses the post-restart trial for Homeway's narrow proxy-only change; the
+            # exact-config ownership check and reconnect path handle an interrupted request.
+            return self._PromotePendingHttpConfig(haConnection)
         else:
+            self._ClearPendingHttpConfigOwnedByHomeway()
+            haConnection.ClearServerRestartExpected()
             self.Logger.info("Home Assistant accepted the HTTP trusted proxy config without requiring a restart.")
         return False
 
@@ -342,8 +411,53 @@ class ConfigManager(IConfigManager):
         response = haConnection.SendAndReceiveMsg({"type": "http/config/promote"})
         shouldRetry, result = self._GetHttpConfigApiResult("confirm", response, allowEmptyResult=True)
         if result is not None:
+            self._ClearPendingHttpConfigOwnedByHomeway()
+            haConnection.ClearServerRestartExpected()
             self.Logger.info("Home Assistant HTTP trusted proxy config confirmed.")
         return shouldRetry
+
+
+    def _SetPendingHttpConfigOwnedByHomeway(self, config: Dict[str, Any]) -> None:
+        normalizedConfig = self._NormalizeHttpConfigForComparison(config)
+        with self.HttpConfigUpdateStateLock:
+            self.PendingHttpConfigToPromote = normalizedConfig
+
+
+    def _ClearPendingHttpConfigOwnedByHomeway(self) -> None:
+        with self.HttpConfigUpdateStateLock:
+            self.PendingHttpConfigToPromote = None
+
+
+    def _HasPendingHttpConfigOwnedByHomeway(self) -> bool:
+        with self.HttpConfigUpdateStateLock:
+            return self.PendingHttpConfigToPromote is not None
+
+
+    def _IsPendingHttpConfigOwnedByHomeway(self, config: Dict[str, Any]) -> bool:
+        normalizedConfig = self._NormalizeHttpConfigForComparison(config)
+        with self.HttpConfigUpdateStateLock:
+            return normalizedConfig == self.PendingHttpConfigToPromote
+
+
+    @staticmethod
+    def _NormalizeHttpConfigForComparison(config: Dict[str, Any]) -> Dict[str, Any]:
+        normalizedConfig = dict(config)
+        for key in ConfigManager.c_HttpConfigMetaKeys:
+            normalizedConfig.pop(key, None)
+
+        # HA's storage schema canonicalizes host addresses to /32 or /128 networks.
+        # Normalize both our outbound fingerprint and the returned pending config so the
+        # ownership check survives that representation change.
+        trustedProxies = normalizedConfig.get("trusted_proxies")
+        if isinstance(trustedProxies, list):
+            normalizedTrustedProxies: List[Any] = []
+            for trustedProxy in trustedProxies:
+                try:
+                    normalizedTrustedProxies.append(str(ip_network(trustedProxy)))
+                except ValueError:
+                    normalizedTrustedProxies.append(trustedProxy)
+            normalizedConfig["trusted_proxies"] = normalizedTrustedProxies
+        return normalizedConfig
 
 
     def _GetHttpConfigApiResult(

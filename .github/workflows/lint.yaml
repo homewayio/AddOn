@@ -76,6 +76,11 @@ jobs:
           pip install ruff
           pip install -r ./homeway/requirements.txt
           pip install "zstandard>=0.21.0,<0.23.0"
+      - name: 🧪 Running unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/homeway
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m unittest discover -s tests -p "test_*.py" -v
       # This crazy script is needed to ensure that we always run pylint
       # on all of the files in the repo and the path is set correctly for it to work.
       - name: 👖 Running Pylint
