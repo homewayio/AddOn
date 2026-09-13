@@ -20,6 +20,11 @@ class Connection(IHomeAssistantWebSocket):
     # For debugging, it's too chatty to enable always.
     c_LogWsMessages = False
 
+    # During an intentional HA restart, retry quickly so config confirmation and the other
+    # local integrations are restored before remote clients complete their reconnect flow.
+    c_ExpectedServerRestartReconnectDelaySec = 1.0
+    c_ExpectedServerRestartReconnectMaxAttempts = 60
+
 
     def __init__(self, logger:logging.Logger, eventHandler:EventHandler) -> None:
         self.Logger = logger
@@ -40,6 +45,12 @@ class Connection(IHomeAssistantWebSocket):
 
         # If set, when the websocket is connected, we should send the HA restart command.
         self.IssueRestartOnConnect = False
+
+        # Set when HA tells us it is about to restart. This avoids applying the normal
+        # connection-error backoff to an expected, short-lived disconnect.
+        self.ServerRestartExpectedLock = threading.Lock()
+        self.ServerRestartExpected = threading.Event()
+        self.ServerRestartReconnectAttempt = 0
 
         # Allows for blocking message send responses.
         self.PendingContextsLock = threading.Lock()
@@ -66,6 +77,35 @@ class Connection(IHomeAssistantWebSocket):
     # Gets the Home Assistant version string, or None if not known.
     def GetHomeAssistantVersionString(self) -> Optional[str]:
         return self.HaVersionString
+
+
+    # Indicates that Home Assistant is about to restart intentionally.
+    def SetServerRestartExpected(self) -> None:
+        with self.ServerRestartExpectedLock:
+            self.ServerRestartReconnectAttempt = 0
+            self.ServerRestartExpected.set()
+
+
+    # Clears the intentional restart reconnect state when HA confirms no restart is coming.
+    def ClearServerRestartExpected(self) -> None:
+        with self.ServerRestartExpectedLock:
+            self.ServerRestartReconnectAttempt = 0
+            self.ServerRestartExpected.clear()
+
+
+    def _ShouldUseExpectedServerRestartReconnect(self) -> bool:
+        with self.ServerRestartExpectedLock:
+            if self.ServerRestartExpected.is_set() is False:
+                return False
+            if (
+                self.ServerRestartReconnectAttempt
+                >= Connection.c_ExpectedServerRestartReconnectMaxAttempts
+            ):
+                self.ServerRestartReconnectAttempt = 0
+                self.ServerRestartExpected.clear()
+                return False
+            self.ServerRestartReconnectAttempt += 1
+            return True
 
 
     # Issues the restart command to Home Assistant.
@@ -130,16 +170,32 @@ class Connection(IHomeAssistantWebSocket):
     def ConnectionThread(self):
         while True:
             # Reset the state vars
-            self.IsConnected = False
-            self.Ws = None
-            self.MsgId = 1
+            with self.PendingContextsLock:
+                self.IsConnected = False
+                self.Ws = None
+                pendingContexts = list(self.PendingContexts.values())
+                self.PendingContexts.clear()
+            for pendingContext in pendingContexts:
+                pendingContext.Event.set()
+            with self.MsgIdLock:
+                self.MsgId = 1
 
             # If this isn't the first connection, sleep a bit before trying again.
             if self.ConId != 0:
-                self.BackoffCounter += 1
-                self.BackoffCounter = min(self.BackoffCounter, 12)
-                self.Logger.error(f"{self._getLogTag()} sleeping before trying the HA connection again.")
-                time.sleep(5 * self.BackoffCounter)
+                if self._ShouldUseExpectedServerRestartReconnect():
+                    if self.ServerRestartReconnectAttempt == 1:
+                        self.Logger.info(
+                            f"{self._getLogTag()} HA restart expected; reconnecting without normal backoff."
+                        )
+                    else:
+                        time.sleep(Connection.c_ExpectedServerRestartReconnectDelaySec)
+                else:
+                    self.BackoffCounter += 1
+                    self.BackoffCounter = min(self.BackoffCounter, 12)
+                    self.Logger.error(f"{self._getLogTag()} sleeping before trying the HA connection again.")
+                    # Wake immediately if another thread learns that this disconnect is
+                    # an expected server restart while normal backoff is in progress.
+                    self.ServerRestartExpected.wait(5 * self.BackoffCounter)
             self.ConId += 1
 
             try:
@@ -159,14 +215,16 @@ class Connection(IHomeAssistantWebSocket):
                 # If we got auth from the env var, we running in the add on and use this address.
                 uri = f"{(ServerInfo.GetApiServerBaseUrl('ws'))}/api/websocket"
                 self.Logger.info(f"{self._getLogTag()} Starting connection to [{uri}]")
-                self.Ws = Client(uri, onWsOpen=self.Opened, onWsData=self._OnData, onWsClose=self.Closed)
+                ws = Client(uri, onWsOpen=self.Opened, onWsData=self._OnData, onWsClose=self.Closed)
+                with self.PendingContextsLock:
+                    self.Ws = ws
 
                 # It's important that we disable cert checks since the server might have a self signed cert or cert for a hostname that we aren't using.
                 # This is safe to do, since the connection will be localhost or on the local LAN
-                self.Ws.SetDisableCertCheck(True)
+                ws.SetDisableCertCheck(True)
 
                 # Run until success or failure.
-                self.Ws.RunUntilClosed()
+                ws.RunUntilClosed()
 
                 self.Logger.info(f"{self._getLogTag()} Loop restarting.")
 
@@ -185,10 +243,29 @@ class Connection(IHomeAssistantWebSocket):
     # Called when the websocket is closed.
     def Closed(self, ws: IWebSocketClient):
         self.Logger.info(f"{self._getLogTag()} Websocket closed")
+        # A restart can close the socket while a request is waiting for its result. Wake
+        # those callers immediately rather than making them wait for the full timeout.
+        # Detaching the map also prevents response IDs from the next websocket session
+        # colliding with requests left over from this one.
+        with self.PendingContextsLock:
+            # Ignore a delayed callback from an older websocket. It must not tear down the
+            # state or wake requests belonging to the current connection.
+            if ws is not self.Ws:
+                return
+            self.IsConnected = False
+            self.Ws = None
+            pendingContexts = list(self.PendingContexts.values())
+            self.PendingContexts.clear()
+        for pendingContext in pendingContexts:
+            pendingContext.Event.set()
 
 
     def _OnData(self, ws: IWebSocketClient, buffer: Buffer, msgType: WebSocketOpCode) -> None:
         try:
+            # Ignore messages delivered late by a websocket from an older connection loop.
+            if ws is not self.Ws:
+                return
+
             jsonStr = buffer.GetBytesLike().decode()
             jsonObj: Dict[str, Any] = json.loads(jsonStr)
             if self.Logger.isEnabledFor(logging.DEBUG) and Connection.c_LogWsMessages:
@@ -200,7 +277,10 @@ class Connection(IHomeAssistantWebSocket):
                 # Check if this is the auth response.
                 if "type" in jsonObj and jsonObj["type"] == "auth_ok":
                     # Auth success!
-                    self.IsConnected = True
+                    with self.PendingContextsLock:
+                        if ws is not self.Ws:
+                            return
+                        self.IsConnected = True
                     self.BackoffCounter = 0
                     self._OnConnected()
                     return
@@ -247,6 +327,8 @@ class Connection(IHomeAssistantWebSocket):
                     # Check if there's a pending context for this message.
                     # It's ok if there's no pending context, since we might have sent a message that we don't care about the response.
                     with self.PendingContextsLock:
+                        if ws is not self.Ws:
+                            return
                         if msgId in self.PendingContexts:
                             # If we find a mach, set the response and signal the event.
                             pendingContext = self.PendingContexts[msgId]
@@ -278,31 +360,32 @@ class Connection(IHomeAssistantWebSocket):
         ignoreConnectionState: bool = False,
         timeoutSec: float = 10.0,
     ) -> Optional[Dict[str, Any]]:
-        # Check the connection state.
-        if ignoreConnectionState is False:
-            if self.IsConnected is False:
-                self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't authed.")
-                return None
-        # Capture and check the websocket.
-        ws = self.Ws
-        if ws is None:
-            self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't connected.")
-            return None
-
         msgId = 0
         pendingContext: Optional[PendingContexts] = None
         try:
-            # Add the id field to all messages that are post auth.
-            if self.IsConnected:
-                with self.MsgIdLock:
-                    msgId = self.MsgId
-                    msg["id"] = msgId
-                    self.MsgId += 1
+            # Check the connection, capture its websocket, and register the pending
+            # context under the same lock Closed() uses to tear them down. Otherwise a
+            # close between the state check and registration can strand this call until
+            # its full timeout and let its message ID leak into the next websocket.
+            with self.PendingContextsLock:
+                if ignoreConnectionState is False and self.IsConnected is False:
+                    self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't authed.")
+                    return None
+                ws = self.Ws
+                if ws is None:
+                    self.Logger.error(f"{self._getLogTag()} message tried to be sent while we weren't connected.")
+                    return None
 
-            # Create a pending context
-            if waitForResponse:
-                pendingContext = PendingContexts()
-                with self.PendingContextsLock:
+                # Add the id field to all messages that are post auth.
+                if self.IsConnected:
+                    with self.MsgIdLock:
+                        msgId = self.MsgId
+                        msg["id"] = msgId
+                        self.MsgId += 1
+
+                # Create a pending context.
+                if waitForResponse:
+                    pendingContext = PendingContexts()
                     self.PendingContexts[msgId] = pendingContext
 
             # Dump the message
@@ -334,7 +417,10 @@ class Connection(IHomeAssistantWebSocket):
             # If we have a pending context, make sure to remove it.
             if pendingContext is not None:
                 with self.PendingContextsLock:
-                    del self.PendingContexts[msgId]
+                    # Closed() can already have removed this context. Only remove the
+                    # current object so a reused message ID can never delete a newer call.
+                    if self.PendingContexts.get(msgId) is pendingContext:
+                        del self.PendingContexts[msgId]
         return None
 
 
