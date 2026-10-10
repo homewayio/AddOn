@@ -2,7 +2,7 @@
 
 import time
 import logging
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Optional, List, Tuple
 
 import requests
 import urllib3
@@ -23,6 +23,7 @@ from ..memorymanager import MemoryManager
 from ..sentry import Sentry
 from ..compat import Compat
 from ..httpresult import HttpResult, HttpResultOrNone
+from ..httpheaderpolicy import HttpHeaderPolicy
 from ..httpstreamaccumulationreader import HttpStreamAccumulationReader
 from ..Proto import HttpHeader
 from ..Proto import WebStreamMsg
@@ -198,9 +199,7 @@ class WebStreamHttpHelper(IWebStreamHelper):
             #
             # 1) An oracle snapshot or webcam stream request. In this case the WebCamHelper class will handle the request.
             # 2) If the request is a StreamCommand, the CommandHandler will handle the request.
-            # 3) Finally, check if the request is cached in Slipstream.
             hwHttpResult:HttpResultOrNone = None
-            isFromCache = False
             # If this is a special command for Homeway, we handle it differently.
             if CommandHandler.Get().IsCommandRequest(httpInitialContext):
                 # This HandleRequest wil return a valid httpResult, with a full result.
@@ -233,18 +232,20 @@ class WebStreamHttpHelper(IWebStreamHelper):
         # Note that close() could throw in bad cases, but that's ok because this function is allowed to throw on errors and the stream will be cleaned up.
         with hwHttpResult:
 
-            # As a caching technique, if the request has the correct modified headers and the response has them as well, send back a 304,
-            # which indicates the body hasn't been modified and we can save the bandwidth by not sending it.
-            # We need to do this before we process the response headers.
-            # This function will check if we want to do a 304 return and update the request correctly.
-            self.checkForNotModifiedCacheAndUpdateResponseIfSo(sendHeaders, hwHttpResult)
+            # Conditional request semantics belong to the origin; preserve its response status and body.
+            hasResponseBody = hwHttpResult.HasResponseBody(method)
+
+            # HEAD and 304 may describe a representation's length while transferring zero bytes.
+            # Other bodyless statuses must not expose a stale nonzero payload length.
+            if 100 <= hwHttpResult.StatusCode < 200 or hwHttpResult.StatusCode in (204, 205):
+                hwHttpResult.Headers.pop("Content-Length", None)
 
             # Before we check the headers, check if we are using a full body buffer.
             # If we are using a full body buffer, we need to ensure the content header is set. This will do a few things:
             #   - It will make the request more efficient since we can allocate the fully know buffer size.
             #   - It will make the send loop more efficient, since we know we are only sending one big chunk of data.
             c_contentLengthHeaderKeyLower = "content-length"
-            if hwHttpResult.FullBodyBuffer is not None:
+            if hasResponseBody and hwHttpResult.FullBodyBuffer is not None:
                 # We set this flag so other parts of this class that need to know if we are using it or not
                 # this way we only have one check that enables or disables it.
                 self.IsUsingFullBodyBuffer = True
@@ -313,10 +314,19 @@ class WebStreamHttpHelper(IWebStreamHelper):
                 # This has to be set out of the loop.
                 hwHttpResult.Headers["x-og-location"] = ogLocationHeaderValue
 
+            if not hasResponseBody:
+                # This drives relay framing and quota accounting; keep representation metadata in headers.
+                contentLength = 0
+
+            if hwHttpResult.Headers.get("Content-Encoding", "").strip().lower() not in ("", "identity"):
+                # Multipart boundaries describe decoded content. Forward encoded bodies as raw bytes;
+                # attempting to parse those boundaries would corrupt/truncate the compressed stream.
+                boundaryStr = None
+
             # We also look at the content-type to determine if we should add compression to this request or not.
             # general rule of thumb is that compression is quite cheap but really helps with text, so we should compress when we
             # can.
-            compressBody = self.shouldCompressBody(contentTypeLower, hwHttpResult, contentLength)
+            compressBody = hasResponseBody and self.shouldCompressBody(contentTypeLower, hwHttpResult, contentLength)
 
             # If the content length is known, tell the compression system, which will help performance.
             if contentLength is not None:
@@ -331,7 +341,9 @@ class WebStreamHttpHelper(IWebStreamHelper):
             # If so, it will return a context object. If not, it will return None.
             responseHandlerContext:Optional[Any] = None
             webRequestResponseHandler = Compat.GetWebRequestResponseHandler()
-            if webRequestResponseHandler is not None:
+            if (hasResponseBody and webRequestResponseHandler is not None
+                    and not HttpHeaderPolicy.HasNoTransform(sendHeaders.items())
+                    and not HttpHeaderPolicy.HasNoTransform(hwHttpResult.Headers.items())):
                 responseHandlerContext = webRequestResponseHandler.CheckIfResponseNeedsToBeHandled(uri)
 
             # Setup a loop to read the stream and push it out in multiple messages.
@@ -362,9 +374,8 @@ class WebStreamHttpHelper(IWebStreamHelper):
                 builderContext = MsgBuilderContext()
 
                 # Unless we are skipping the body read, do it now.
-                # If there's a 304, we might have a body, but we don't want to read it.
-                # If the response is 204, there will be no content, so don't bother.
-                if hwHttpResult.StatusCode == 304 or hwHttpResult.StatusCode == 204:
+                # Bodyless methods/statuses can still carry representation metadata in their headers.
+                if not hasResponseBody:
                     # Use zero read defaults.
                     nonCompressedBodyReadSize = 0
                     lastBodyReadLength = 0
@@ -523,28 +534,24 @@ class WebStreamHttpHelper(IWebStreamHelper):
             # Log about it - only if debug is enabled. Otherwise, we don't want to waste time making the log string.
             responseWriteDone = time.time()
             if self.Logger.isEnabledFor(logging.DEBUG):
-                self.Logger.debug(self.getLogMsgPrefix() + method+" [upload:"+str(format(requestExecutionStart - self.OpenedTime, '.3f'))+"s; request_exe:"+str(format(requestExecutionEnd - requestExecutionStart, '.3f'))+"s; send:"+str(format(responseWriteDone - requestExecutionEnd, '.3f'))+"s; body_read:"+str(format(self.BodyReadTimeSec, '.3f'))+"s; compress:"+str(format(self.CompressionTimeSec, '.3f'))+"s; stream_upload:"+str(format(self.ServiceUploadTimeSec, '.3f'))+"s] size:("+str(nonCompressedContentReadSizeBytes)+"->"+str(contentReadBytes)+") compressed:"+str(compressBody)+" msgcount:"+str(messageCount)+" accumulatedStreamReader:"+str(self.HttpStreamAccumulationReader is not None)+" type:"+str(contentTypeLower)+" status:"+str(hwHttpResult.StatusCode)+" cached:"+str(isFromCache)+" for " + uri)
+                self.Logger.debug(self.getLogMsgPrefix() + method+" [upload:"+str(format(requestExecutionStart - self.OpenedTime, '.3f'))+"s; request_exe:"+str(format(requestExecutionEnd - requestExecutionStart, '.3f'))+"s; send:"+str(format(responseWriteDone - requestExecutionEnd, '.3f'))+"s; body_read:"+str(format(self.BodyReadTimeSec, '.3f'))+"s; compress:"+str(format(self.CompressionTimeSec, '.3f'))+"s; stream_upload:"+str(format(self.ServiceUploadTimeSec, '.3f'))+"s] size:("+str(nonCompressedContentReadSizeBytes)+"->"+str(contentReadBytes)+") compressed:"+str(compressBody)+" msgcount:"+str(messageCount)+" accumulatedStreamReader:"+str(self.HttpStreamAccumulationReader is not None)+" type:"+str(contentTypeLower)+" status:"+str(hwHttpResult.StatusCode)+" for " + uri)
 
 
     def buildHeaderVector(self, builder:octoflatbuffers.Builder, httpResult:HttpResult) -> Optional[int]:
         # Gather up the headers to return.
         headerTableOffsets:List[int] = []
         headers = httpResult.Headers
+        excludedHeaders = HttpHeaderPolicy.GetHopByHopHeaderNames(headers.items())
         for name, value in headers.items():
             nameLower = name.lower()
 
-            # Since we send the entire result as one non-encoded
-            # payload we want to drop this header. Otherwise the server might emit it to
-            # the client, when it actually doesn't match what the server sends to the client.
-            # Note: Typically, if the OctoPrint web server sent something chunk encoded,
-            # our web server will also send it to the client via chunk encoding. But it will handle
-            # that on it's own and set the header accordingly.
-            if nameLower == "transfer-encoding":
+            # Preserve representation metadata, including Content-Encoding: the raw body is
+            # unchanged by relay transport compression. Each HTTP leg owns its hop-specific fields.
+            if nameLower in excludedHeaders:
                 continue
-            # Don't send this easter egg.
-            if nameLower == "x-clacks-overhead":
+            if not HttpHeaderPolicy.IsValidHeader(name, value):
+                self.Logger.warning("buildHeaderVector ignored an invalid HTTP header.")
                 continue
-
             # Allocate strings
             keyOffset = builder.CreateString(name) #pyright: ignore[reportUnknownMemberType]
             valueOffset = builder.CreateString(value) #pyright: ignore[reportUnknownMemberType]
@@ -560,87 +567,11 @@ class WebStreamHttpHelper(IWebStreamHelper):
 
         # Build the heaver vector
         HttpInitialContext.StartHeadersVector(builder, len(headerTableOffsets)) #pyright: ignore[reportUnknownMemberType]
-        for offset in headerTableOffsets:
+        for offset in reversed(headerTableOffsets):
             # This function was very hard to find, I eventually found an example in the
             # py samples in the flatbuffer repo.
             builder.PrependUOffsetTRelative(offset) #pyright: ignore[reportUnknownMemberType]
         return builder.EndVector() #pyright: ignore[reportUnknownMemberType]
-
-
-    def checkForNotModifiedCacheAndUpdateResponseIfSo(self, sentHeaders:Dict[str, str], httpResult:HttpResult) -> None:
-        # Check if the sent headers have any conditional http headers.
-        requestEtag:Optional[str] = None
-        requestModifiedDate:Optional[str] = None
-        for key in sentHeaders:
-            keyLower = key.lower()
-            if keyLower == "if-modified-since":
-                requestModifiedDate = sentHeaders[key]
-            if keyLower == "if-none-match":
-                requestEtag = sentHeaders[key]
-                # If the request etag starts with the weak indicator, remove it
-                if requestEtag.startswith("W/"):
-                    requestEtag = requestEtag[2:]
-
-        # If there were none found, there's nothing do to.
-        if requestEtag is None and requestModifiedDate is None:
-            return
-
-        # Look through the response headers
-        responseEtag:Optional[str]  = None
-        responseModifiedDate:Optional[str]  = None
-        headers = httpResult.Headers
-        for key in headers:
-            keyLower = key.lower()
-            if keyLower == "etag":
-                responseEtag = headers[key]
-            if keyLower == "last-modified":
-                responseModifiedDate = headers[key]
-            if responseEtag is not None and responseModifiedDate is not None:
-                break
-
-        # See if there are any matches.
-        # If we have both values, both must match.
-        convertTo304 = False
-        # If we have both, both must match
-        if requestEtag is not None and requestModifiedDate is not None:
-            if responseEtag is not None and responseModifiedDate is not None and requestEtag == responseEtag and requestModifiedDate == responseModifiedDate:
-                convertTo304 = True
-        # If we only have the date, see if it matches
-        elif requestModifiedDate is not None:
-            if responseModifiedDate is not None and requestModifiedDate == responseModifiedDate:
-                convertTo304 = True
-        # If we only have the etag, see if it matches
-        elif requestEtag is not None:
-            if responseEtag is not None and requestEtag == responseEtag:
-                convertTo304 = True
-
-        # Check if we have something to do.
-        if convertTo304 is False:
-            return
-
-        # Convert the response.
-        self.updateResponseFor304(httpResult)
-
-
-    def updateResponseFor304(self, httpResult:HttpResult) -> None:
-        self.Logger.info(f"Converting request for {httpResult.Url} {httpResult.StatusCode} to a 304.")
-        # First of all, update the status code.
-        httpResult.StatusCode = 304
-        # Next, if this was a cached result or a result that has a full body buffer, we need to clear it.
-        httpResult.ClearFullBodyBuffer()
-        # Remove any headers we don't want to send. Including some of these seems to trip up some browsers.
-        # However, there are some we must send...
-        # Quote - Note that the server generating a 304 response MUST generate any of the following header fields that would have been sent in a 200 (OK) response to the same request: Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
-        #         https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/If-None-Match
-        removeHeaders:List[str] = []
-        for key in httpResult.Headers:
-            keyLower = key.lower()
-            if keyLower == "content-length":
-                removeHeaders.append(key)
-            if keyLower == "content-type":
-                removeHeaders.append(key)
-        for key in removeHeaders:
-            del httpResult.Headers[key]
 
 
     def getLogMsgPrefix(self) -> str:
@@ -658,6 +589,11 @@ class WebStreamHttpHelper(IWebStreamHelper):
         # will also read the flag and skip the compression.
         if httpResult.BodyBufferCompressionType != DataCompression.DataCompression.None_:
             return True
+
+        # Some origins ignore Accept-Encoding: identity. Preserve their encoded bytes and avoid
+        # spending CPU compressing them again. The check above must still flag precompressed tunnel buffers.
+        if httpResult.Headers.get("Content-Encoding", "").strip().lower() not in ("", "identity"):
+            return False
 
         # Make sure we have a known length and it's not too small to compress.
         if contentLengthOpt is not None and contentLengthOpt < Compression.MinSizeToCompress:

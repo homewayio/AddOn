@@ -3,6 +3,7 @@ from typing import Optional
 
 from homeway.compat import Compat
 from homeway.httpresult import HttpResult
+from homeway.httpheaderpolicy import HttpHeaderPolicy
 from homeway.buffer import Buffer
 from homeway.sentry import Sentry
 from homeway.httprequest import HttpRequest
@@ -71,7 +72,21 @@ class WebRequestResponseHandler(IWebRequestHandler):
     def HandleResponse(self, contextObject:ResponseHandlerContext, httpResult:HttpResult, bodyBuffer:Buffer) -> Buffer:
         try:
             if contextObject.Type == ResponseHandlerContext.HomeAssistantHtmlPage:
-                return self._HandleHomeAssistantHtmlPage(bodyBuffer)
+                # Only transform complete, unencoded HTML. In particular, some HA endpoints now
+                # return gzip even for Accept-Encoding: identity; those bytes must pass unchanged.
+                contentType = httpResult.Headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                contentEncoding = httpResult.Headers.get("Content-Encoding", "").strip().lower()
+                if (httpResult.StatusCode != 200 or contentType != "text/html"
+                        or contentEncoding not in ("", "identity") or HttpHeaderPolicy.HasNoTransform(httpResult.Headers.items())
+                        or "Signature" in httpResult.Headers or "Signature-Input" in httpResult.Headers):
+                    return bodyBuffer
+                result = self._HandleHomeAssistantHtmlPage(bodyBuffer)
+                if result.GetBytesLike() != bodyBuffer.GetBytesLike():
+                    # These describe the original representation and become invalid after injection.
+                    for name in ("ETag", "Last-Modified", "Content-MD5", "Digest", "Content-Digest", "Repr-Digest", "Accept-Ranges"):
+                        httpResult.Headers.pop(name, None)
+                    httpResult.Headers["Content-Length"] = str(len(result))
+                return result
             self.Logger.error(f"WebRequestResponseHandler tried to handle a context with an unknown Type? {contextObject.Type}")
         except Exception as e:
             Sentry.OnException("WebRequestResponseHandler exception while handling mainsail config.", e)
