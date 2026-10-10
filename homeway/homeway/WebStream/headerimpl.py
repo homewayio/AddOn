@@ -71,6 +71,9 @@ class HeaderHelper:
 
                 if lowerName == "accept-encoding":
                     # Request unencoded local responses; compression belongs to the Homeway tunnel.
+                    # Cloudflare asks origins for br/gzip to save origin-to-edge bandwidth. Our origin
+                    # hop is the local network, where bandwidth is free and the home device's CPU is
+                    # the scarce resource, so we take identity and compress once for the tunnel.
                     continue
 
                 # Filter out headers we don't want to send.

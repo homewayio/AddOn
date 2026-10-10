@@ -1,7 +1,7 @@
 <!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
 <!-- This is used in the homeway UI to show updates, so keep it up to date. -->
 
-# 3.1.2
+# 3.1.2-3
 
 - Working around a Home Assistant server bug that prevented the new maps from rendering correctly.
 

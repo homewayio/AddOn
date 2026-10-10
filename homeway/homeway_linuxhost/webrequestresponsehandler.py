@@ -83,6 +83,10 @@ class WebRequestResponseHandler(IWebRequestHandler):
                 result = self._HandleHomeAssistantHtmlPage(bodyBuffer)
                 if result.GetBytesLike() != bodyBuffer.GetBytesLike():
                     # These describe the original representation and become invalid after injection.
+                    # nginx's sub_filter makes the same choice by default (sub_filter_last_modified off):
+                    # clear ETag and Last-Modified rather than weaken them. Trade-off: injected HA pages are
+                    # resent in full instead of revalidated, but a kept origin validator would let a browser
+                    # reuse a page injected by an older add-on version after the origin answered 304.
                     for name in ("ETag", "Last-Modified", "Content-MD5", "Digest", "Content-Digest", "Repr-Digest", "Accept-Ranges"):
                         httpResult.Headers.pop(name, None)
                     httpResult.Headers["Content-Length"] = str(len(result))

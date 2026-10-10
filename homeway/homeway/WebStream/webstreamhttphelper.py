@@ -232,7 +232,17 @@ class WebStreamHttpHelper(IWebStreamHelper):
         # Note that close() could throw in bad cases, but that's ok because this function is allowed to throw on errors and the stream will be cleaned up.
         with hwHttpResult:
 
-            # Conditional request semantics belong to the origin; preserve its response status and body.
+            # Like nginx with proxy_cache, answer a GET/HEAD whose validators match the fresh 200 with
+            # a 304, even if the origin ignored them, so the unchanged body is never read or sent.
+            # See HttpHeaderPolicy.IsNotModified for the exact rules and their trade-offs. Pages that
+            # Homeway may rewrite are excluded: the client's copy could predate the rewrite (for
+            # example, cached while the page was no-transform), so the origin's ETag can't vouch for
+            # it. The path check is evaluated last because it is the least likely to matter.
+            if (HttpHeaderPolicy.IsNotModified(method, sendHeaders, hwHttpResult.StatusCode, hwHttpResult.Headers)
+                    and not self._MayRewriteResponseBody(uri)):
+                hwHttpResult.ConvertToNotModified()
+
+            # Bodyless methods and statuses still forward the origin's metadata headers.
             hasResponseBody = hwHttpResult.HasResponseBody(method)
 
             # HEAD and 304 may describe a representation's length while transferring zero bytes.
@@ -578,6 +588,13 @@ class WebStreamHttpHelper(IWebStreamHelper):
         return "Web Stream http ["+str(self.Id)+"] "
 
 
+    # True when the platform's response handler may rewrite this URL's body (Home Assistant HTML pages).
+    # This is a path match only, so it is cheap and independent of the current response's headers.
+    def _MayRewriteResponseBody(self, uri:str) -> bool:
+        webRequestResponseHandler = Compat.GetWebRequestResponseHandler()
+        return webRequestResponseHandler is not None and webRequestResponseHandler.CheckIfResponseNeedsToBeHandled(uri) is not None
+
+
     # Based on the content-type header, this determines if we would apply compression or not.
     # Returns true or false
     def shouldCompressBody(self, contentTypeLower:Optional[str], httpResult:HttpResult, contentLengthOpt:Optional[int]) -> bool:
@@ -612,9 +629,12 @@ class WebStreamHttpHelper(IWebStreamHelper):
         #   - Anything that's xml
         #   - Anything that's svg
         #   - Anything that's a application/octet-stream - moonraker sends unknown file types as these.
+        #   - The rest of Cloudflare's compressible types, like fonts, icons, protobuf, and wasm.
+        # A wrong guess costs little: the read loop stops compressing a stream that doesn't shrink.
         return (contentTypeLower.find("text/") != -1 or contentTypeLower.find("javascript") != -1
                 or contentTypeLower.find("json") != -1 or contentTypeLower.find("xml") != -1
-                or contentTypeLower.find("svg") != -1 or contentTypeLower.find("application/octet-stream") != -1)
+                or contentTypeLower.find("svg") != -1 or contentTypeLower.find("application/octet-stream") != -1
+                or contentTypeLower.split(";", 1)[0].strip() in HttpHeaderPolicy.c_TunnelCompressibleTypes)
 
 
     # Reads data from the response body, puts it in a data vector, and returns the offset.

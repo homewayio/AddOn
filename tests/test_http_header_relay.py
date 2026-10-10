@@ -21,6 +21,7 @@ from urllib3 import HTTPHeaderDict
 from homeway_linuxhost.webrequestresponsehandler import ResponseHandlerContext, WebRequestResponseHandler
 from homeway.buffer import Buffer
 from homeway.httpheaderpolicy import HttpHeaderPolicy
+from homeway.httprequest import HttpRequest
 from homeway.httpresult import HttpResult
 from homeway.streammsgbuilder import StreamMsgBuilder
 from homeway.Proto import HttpHeader, HttpInitialContext, StreamMessage, WebStreamMsg
@@ -54,6 +55,21 @@ class HeaderFixtureHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/not-modified":
             self.SendNoBody(304)
+            return
+        if self.path.startswith("/invalid-length/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", self.path.rsplit("/", 1)[1])
+            self.end_headers()
+            self.wfile.write(b"hello")
+            return
+        if self.path == "/folded":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("X-Folded", "first\r\n  second")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
             return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -381,7 +397,9 @@ class HttpHeaderRelayTests(unittest.TestCase):
         self.assertEqual(message.FullStreamDataSize(), len(body))
         self.assertEqual(result.Headers["ETag"], '"original"')
 
-    def test_live_origin_conditional_decisions_preserve_status_and_body(self) -> None:
+    def test_live_origin_ignoring_validators_gets_nginx_not_modified(self) -> None:
+        # The fixture always answers with a full body. Like nginx with proxy_cache, a matching
+        # GET becomes a 304; other statuses and methods keep the origin's response.
         headers = [("If-None-Match", '"same"'), ("If-Modified-Since", "Wed, 21 Oct 2030 07:28:00 GMT")]
         for method, status in (("GET", 200), ("GET", 412), ("GET", 404), ("POST", 200)):
             with self.subTest(method=method, status=status):
@@ -391,8 +409,131 @@ class HttpHeaderRelayTests(unittest.TestCase):
                     handler = Mock()
                     handler.CheckIfResponseNeedsToBeHandled.return_value = None
                     message = self.ExecuteResult(result, method, headers, handler)
-                    self.assertEqual(message.StatusCode(), status)
-                    self.assertEqual(bytes(message.DataAsByteArray()), b"origin response body")
+                    if method == "GET" and status == 200:
+                        self.assertEqual(message.StatusCode(), 304)
+                        self.assertEqual(message.DataLength(), 0)
+                        self.assertEqual(message.FullStreamDataSize(), 0)
+                        context = message.HttpInitialContext()
+                        assert context is not None
+                        names = [StreamMsgBuilder.BytesToString(context.Headers(i).Key()) for i in range(context.HeadersLength())] #pyright: ignore[reportOptionalMemberAccess]
+                        self.assertIn("ETag", names)
+                        self.assertIn("Last-Modified", names)
+                        self.assertNotIn("Content-Type", names)
+                        self.assertNotIn("Content-Length", names)
+                        # Only the rewrite exclusion consulted the handler; the body was never read.
+                        handler.CheckIfResponseNeedsToBeHandled.assert_called_once()
+                        handler.HandleResponse.assert_not_called()
+                    else:
+                        self.assertEqual(message.StatusCode(), status)
+                        self.assertEqual(bytes(message.DataAsByteArray()), b"origin response body")
+
+    def test_rewritable_html_is_never_answered_with_a_synthetic_304(self) -> None:
+        # A page cached while it wasn't rewritten (for example, while marked no-transform) still
+        # carries the origin's ETag. Once the page is rewritable, a 304 would keep that copy.
+        headers = [("If-None-Match", '"same"'), ("If-Modified-Since", "Wed, 21 Oct 2030 07:28:00 GMT")]
+        url = f"{self.baseUrl}/conditional/200"
+        with requests.get(url, headers=dict(headers), stream=True, timeout=2) as response:
+            result = HttpResult.BuildFromRequestLibResponse(response, url)
+            handler = Mock()
+            handler.CheckIfResponseNeedsToBeHandled.return_value = ResponseHandlerContext(ResponseHandlerContext.HomeAssistantHtmlPage)
+            handler.HandleResponse.side_effect = lambda context, httpResult, body: body
+            message = self.ExecuteResult(result, "GET", headers, handler)
+            self.assertEqual(message.StatusCode(), 200)
+            self.assertEqual(bytes(message.DataAsByteArray()), b"origin response body")
+            handler.HandleResponse.assert_called_once()
+
+    def test_not_modified_rules_follow_nginx(self) -> None:
+        lastModified = "Wed, 21 Oct 2030 07:28:00 GMT"
+
+        def Origin(*extra:Tuple[str, str]) -> HTTPHeaderDict:
+            headers = HTTPHeaderDict()
+            headers.add("ETag", '"v1"')
+            headers.add("Last-Modified", lastModified)
+            for name, value in extra:
+                headers.add(name, value)
+            return headers
+
+        cases:List[Tuple[str, str, Dict[str, str], int, HTTPHeaderDict, bool]] = [
+            ("strong tag", "GET", {"If-None-Match": '"v1"'}, 200, Origin(), True),
+            ("HEAD", "HEAD", {"If-None-Match": '"v1"'}, 200, Origin(), True),
+            ("tag weakened by the service", "GET", {"If-None-Match": 'W/"v1"'}, 200, Origin(), True),
+            ("tag list", "GET", {"If-None-Match": '"other", W/"v1"'}, 200, Origin(), True),
+            ("wildcard", "GET", {"If-None-Match": "*"}, 200, Origin(), True),
+            ("lowercase field name", "GET", {"if-none-match": '"v1"'}, 200, Origin(), True),
+            ("exact date", "GET", {"If-Modified-Since": lastModified}, 200, Origin(), True),
+            ("same instant in asctime form", "GET", {"If-Modified-Since": "Mon Oct 21 07:28:00 2030"}, 200, Origin(), True),
+            ("both validators match", "GET", {"If-None-Match": '"v1"', "If-Modified-Since": lastModified}, 200, Origin(), True),
+            ("prefix of another tag", "GET", {"If-None-Match": '"v10"'}, 200, Origin(), False),
+            ("different tag", "GET", {"If-None-Match": '"v2"'}, 200, Origin(), False),
+            ("later date is not exact", "GET", {"If-Modified-Since": "Thu, 22 Oct 2030 07:28:00 GMT"}, 200, Origin(), False),
+            ("unparseable date", "GET", {"If-Modified-Since": "yesterday"}, 200, Origin(), False),
+            ("tag matches but date does not", "GET", {"If-None-Match": '"v1"', "If-Modified-Since": "Thu, 22 Oct 2030 07:28:00 GMT"}, 200, Origin(), False),
+            ("no validators", "GET", {}, 200, Origin(), False),
+            ("POST", "POST", {"If-None-Match": '"v1"'}, 200, Origin(), False),
+            ("non-200 status", "GET", {"If-None-Match": '"v1"'}, 201, Origin(), False),
+            ("If-Match defers to origin", "GET", {"If-None-Match": '"v1"', "If-Match": '"v1"'}, 200, Origin(), False),
+            ("If-Unmodified-Since defers to origin", "GET", {"If-None-Match": '"v1"', "If-Unmodified-Since": lastModified}, 200, Origin(), False),
+            ("repeated ETag is ambiguous", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("ETag", '"v2"')), False),
+            ("date without Last-Modified", "GET", {"If-Modified-Since": lastModified}, 200, HTTPHeaderDict({"ETag": '"v1"'}), False),
+            # Signed responses: the 304 changes the status and fields a signature can cover.
+            ("Signature", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Signature", "sig1=:fixture:")), False),
+            ("Signature-Input", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Signature-Input", 'sig1=("@status")')), False),
+            # Deliberately broader than nginx, which only converts responses it would cache. A matching
+            # validator is correct whatever the cache directives say, and the relay stores nothing.
+            ("Set-Cookie", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Set-Cookie", "a=1")), True),
+            ("Vary star", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Vary", "Origin, *")), True),
+            ("no-store with a wildcard", "GET", {"If-None-Match": "*"}, 200, Origin(("Cache-Control", "no-store")), True),
+            ("no-cache", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Cache-Control", "no-cache")), True),
+            ("private", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Cache-Control", "private, max-age=60")), True),
+            ("max-age=0", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Cache-Control", "public, max-age=0")), True),
+            ("past Expires", "GET", {"If-None-Match": '"v1"'}, 200, Origin(("Expires", "Thu, 01 Jan 1970 00:00:00 GMT")), True),
+        ]
+        for name, method, requestHeaders, status, responseHeaders, expected in cases:
+            with self.subTest(name):
+                self.assertEqual(HttpHeaderPolicy.IsNotModified(method, requestHeaders, status, responseHeaders), expected)
+
+        weakOrigin = HTTPHeaderDict({"ETag": 'W/"v1"'})
+        self.assertTrue(HttpHeaderPolicy.IsNotModified("GET", {"If-None-Match": '"v1"'}, 200, weakOrigin))
+
+        result = HttpResult(200, {"Content-Type": "text/css", "Content-Length": "4", "Accept-Ranges": "bytes",
+                                  "Content-Encoding": "gzip", "ETag": '"v1"', "Cache-Control": "max-age=60",
+                                  "Vary": "Accept-Encoding", "Set-Cookie": "a=1"}, "/", False, fullBodyBuffer=Buffer(b"body"))
+        result.ConvertToNotModified()
+        self.assertEqual(result.StatusCode, 304)
+        self.assertIsNone(result.FullBodyBuffer)
+        self.assertEqual(sorted(name for name, _ in result.Headers.items()), ["Cache-Control", "ETag", "Set-Cookie", "Vary"])
+
+    def test_unframeable_origin_response_is_a_502_for_that_request_only(self) -> None:
+        # nginx answers an invalid upstream Content-Length with 502. Raising instead would reach the
+        # web stream thread and disconnect the whole tunnel.
+        session = requests.Session()
+        session.trust_env = False
+        self.addCleanup(session.close)
+        with patch("homeway.httprequest.HttpSessions.GetSession", return_value=session):
+            for value in ("abc", "-1", "+5", "5.0"):
+                with self.subTest(value=value):
+                    attempt = HttpRequest.MakeHttpCallAttempt(self.logger, "Main request", "GET", f"{self.baseUrl}/invalid-length/{value}",
+                                                              {"Accept-Encoding": "identity"}, None, None, False, None)
+                    self.assertTrue(attempt.IsChainDone)
+                    assert attempt.Result is not None
+                    self.assertEqual(attempt.Result.StatusCode, 502)
+                    self.assertEqual(attempt.Result.Headers["Content-Length"], "0")
+
+    def test_folded_response_field_is_unfolded_instead_of_dropped(self) -> None:
+        url = self.baseUrl + "/folded"
+        with requests.get(url, stream=True, timeout=2) as response:
+            result = HttpResult.BuildFromRequestLibResponse(response, url)
+            self.assertIn(("X-Folded", "first second"), self.WireHeaders(result))
+
+    def test_tunnel_compression_covers_cloudflare_types(self) -> None:
+        result = HttpResult(200, {}, "/", False)
+        for contentType in ("application/x-protobuf", "font/ttf", "image/x-icon", "application/wasm",
+                            "application/manifest+json", "image/svg+xml; charset=utf-8", "application/vnd.ms-fontobject"):
+            with self.subTest(contentType=contentType):
+                self.assertTrue(self.helper.shouldCompressBody(contentType, result, 4096))
+        for contentType in ("image/png", "font/woff2", "video/mp4", "application/zip"):
+            with self.subTest(contentType=contentType):
+                self.assertFalse(self.helper.shouldCompressBody(contentType, result, 4096))
 
     def test_encoded_multipart_bypasses_decoded_boundary_parser(self) -> None:
         url = self.baseUrl + "/encoded-multipart"

@@ -7,6 +7,7 @@ from requests.structures import CaseInsensitiveDict
 from urllib3 import HTTPHeaderDict
 
 from .buffer import Buffer
+from .httpheaderpolicy import HttpHeaderPolicy
 from .streamreadhelper import StreamReadHelper
 from .Proto.DataCompression import DataCompression
 
@@ -92,13 +93,24 @@ class HttpResult():
         # retains their boundaries and order. Synthetic/non-streamed responses may have no raw object.
         rawHeaders = getattr(response.raw, "headers", None)
         headers = rawHeaders if isinstance(rawHeaders, HTTPHeaderDict) else response.headers
+        if any("\n" in value for _, value in headers.items()):
+            # http.client keeps obs-fold line breaks in the value. Replace each fold with a space
+            # (RFC 9112 section 5.2) instead of dropping the whole field later as invalid.
+            unfolded = HTTPHeaderDict()
+            for name, value in headers.items():
+                unfolded.add(name, HttpHeaderPolicy.UnfoldHeaderValue(value))
+            headers = unfolded
         result = HttpResult(response.status_code, headers, url, isFallback, requestLibResponseObj=response)
         if "Transfer-Encoding" in result.Headers:
             # urllib3 removes transfer framing while reading raw. An upstream Content-Length must
             # not truncate that stream or become the downstream length when transfer framing is present.
+            # nginx answers this combination with a 502; RFC 9112 section 6.3 lets an intermediary
+            # forward it once Content-Length is removed, which keeps lax local servers working.
             result.Headers.pop("Content-Length", None)
         elif "Content-Length" in result.Headers:
-            # Identical repeated lengths are allowed; conflicting/invalid lengths cannot frame a response.
+            # Identical repeated lengths are allowed (RFC 9110 section 8.6; nginx rejects any repeat);
+            # conflicting or invalid lengths cannot frame a response. The caller turns the
+            # ValueError into a 502 for this request, as nginx does.
             lengths = [value.strip() for value in result.Headers["Content-Length"].split(",")]
             if not all(value and all(character in "0123456789" for character in value) for value in lengths):
                 response.close()
@@ -185,6 +197,18 @@ class HttpResult():
         self._fullBodyBuffer = None
         self._bodyCompressionType = DataCompression.None_
         self._fullBodyBufferPreCompressedSize = 0
+
+
+    # Turns a full 200 into the 304 that nginx's not_modified filter sends: the status changes and
+    # Content-Type, Content-Length, Accept-Ranges, and Content-Encoding are removed, while validators
+    # and cache fields remain so the client can refresh its stored response. The unread origin body
+    # is discarded when this result closes, so the local connection isn't reused. That costs one new
+    # local connection, which is far cheaper than reading a body nobody will receive.
+    def ConvertToNotModified(self) -> None:
+        self.StatusCode = 304
+        self.ClearFullBodyBuffer()
+        for name in ("Content-Type", "Content-Length", "Accept-Ranges", "Content-Encoding"):
+            self._headers.pop(name, None)
 
 
     def HasResponseBody(self, requestMethod:Optional[str]=None) -> bool:

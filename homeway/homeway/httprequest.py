@@ -2,6 +2,8 @@ import platform
 import logging
 from typing import Dict, Optional, Union
 
+import requests
+
 from .mdns import MDns
 from .buffer import Buffer
 from .compat import Compat
@@ -357,6 +359,18 @@ class HttpRequest:
             return self.result
 
 
+    # nginx answers an upstream response it can't frame (an invalid Content-Length) with a 502 for that
+    # request only. Letting the ValueError escape would reach the web stream thread, which treats any
+    # exception as a protocol failure and disconnects the whole tunnel, dropping every other stream.
+    @staticmethod
+    def _BuildResult(logger:logging.Logger, response:requests.Response, url:str, isFallback:bool) -> HttpResult:
+        try:
+            return HttpResult.BuildFromRequestLibResponse(response, url, isFallback)
+        except ValueError as e:
+            logger.warning("%s returned a response that can't be framed, returning a 502. %s", url, e)
+            return HttpResult.Error(502, url, isFallback)
+
+
     # This function should always return a AttemptResult object.
     @staticmethod
     def MakeHttpCallAttempt(logger:logging.Logger, attemptName:str, method:str, url:str, headers:Optional[Dict[str,str]], data:UploadTypesBufferOrNone, mainResult:Optional[HttpResult], isFallback:bool, nextFallbackUrl:Optional[str], allowRedirects:bool=False) -> AttemptResult:
@@ -468,7 +482,7 @@ class HttpRequest:
         if response is not None and response.status_code != 404:
             # We got a valid response, we are done.
             # Return true and the result object, so it can be returned.
-            return HttpRequest.AttemptResult(True, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
+            return HttpRequest.AttemptResult(True, HttpRequest._BuildResult(logger, response, url, isFallback))
 
         # Check if we have another fallback URL to try.
         if nextFallbackUrl is not None:
@@ -477,7 +491,7 @@ class HttpRequest:
             # use capture the main result object, so we can use it eventually if all fallbacks fail.
             if response is None:
                 return HttpRequest.AttemptResult(False, None)
-            return HttpRequest.AttemptResult(False, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
+            return HttpRequest.AttemptResult(False, HttpRequest._BuildResult(logger, response, url, isFallback))
 
         # We don't have another fallback, so we need to end this.
         if mainResult is not None:
@@ -487,7 +501,7 @@ class HttpRequest:
         else:
             if response is not None:
                 logger.debug("%s failed and we have no more fallbacks. We DON'T have a main response.", attemptName)
-                return HttpRequest.AttemptResult(True, HttpResult.BuildFromRequestLibResponse(response, url, isFallback))
+                return HttpRequest.AttemptResult(True, HttpRequest._BuildResult(logger, response, url, isFallback))
 
             # Otherwise return the failure.
             logger.debug("%s failed and we have no more fallbacks. We DON'T have a main response.", attemptName)
