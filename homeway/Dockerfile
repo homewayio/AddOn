@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
 # Install the optional packages for zstandard compression. The extra packages are required for the zstandard python pip install to build.
 # THIS VERSION STRING MUST STAY IN SYNC with Compression.ZStandardPipPackageString
-RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
+RUN pip install --no-cache-dir -q "zstandard>=0.21.0,<0.26.0"
 
 # Create a working dir for all of our files.
 WORKDIR /app

@@ -4,8 +4,9 @@
 # See ./homeway/Dockerfile for the Home Assistant add-on container.
 #
 
-# Start with the latest alpine, for a solid base to build from.
-FROM alpine:3.20.0
+# Pin the Alpine minor version so patch updates stay automatic and runtime changes are deliberate.
+# Before a minor bump, check Python/native dependency compatibility and the multi-arch Docker PR checks.
+FROM alpine:3.24
 
 # This is a special dir that the user MUST mount to the host, so that the data is persisted.
 # If this is not mounted, the addon will need to be re-linked every time the container is remade.
@@ -42,7 +43,7 @@ RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q -r ${REP
 # hadolint ignore=DL3059
 RUN apk add --no-cache zstd
 # hadolint ignore=DL3059
-RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q "zstandard>=0.21.0,<0.23.0"
+RUN ${VENV_DIR}/bin/pip3 install --require-virtualenv --no-cache-dir -q "zstandard>=0.21.0,<0.26.0"
 
 # For docker, we use our homeway_standalone_docker host to handle the runtime setup and launch of the service.
 WORKDIR ${REPO_DIR}

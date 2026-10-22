@@ -253,10 +253,12 @@ class Compression:
     MinSizeToCompress = 200
 
     # Since zstandard can't be a required dep since it will fail on some platforms, we try to install it via the runtime or
-    # the linux installer if possible. Due to that, this is the package version string they will use ty to to install it.
-    # We currently have this set to 21, which still supports PY3.7, which is from 2019.
-    # THIS MUST STAY IN SYNC WITH THE VERSION IN THE Dockerfile and the GitHub actions linter file.
-    ZStandardPipPackageString = "zstandard>=0.21.0,<0.23.0"
+    # the linux installer if possible. This is the package version string they use to install it.
+    # Keep 0.21 available for older Python; pip uses Requires-Python to select a compatible release (0.23 on PY3.8).
+    # Allow 0.25 for PY3.14 (Alpine 3.24), preserving the existing zstd wire format and Homeway dictionary.
+    # Raising only the maximum avoids forcing a native package rebuild on hosts with a working older version.
+    # THIS MUST STAY IN SYNC WITH both Dockerfiles, .dev/setup.sh, and the GitHub actions linter file.
+    ZStandardPipPackageString = "zstandard>=0.21.0,<0.26.0"
     ZStandardMinCoreCountForInstall = 3
 
     _Instance:"Compression" = None #pyright: ignore[reportAssignmentType]

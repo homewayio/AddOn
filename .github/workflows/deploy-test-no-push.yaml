@@ -2,18 +2,27 @@
 # yamllint disable rule:line-length
 
 # The point of this workflow is to mock the deploy exactly, except don't actually push the new images.
-# To use this workflow, you need to create a branch called docker-test, and push to that branch.
+# Run it on docker-test or pull requests that change the image or compression dependencies.
 
 name: Deploy (No Push)
 permissions:
   contents: read
 
-# Deploy will run on each GitHub release.
 # yamllint disable-line rule:truthy
 on:
   push:
     branches:
       - docker-test
+  pull_request:
+    paths:
+      - homeway/Dockerfile
+      - homeway/requirements.txt
+      - homeway/build.yaml
+      - homeway/config.yaml
+      - homeway/homeway/compression.py
+      - homeway/homeway/zstandarddictionary.py
+      - tests/test_compression_compatibility.py
+      - .github/workflows/deploy-test-no-push.yaml
 
 jobs:
   # The following is taken from https://github.com/hassio-addons/workflows/blob/3d2f70ad772d71000e33587307e816e5fe82841a/.github/workflows/addon-deploy.yaml
@@ -68,8 +77,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
     strategy:
+      fail-fast: false
       matrix:
         architecture: ${{ fromJson(needs.information.outputs.architectures) }}
     steps:
@@ -108,12 +117,6 @@ jobs:
             echo "::error ::Could not determine platform for architecture ${{ matrix.architecture }}"
             exit 1
           fi
-      - name: 🏗  Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - name: ⤵️ Download base image
         if: steps.flags.outputs.from != 'null'
         run: docker pull "${{ steps.flags.outputs.from }}"
@@ -140,6 +143,13 @@ jobs:
             BUILD_REF=${{ github.sha }}
             BUILD_REPOSITORY=${{ github.repository }}
             BUILD_VERSION=${{ needs.information.outputs.version }}
+      # Override the base image's init entrypoint so checks need no Home Assistant supervisor.
+      - name: 🧪 Verify native compression and protocol compatibility
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/${{ needs.information.outputs.slug }}/${{ matrix.architecture }}:${{ needs.information.outputs.environment }}"
+          docker run --rm --platform "${{ steps.flags.outputs.platform }}" --entrypoint python3 "$image" -c "import sys, zstandard; print(sys.version); print(zstandard.__version__, zstandard.ZSTD_VERSION)"
+          # The add-on build context contains homeway/, so mount the repository's tests separately.
+          docker run --rm --platform "${{ steps.flags.outputs.platform }}" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --mount "type=bind,source=${{ github.workspace }}/tests,target=/tests,readonly" --entrypoint python3 "$image" -m unittest discover -s /tests -p test_compression_compatibility.py -v
       # This ugly bit is necessary, or our cache will grow forever...
       # Well until we hit GitHub's limit of 5GB :)
       # https://github.com/docker/build-push-action/issues/252

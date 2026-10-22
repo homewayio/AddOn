@@ -55,10 +55,12 @@ jobs:
         uses: home-assistant/actions/helpers/find-addons@master
 
   python-lint:
-    runs-on: ubuntu-latest
+    # Python 3.8 and 3.9 have setup-python builds for 24.04, but not 26.04.
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python ${{ matrix.python-version }}
@@ -75,7 +77,7 @@ jobs:
           pip install pyright
           pip install ruff
           pip install -r ./homeway/requirements.txt
-          pip install "zstandard>=0.21.0,<0.23.0"
+          pip install "zstandard>=0.21.0,<0.26.0"
       - name: 🧪 Running unit tests
         env:
           PYTHONPATH: ${{ github.workspace }}/homeway

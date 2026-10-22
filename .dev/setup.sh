@@ -7,6 +7,8 @@ sudo apt-get install python3-pip -y
 
 echo "Installing Python Libs"
 pip install -r ../homeway/requirements.txt
+# Keep the optional codec in sync with Compression.ZStandardPipPackageString.
+pip install "zstandard>=0.21.0,<0.26.0"
 
 # Use sudo, so it installs globally
 echo "Installing pylint"
